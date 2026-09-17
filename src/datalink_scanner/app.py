@@ -505,9 +505,11 @@ class DataLinkAppDelegate(NSObject):
         alert(
             APP_NAME,
             f"Version {__version__}\n\n"
-            "A macOS interface for the Apperson DataLink 1200 optical mark "
-            "scanner.\n\nEverything stays on this Mac — no scan data is sent "
-            "to any network service.",
+            "An independent macOS interface for the Apperson DataLink 1200 "
+            "optical mark scanner. Not affiliated with or endorsed by "
+            "Apperson; “Apperson” and “DataLink” are their trademarks.\n\n"
+            "Everything stays on this Mac — no scan data is sent to any "
+            "network service.",
         ).runModal()
 
     # ---------------------------------------------------------------- updates

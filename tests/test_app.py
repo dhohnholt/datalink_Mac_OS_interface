@@ -572,3 +572,35 @@ class CheckForUpdatesTests(unittest.TestCase):
         report = report[: report.index("def _install_update")]
         self.assertIn("performSelectorOnMainThread", report)
         self.assertNotIn("setDoubleValue_", report)
+
+
+class BrandingTests(unittest.TestCase):
+    """The app must not read as one of the scanner vendor's own products."""
+
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+        self.header = self.html[self.html.index("<header>") : self.html.index("</header>")]
+
+    def test_the_branding_line_reads_as_compatibility_not_ownership(self):
+        eyebrow = self.header[self.header.index('class="eyebrow"') :]
+        eyebrow = eyebrow[: eyebrow.index("</p>")]
+        # The vendor's product name standing alone in the branding slot is what
+        # made people think this shipped from Apperson; naming it as something
+        # the app works *with* does not.
+        self.assertIn("DESIGNED TO WORK WITH", eyebrow.upper())
+
+    def test_the_header_disclaims_affiliation(self):
+        self.assertIn("not affiliated", self.header.lower())
+
+    def test_the_about_box_disclaims_affiliation_too(self):
+        source = Path(__file__).resolve().parents[1] / "src" / "datalink_scanner" / "app.py"
+        about = source.read_text()
+        about = about[about.index("def showAbout_") :]
+        about = about[: about.index("# ----")]
+        self.assertIn("Not affiliated", about)
+
+    def test_the_readme_says_so_before_anything_else(self):
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+        opening = readme[: readme.index("## ")]
+        self.assertIn("independent", opening.lower())
+        self.assertIn("not affiliated", opening.lower())

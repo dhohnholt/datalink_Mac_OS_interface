@@ -1,7 +1,9 @@
 # DataLink Scanner
 
-A native macOS application for the **Apperson DataLink 1200** optical mark
-scanner — the bubble-sheet reader sitting in a lot of school supply closets.
+An **independent** native macOS application for the **Apperson DataLink 1200**
+optical mark scanner — the bubble-sheet reader sitting in a lot of school
+supply closets. It is not affiliated with or endorsed by Apperson, and ships
+none of their software.
 
 Plug the scanner in, pick your class, and feed sheets. The app puts the scanner
 into Data Collection mode and reads a complete record for every sheet — the

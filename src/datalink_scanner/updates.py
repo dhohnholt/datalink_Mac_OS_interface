@@ -26,6 +26,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -58,8 +59,50 @@ UPGRADE_TIMEOUT_SECONDS = 900.0
 SEARCH_ROOTS = ("/Applications", "~/Applications", "~/Desktop", "~/Downloads")
 
 
+AUTO_CHECK_KEY = "updates.auto_check"
+LAST_CHECK_KEY = "updates.last_check"
+CHECK_INTERVAL_SECONDS = float(
+    os.environ.get("DATALINK_UPDATE_INTERVAL_SECONDS", 24 * 60 * 60)
+)
+
+
 class UpdateError(RuntimeError):
     """A failure worth showing the user, in their words rather than a trace."""
+
+
+# ------------------------------------------------------- the daily check
+
+
+def auto_check_enabled(store) -> bool:
+    """On unless the teacher has turned it off in Settings."""
+    return store.get_setting(AUTO_CHECK_KEY, "1") != "0"
+
+
+def set_auto_check(store, enabled: bool) -> None:
+    store.set_setting(AUTO_CHECK_KEY, "1" if enabled else "0")
+
+
+def last_checked(store) -> float:
+    try:
+        return float(store.get_setting(LAST_CHECK_KEY, "") or 0.0)
+    except ValueError:
+        return 0.0
+
+
+def remember_check(store, when: float | None = None) -> None:
+    store.set_setting(LAST_CHECK_KEY, repr(time.time() if when is None else when))
+
+
+def check_is_due(store, now: float | None = None) -> bool:
+    if not auto_check_enabled(store):
+        return False
+    now = time.time() if now is None else now
+    last = last_checked(store)
+    # A clock that has moved backwards — a restored machine, a timezone fix —
+    # must not postpone the next check indefinitely.
+    if last > now:
+        return True
+    return (now - last) >= CHECK_INTERVAL_SECONDS
 
 
 # --------------------------------------------------------------- versions

@@ -72,6 +72,13 @@ deleted, and Homebrew's own storage is left to `brew cleanup`.
 A copy installed from the `.dmg` cannot replace itself, so there the same menu
 item offers the download page instead.
 
+The app also checks once a day when it opens, and says nothing unless there is
+a newer version — not when it is current, not when the network is down, and
+never while sheets are going through the feeder. Turn it off under
+**Settings → Updates**, which also shows the running version and when it last
+checked. The only thing sent to GitHub is a request for the latest release
+number.
+
 The `.app` is a thin launcher around the `datalink-scanner` command, so an
 upgrade takes effect immediately with nothing to rebuild or re-download. It is
 built on your machine rather than downloaded, so macOS does not quarantine it

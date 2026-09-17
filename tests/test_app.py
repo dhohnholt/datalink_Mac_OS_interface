@@ -519,3 +519,31 @@ class CheckForUpdatesTests(unittest.TestCase):
         install = self.app_source[self.app_source.index("def _install_update") :]
         install = install[: install.index("def finishUpdate_")]
         self.assertLess(install.index("updates.upgrade"), install.index("updates.sweep"))
+
+    def test_the_launch_check_is_quiet_about_failures_and_about_good_news(self):
+        present = self.app_source[self.app_source.index("def presentUpdate_") :]
+        present = present[: present.index("def _offer_update")]
+        # A background check that cannot reach GitHub, or that finds nothing
+        # new, must not put a dialog in front of anyone.
+        self.assertIn("if quiet:", present)
+        self.assertIn("if not quiet:", present)
+
+    def test_the_launch_check_waits_for_a_scan_to_finish(self):
+        present = self.app_source[self.app_source.index("def presentUpdate_") :]
+        present = present[: present.index("def _offer_update")]
+        self.assertIn("quiet and self._scanner_is_busy()", present)
+
+    def test_only_a_check_that_reached_github_resets_the_daily_clock(self):
+        look = self.app_source[self.app_source.index("def _look_for_update") :]
+        look = look[: look.index("def _scanner_is_busy")]
+        remember = look.index("updates.remember_check")
+        # It sits in the else of the try, not after the except.
+        self.assertLess(look.index("else:"), remember)
+
+    def test_the_settings_view_carries_the_toggle(self):
+        html = (WEBUI / "index.html").read_text()
+        card = html[html.index("<h2>Updates</h2>") :]
+        self.assertIn('id="autoUpdateCheck"', card)
+        self.assertIn('type="checkbox"', card[: card.index("</section>")])
+        self.assertIn('$("#autoUpdateCheck")', APP_JS)
+        self.assertIn("auto_update_check", APP_JS)

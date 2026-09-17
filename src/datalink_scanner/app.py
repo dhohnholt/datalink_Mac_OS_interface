@@ -14,6 +14,7 @@ from __future__ import annotations
 import signal
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -67,6 +68,9 @@ from .server import build_server
 APP_NAME = "DataLink Scanner"
 REPO_URL = "https://github.com/dhohnholt/datalink_Mac_OS_interface"
 _UPDATE_ACTION = "checkForUpdates:"
+# Long enough for the window to be up and drawn before a background check
+# could put a dialog in front of it.
+LAUNCH_CHECK_DELAY_SECONDS = 4.0
 
 # Marks the page as running inside the native shell. app.js hides its own Quit
 # button when this is set, because Cmd-Q already does the job properly.
@@ -190,6 +194,7 @@ class DataLinkAppDelegate(NSObject):
         self._url = None
         self._update_item = None
         self._update_busy = False
+        self._update_quiet = False
         self._update_result = None
         return self
 
@@ -202,6 +207,7 @@ class DataLinkAppDelegate(NSObject):
             self._start_server()
             self._build_menu()
             self._build_window()
+            self._start_launch_check()
         except Exception:
             import traceback
 
@@ -497,23 +503,50 @@ class DataLinkAppDelegate(NSObject):
         self._begin_update_work("Checking for Updates…")
         threading.Thread(target=self._look_for_update, daemon=True).start()
 
+    def _start_launch_check(self):
+        """The daily check, if it is due and the teacher has left it on.
+
+        It says nothing at all unless there is a newer version: an app that
+        interrupts every launch to report that nothing has changed is an app
+        people learn to dismiss without reading.
+        """
+        store = self._controller.store if self._controller is not None else None
+        if store is None or self._update_busy or not updates.check_is_due(store):
+            return
+        self._update_busy = True
+        self._update_quiet = True
+        threading.Thread(target=self._look_for_update, daemon=True).start()
+
     def _begin_update_work(self, title):
         self._update_busy = True
+        self._update_quiet = False
         if self._update_item is not None:
             self._update_item.setTitle_(title)
 
     def _end_update_work(self):
         self._update_busy = False
+        self._update_quiet = False
         if self._update_item is not None:
             self._update_item.setTitle_("Check for Updates…")
 
     def _look_for_update(self):
         """Network and disk work, off the main thread so the UI keeps drawing."""
-        result: dict = {}
+        quiet = self._update_quiet
+        if quiet:
+            time.sleep(LAUNCH_CHECK_DELAY_SECONDS)
+        result: dict = {"quiet": quiet}
         try:
             result["release"] = updates.latest_release()
         except Exception as exc:  # a stuck menu item is worse than a message
             result["error"] = str(exc)
+        else:
+            # Only a check that actually reached GitHub resets the daily clock,
+            # so a week offline does not count as a week of checking.
+            if self._controller is not None:
+                try:
+                    updates.remember_check(self._controller.store)
+                except Exception:
+                    pass
         try:
             result["survey"] = updates.survey()
         except Exception:
@@ -523,10 +556,25 @@ class DataLinkAppDelegate(NSObject):
             "presentUpdate:", None, False
         )
 
+    def _scanner_is_busy(self) -> bool:
+        if self._controller is None:
+            return False
+        try:
+            return str(self._controller.snapshot().get("state")) in (
+                "connecting",
+                "connected",
+            )
+        except Exception:
+            return False
+
     def presentUpdate_(self, sender):
-        self._end_update_work()
         result = self._update_result or {}
+        quiet = bool(result.get("quiet"))
+        self._end_update_work()
         if result.get("error"):
+            if quiet:
+                # No network, no news: nothing worth a dialog at launch.
+                return
             panel = alert(
                 "Could not check for updates",
                 result["error"],
@@ -537,10 +585,14 @@ class DataLinkAppDelegate(NSObject):
             return
         release = result.get("release") or {}
         survey = result.get("survey") or {}
-        if updates.is_newer(release.get("version", ""), __version__):
-            self._offer_update(release, survey)
-        else:
-            self._offer_cleanup(survey)
+        if not updates.is_newer(release.get("version", ""), __version__):
+            if not quiet:
+                self._offer_cleanup(survey)
+            return
+        # Sheets are going through the feeder; the news keeps until tomorrow.
+        if quiet and self._scanner_is_busy():
+            return
+        self._offer_update(release, survey)
 
     def _offer_update(self, release, survey):
         version = release.get("version") or ""

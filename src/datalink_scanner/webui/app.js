@@ -1378,9 +1378,30 @@ async function migrateBrowserStorage() {
   }
 }
 
+function renderUpdateSettings(settings) {
+  $("#autoUpdateCheck").checked = settings.auto_update_check !== false;
+  const version = `Running version ${settings.app_version || "—"}`;
+  $("#updateVersionLine").textContent = settings.last_update_check
+    ? `${version} · last checked ${formatTimestamp(settings.last_update_check)}`
+    : `${version} · not checked yet`;
+}
+
+$("#autoUpdateCheck").addEventListener("change", async event => {
+  const wanted = event.target.checked;
+  try {
+    await post("/api/settings", {auto_update_check: wanted});
+    toast(wanted ? "Automatic update checks on" : "Automatic update checks off");
+  } catch (error) {
+    // Leave the box showing what is actually stored, not what was clicked.
+    event.target.checked = !wanted;
+    toast("That setting could not be saved");
+  }
+});
+
 async function start() {
   await migrateBrowserStorage();
   const settings = await request("/api/settings");
+  renderUpdateSettings(settings);
   testName.value = settings.test_name || "";
   if (settings.question_count) questionCount.value = settings.question_count;
   selectedClassName = settings.selected_class || "";

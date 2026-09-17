@@ -312,3 +312,11 @@ body.native .shell { padding-top: 18px; }
 @media (max-width: 850px) {
   .connect-controls { grid-template-columns: 1fr; }
 }
+
+/* A checkbox is not a 44px-tall bordered control like every other input, so it
+   has to opt out of the rule that makes selects, fields and buttons match. */
+.check-line { display: flex; align-items: center; gap: 10px; margin-top: 18px; font-weight: 650; }
+.check-line input[type="checkbox"] {
+  width: 17px; height: 17px; min-height: 0; margin: 0; border: 0;
+  accent-color: var(--green); flex: none;
+}

@@ -303,3 +303,55 @@ class RelaunchTests(unittest.TestCase):
     def test_reopens_the_running_copy_when_there_is_nothing_else(self):
         running = make_bundle(self.root)
         self.assertEqual(updates.relaunch_target(None, running), running)
+
+
+class FakeStore:
+    """Just the two settings calls the update preferences use."""
+
+    def __init__(self, values=None):
+        self.values = dict(values or {})
+
+    def get_setting(self, key, default=""):
+        return self.values.get(key, default)
+
+    def set_setting(self, key, value):
+        self.values[key] = value
+
+
+class DailyCheckTests(unittest.TestCase):
+    def setUp(self):
+        self.store = FakeStore()
+
+    def test_checking_is_on_until_it_is_turned_off(self):
+        self.assertTrue(updates.auto_check_enabled(self.store))
+        updates.set_auto_check(self.store, False)
+        self.assertFalse(updates.auto_check_enabled(self.store))
+        updates.set_auto_check(self.store, True)
+        self.assertTrue(updates.auto_check_enabled(self.store))
+
+    def test_the_first_launch_is_due(self):
+        self.assertTrue(updates.check_is_due(self.store))
+
+    def test_a_second_launch_the_same_day_is_not(self):
+        updates.remember_check(self.store, now := 1_700_000_000.0)
+        self.assertFalse(updates.check_is_due(self.store, now=now + 60))
+        self.assertFalse(updates.check_is_due(self.store, now=now + 23 * 3600))
+
+    def test_the_next_day_is_due_again(self):
+        updates.remember_check(self.store, now := 1_700_000_000.0)
+        self.assertTrue(updates.check_is_due(self.store, now=now + 24 * 3600))
+
+    def test_turning_it_off_stops_the_check_outright(self):
+        updates.set_auto_check(self.store, False)
+        self.assertFalse(updates.check_is_due(self.store, now=2_000_000_000.0))
+
+    def test_a_clock_that_moved_backwards_does_not_postpone_it_forever(self):
+        # Restoring a machine, or correcting a wrong date, would otherwise
+        # leave a check stamped in the future and never due again.
+        updates.remember_check(self.store, 2_000_000_000.0)
+        self.assertTrue(updates.check_is_due(self.store, now=1_700_000_000.0))
+
+    def test_an_unreadable_timestamp_is_treated_as_never_checked(self):
+        self.store.values[updates.LAST_CHECK_KEY] = "yesterday"
+        self.assertEqual(updates.last_checked(self.store), 0.0)
+        self.assertTrue(updates.check_is_due(self.store))

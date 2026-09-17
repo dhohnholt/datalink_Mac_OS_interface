@@ -21,8 +21,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import paths
+from . import __version__, paths
 from . import ttess
+from . import updates
 from .analysis import (
     AnalysisError,
     analysis_filename,
@@ -506,11 +507,17 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"classes": self.store.list_classes()})
             return
         if path == "/api/settings":
+            checked = updates.last_checked(self.store)
             self._send_json(
                 {
                     "test_name": self.store.get_setting("test_name"),
                     "selected_class": self.store.get_setting("selected_class"),
                     "question_count": self.store.get_setting("question_count"),
+                    "auto_update_check": updates.auto_check_enabled(self.store),
+                    "last_update_check": (
+                        datetime.fromtimestamp(checked).isoformat() if checked else None
+                    ),
+                    "app_version": __version__,
                 }
             )
             return
@@ -672,6 +679,8 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 for key in ("test_name", "selected_class", "question_count"):
                     if key in body:
                         self.store.set_setting(key, str(body[key]))
+                if "auto_update_check" in body:
+                    updates.set_auto_check(self.store, bool(body["auto_update_check"]))
                 # Keep an open history row in step with a renamed test or class.
                 session_id = self.controller.current_session_id()
                 if session_id is not None:

@@ -76,7 +76,11 @@ mkdir -p "$DIST_DIR" "$DMG_ROOT"
 # PyInstaller stamps every bundle 0.0.0, which leaves Finder's Get Info and the
 # app's own Check for Updates unable to tell one copy from another. Must happen
 # before the signature, which covers Info.plist.
-VERSION=$("$PYTHON_BIN" -c 'import datalink_scanner; print(datalink_scanner.__version__)')
+# Read from the source rather than by importing: .venv-dmg holds a
+# non-editable install, so importing reported whatever version it was built
+# from and stamped the disk image with a stale number.
+VERSION=$(/usr/bin/sed -n 's/^__version__ = "\(.*\)"/\1/p' \
+  "$PROJECT_DIR/src/datalink_scanner/__init__.py")
 INFO_PLIST="$DIST_DIR/$APP_NAME.app/Contents/Info.plist"
 for key in CFBundleShortVersionString CFBundleVersion; do
   /usr/libexec/PlistBuddy -c "Set :$key $VERSION" "$INFO_PLIST" 2>/dev/null \

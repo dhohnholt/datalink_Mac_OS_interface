@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS scans (
     received_at    TEXT NOT NULL,
     answered_count INTEGER NOT NULL,
     responses      TEXT NOT NULL,
-    demo           INTEGER NOT NULL DEFAULT 0
+    demo           INTEGER NOT NULL DEFAULT 0,
+    confidence     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS scans_by_session ON scans(session_id, number);
@@ -112,6 +113,14 @@ class Store:
                 "ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL "
                 "DEFAULT 'datalink'"
             )
+        # How sure the reader was about each mark. Only a paper batch has it;
+        # the scanner reports letters, not strengths. Kept so a faint mark can
+        # be put in front of the teacher instead of being scored silently.
+        scan_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(scans)")
+        }
+        if "confidence" not in scan_columns:
+            self._connection.execute("ALTER TABLE scans ADD COLUMN confidence TEXT")
 
     def close(self) -> None:
         """Fold the write-ahead log back into the database before closing.
@@ -296,8 +305,8 @@ class Store:
         with self._lock:
             cursor = self._connection.execute(
                 "INSERT INTO scans(session_id, number, role, student_id, student_name, "
-                "received_at, answered_count, responses, demo) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "received_at, answered_count, responses, demo, confidence) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     int(scan.get("number", 0)),
@@ -308,6 +317,7 @@ class Store:
                     int(scan.get("answered_count", 0)),
                     json.dumps(list(scan.get("responses", []))),
                     1 if scan.get("demo") else 0,
+                    json.dumps(scan["confidence"]) if scan.get("confidence") else None,
                 ),
             )
             self._connection.commit()
@@ -376,7 +386,7 @@ class Store:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT number, role, student_id, student_name, received_at, "
-                "       answered_count, responses, demo "
+                "       answered_count, responses, demo, confidence "
                 "FROM scans WHERE session_id = ? ORDER BY number",
                 (session_id,),
             ).fetchall()
@@ -385,6 +395,9 @@ class Store:
             scan = dict(row)
             scan["responses"] = json.loads(scan["responses"])
             scan["demo"] = bool(scan["demo"])
+            scan["confidence"] = (
+                json.loads(scan["confidence"]) if scan.get("confidence") else {}
+            )
             scans.append(scan)
         return scans
 

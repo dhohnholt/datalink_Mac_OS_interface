@@ -679,3 +679,29 @@ class AnswerCorrectionTests(unittest.TestCase):
         # Otherwise it behaves exactly like roster order and the third mode
         # means nothing.
         self.assertIn('studentMatching === "manual"', APP_JS)
+
+
+class FaintMarkReviewTests(unittest.TestCase):
+    """A barely-there mark and a double mark read differently to a teacher."""
+
+    def test_the_two_reasons_are_worded_differently(self):
+        problems = APP_JS[APP_JS.index("function reviewProblems") :]
+        problems = problems[: problems.index("return rows.sort")]
+        self.assertIn('item.reason === "faint"', problems)
+        self.assertIn("much lighter than this student", problems)
+        self.assertIn("more than one mark", problems)
+
+    def test_a_faint_mark_is_correctable_like_any_other_answer_item(self):
+        # It rides the existing answer control, so the A-E/Blank picker and
+        # the apply button work on it with no extra wiring.
+        render = APP_JS[APP_JS.index("function renderAnalysisReview") :]
+        render = render[: render.index("}).join")]
+        self.assertIn('row.kind === "student_id"', render)
+        self.assertIn('data-fix="answer"', render)
+
+    def test_a_sheet_wide_note_is_shown_but_has_nothing_to_correct(self):
+        problems = APP_JS[APP_JS.index("function reviewProblems") :]
+        problems = problems[: problems.index("return rows.sort")]
+        self.assertIn('item.field === "sheet"', problems)
+        render = APP_JS[APP_JS.index("function renderAnalysisReview") :]
+        self.assertIn('row.kind === "note"', render[: render.index("}).join")])

@@ -16,6 +16,7 @@ from pathlib import Path
 from datalink_scanner.analysis import (
     AnalysisError,
     analysis_filename,
+    FAINT_MARK_THRESHOLD,
     build_session_analysis,
     normalize_response,
 )
@@ -126,10 +127,90 @@ class BuildTests(unittest.TestCase):
         ]
         report = build_session_analysis(session(), scans)
         self.assertEqual(report["students"][0]["score"]["multiple"], 1)
-        self.assertIn(
-            {"page": 2, "field": "answer", "question": 2, "value": "MULTIPLE"},
-            report["review_items"],
+        # Matched on the fields that matter rather than the whole dict, so
+        # adding context to an item does not break the test.
+        item = next(
+            entry for entry in report["review_items"] if entry["field"] == "answer"
         )
+        self.assertEqual(item["page"], 2)
+        self.assertEqual(item["question"], 2)
+        self.assertEqual(item["value"], "MULTIPLE")
+        self.assertEqual(item["reason"], "multiple")
+
+
+class FaintMarkTests(unittest.TestCase):
+    """A mark barely darker than the paper is scored, and worth a second look.
+
+    The reader calls anything under 0.05 nothing at all and separately flags
+    two marks of similar weight, so a faint but unambiguous mark is scored with
+    full confidence and never questioned. That is how a stray pencil line
+    becomes a grade.
+    """
+
+    def build(self, strength, response="B", rest=0.29):
+        """One sheet: question 1 at `strength`, the rest marked normally."""
+        student = scan(2, "student", [response] + ["A"] * 4, "900011")
+        student["confidence"] = {
+            "1": {"mark_strength": strength, "margin": 0.04},
+            **{str(q): {"mark_strength": rest, "margin": 0.2} for q in range(2, 6)},
+        }
+        return build_session_analysis(
+            session(), [scan(1, "key", ["A"] * 5), student]
+        )
+
+    def faint(self, report):
+        return [
+            item for item in report["review_items"]
+            if item.get("reason") == "faint"
+        ]
+
+    def test_a_faint_mark_is_raised_for_review(self):
+        report = self.build(0.0969)
+        items = self.faint(report)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["question"], 1)
+        self.assertEqual(items[0]["value"], "B")
+        self.assertAlmostEqual(items[0]["mark_strength"], 0.0969)
+
+    def test_a_properly_filled_bubble_is_not(self):
+        # 0.29 is the median across seventeen real batches.
+        self.assertEqual(self.faint(self.build(0.29)), [])
+
+    def test_the_boundary_is_not_flagged(self):
+        self.assertEqual(self.faint(self.build(FAINT_MARK_THRESHOLD)), [])
+
+    def test_a_scan_with_no_confidence_raises_nothing(self):
+        # The scanner reports letters, not strengths, so a DataLink session has
+        # none of this and must not suddenly grow review items.
+        report = build_session_analysis(
+            session(), [scan(1, "key", ["A"] * 5), scan(2, "student", ["B"] + ["A"] * 4, "900011")]
+        )
+        self.assertEqual(self.faint(report), [])
+
+    def test_a_sheet_that_is_faint_throughout_gets_one_note_not_thirty(self):
+        # Sixteen of eighteen flags on a real batch were one student pressing
+        # lightly. Listing each question buries the marks that matter.
+        report = self.build(0.06, rest=0.07)
+        faint = self.faint(report)
+        sheet = [i for i in report["review_items"] if i.get("reason") == "faint_sheet"]
+        self.assertEqual(faint, [])
+        self.assertEqual(len(sheet), 1)
+        self.assertEqual(sheet[0]["value"], 5)
+
+    def test_a_light_sheet_does_not_hide_a_mark_lighter_still(self):
+        # The comparison is against that sheet, so a genuine outlier still
+        # shows even when the whole sheet is on the light side.
+        report = self.build(0.05, rest=0.14)
+        self.assertEqual([i["question"] for i in self.faint(report)], [1])
+
+    def test_a_blank_is_not_reported_as_a_faint_mark(self):
+        # Nothing was read, so there is no strength to be suspicious of.
+        student = scan(2, "student", ["", "A", "A", "A", "A"], "900011")
+        student["confidence"] = {"1": {"mark_strength": 0.01}}
+        report = build_session_analysis(
+            session(), [scan(1, "key", ["A"] * 5), student]
+        )
+        self.assertEqual(self.faint(report), [])
 
     def test_a_missing_student_id_becomes_a_review_item(self):
         scans = [scan(1, "key", ["A"] * 5), scan(2, "student", ["A"] * 5)]

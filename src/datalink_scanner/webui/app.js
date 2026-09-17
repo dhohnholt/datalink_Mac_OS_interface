@@ -1107,13 +1107,29 @@ function reviewProblems(report) {
       });
     } else if (item.field === "answer") {
       const answer = student?.answers?.find(entry => entry.question === item.question);
+      // A faint mark and a double mark are different problems and want
+      // different words: one is "which of these did they mean", the other is
+      // "is this a mark at all".
+      const faint = item.reason === "faint";
       rows.push({
         sheet: item.page,
         student,
         kind: "answer",
         question: item.question,
-        problem: `Question ${item.question} has more than one mark`,
+        problem: faint
+          ? `Question ${item.question} is much lighter than this student's other marks — check it is not a stray mark or an erasure`
+          : `Question ${item.question} has more than one mark`,
         read: answer ? answer.response : "MULTIPLE",
+      });
+    } else if (item.field === "sheet") {
+      // Nothing to correct: the whole sheet read faint, so the point is that
+      // every answer on it is worth a glance, not that one of them is wrong.
+      rows.push({
+        sheet: item.page,
+        student,
+        kind: "note",
+        problem: `Every mark on this sheet is light (${item.value} of them). Worth checking the sheet against the screen.`,
+        read: "faint",
       });
     }
   }
@@ -1135,7 +1151,9 @@ function renderAnalysisReview(report) {
       : row.student?.student_id
         ? escapeHtml(row.student.student_id)
         : "—";
-    const control = row.kind === "student_id"
+    const control = row.kind === "note"
+      ? "—"
+      : row.kind === "student_id"
       ? `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Student ID"
                 data-fix="student_id" data-sheet="${row.sheet}">`
       : `<select data-fix="answer" data-sheet="${row.sheet}" data-question="${row.question}">

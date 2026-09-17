@@ -26,6 +26,27 @@ from .vendor.result_schema import build_analysis_result
 
 DEFAULT_FLAG_THRESHOLDS = (25, 40, 50)
 
+# A mark this faint is scored as an answer but is worth a second look.
+#
+# The reader treats anything below 0.05 as nothing at all, and separately flags
+# two marks of similar weight. What falls between is a mark barely darker than
+# the paper, scored with full confidence and never questioned — which is how a
+# stray pencil line or a half-erased answer becomes a grade. Across 17 real
+# batches (12,263 answered bubbles) a properly filled bubble sits at 0.29.
+FAINT_MARK_THRESHOLD = 0.10
+
+# But faintness alone is the wrong test. On a real batch, sixteen of eighteen
+# faint marks were on one sheet, every one between 0.056 and 0.098: a student
+# pressing lightly, not sixteen stray marks. Listing them all would bury the
+# two that mattered.
+#
+# So a mark is only suspicious when it is faint *for that sheet* — much lighter
+# than the same student's other answers, which is what a stray mark or a
+# half-erased answer looks like. A sheet that is faint all the way through gets
+# one note about the sheet instead.
+FAINT_RELATIVE_SHARE = 0.6
+FAINT_SHEET_SHARE = 0.25
+
 # The export CSV and the stored scans both use "" for an unanswered bubble and
 # a run of letters (or "*") where an erasure left more than one mark. Kept
 # identical to normalize_response() in omr_final/analyze_datalink_csv.py.
@@ -124,7 +145,12 @@ def build_session_analysis(
             "student_id": (scan.get("student_id") or "").strip() or None,
             "student_name": (scan.get("student_name") or "").strip() or None,
             "answers": _answers(scan, question_count),
-            "answer_confidence": {},
+            # Keyed by question number the way the reader reports it; the
+            # database keys JSON objects by string.
+            "answer_confidence": {
+                int(question): value
+                for question, value in (scan.get("confidence") or {}).items()
+            },
             "calibration": {},
         }
 
@@ -155,8 +181,10 @@ def build_session_analysis(
                         "field": "answer",
                         "question": question,
                         "value": response,
+                        "reason": "multiple",
                     }
                 )
+        review_items.extend(faint_marks(number, row))
 
     key_number = int(keys[0].get("number") or 1)
     source_name = session.get("log_path") or f"{session.get('name') or 'session'}.jsonl"
@@ -186,6 +214,54 @@ def build_session_analysis(
             "pdf_scan" if session.get("source") == "paper" else "datalink_csv"
         ),
     )
+
+
+def faint_marks(number: int, row: dict) -> list[dict]:
+    """Marks on one sheet that are much lighter than the rest of that sheet."""
+    marks = row.get("answer_confidence") or {}
+    strengths = {
+        question: (marks.get(question) or {}).get("mark_strength")
+        for question, response in row["answers"].items()
+        if response not in ("BLANK", "MULTIPLE")
+    }
+    strengths = {q: s for q, s in strengths.items() if s is not None}
+    if not strengths:
+        return []
+
+    ordered = sorted(strengths.values())
+    middle = len(ordered) // 2
+    typical = (
+        ordered[middle]
+        if len(ordered) % 2
+        else (ordered[middle - 1] + ordered[middle]) / 2
+    )
+
+    faint = [q for q, s in strengths.items() if s < FAINT_MARK_THRESHOLD]
+    if len(faint) >= max(1, len(strengths) * FAINT_SHEET_SHARE):
+        # The whole sheet reads faint. One note about the sheet is useful; one
+        # per question is a wall of noise about a student's pencil.
+        return [
+            {
+                "page": number,
+                "field": "sheet",
+                "reason": "faint_sheet",
+                "value": len(faint),
+                "mark_strength": round(typical, 4),
+            }
+        ]
+
+    return [
+        {
+            "page": number,
+            "field": "answer",
+            "question": question,
+            "value": row["answers"][question],
+            "reason": "faint",
+            "mark_strength": strengths[question],
+        }
+        for question in sorted(faint)
+        if strengths[question] < typical * FAINT_RELATIVE_SHARE
+    ]
 
 
 def analysis_filename(session: dict) -> str:

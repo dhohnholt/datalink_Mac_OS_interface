@@ -482,7 +482,16 @@ def session_from_report(store, report: dict, name: str = "", class_name: str = "
         # student_id is None when the read was unsure; student_id_read keeps
         # what it saw, which is what the Review tab exists to correct.
         student_id = student.get("student_id") or student.get("student_id_read") or ""
-        responses = _responses(student.get("answers") or [], question_count)
+        answers = student.get("answers") or []
+        responses = _responses(answers, question_count)
+        # How sure the reader was, kept per question. A mark barely above the
+        # blank threshold is scored with full confidence by the pipeline, and
+        # without this there is nothing left to notice that by.
+        confidence = {
+            str(entry.get("question")): entry.get("confidence")
+            for entry in answers
+            if entry.get("confidence")
+        }
         store.add_scan(
             session_id,
             {
@@ -495,6 +504,7 @@ def session_from_report(store, report: dict, name: str = "", class_name: str = "
                 "answered_count": sum(1 for value in responses if value),
                 "responses": responses,
                 "demo": False,
+                "confidence": confidence,
             },
         )
     return session_id

@@ -169,6 +169,28 @@ launches.
 IDs are compared without leading zeros, because the scanner reports the grid
 exactly as it was bubbled and a roster typed by hand usually is not padded.
 
+### Marks worth a second look
+
+A paper batch also records how dark each mark was. The reader treats anything
+below 0.05 as nothing at all and separately flags two marks of similar weight,
+but a mark just above that floor is scored with full confidence and never
+questioned — which is how a stray pencil line or a half-erased answer becomes
+a grade.
+
+The **Review** tab now raises those too. Faintness alone is the wrong test: on
+a real batch, sixteen of eighteen faint marks were one student pressing
+lightly. So a mark is listed when it is much lighter **than the rest of that
+student's own sheet**, and a sheet that is light all the way through gets a
+single note instead of one per question. On that batch it turned eighteen
+entries into two marks and one note.
+
+Each one carries the same A–E/Blank picker as any other review item, so it is
+corrected in place and everything rescores.
+
+This applies to paper batches only. The DataLink reports letters, not mark
+strengths, so there is nothing to measure — use the Sessions page to correct
+one of those.
+
 ### Correcting a recorded answer
 
 The scanner is accurate but a sheet can still be smudged, and a mark read as

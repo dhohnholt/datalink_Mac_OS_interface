@@ -53,8 +53,21 @@ mkdir -p "$DIST_DIR" "$DMG_ROOT"
   --add-data "$PROJECT_DIR/src/datalink_scanner/webui:web" \
   --add-data "$PROJECT_DIR/src/datalink_scanner/resources:datalink_scanner/resources" \
   --paths "$PROJECT_DIR/src" \
+  --paths "$PROJECT_DIR/src/datalink_scanner/vendor" \
+  --paths "$PROJECT_DIR/src/datalink_scanner/vendor/omr" \
+  --add-data "$PROJECT_DIR/src/datalink_scanner/vendor/omr/reference_page.png:." \
   --hidden-import serial \
   --hidden-import WebKit \
+  --hidden-import cv2 \
+  --hidden-import numpy \
+  --hidden-import PIL \
+  --collect-all cv2 \
+  --hidden-import analyze_exam \
+  --hidden-import calibrate_page \
+  --hidden-import extract_template_a \
+  --hidden-import page_selection \
+  --hidden-import analysis_core \
+  --hidden-import result_schema \
   --distpath "$DIST_DIR" \
   --workpath "$PROJECT_DIR/build/pyinstaller" \
   --specpath "$PACKAGING_DIR" \
@@ -70,10 +83,16 @@ for key in CFBundleShortVersionString CFBundleVersion; do
     || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$INFO_PLIST"
 done
 
+# The paper pipeline shells out to pdftoppm and pdfinfo. A Mac that cannot
+# install Homebrew has neither, so they travel inside the bundle.
+"$PYTHON_BIN" "$PACKAGING_DIR/bundle_poppler.py" "$DIST_DIR/$APP_NAME.app"
+
 # Every Mach-O in the bundle says the oldest macOS it will load on, and the
 # bundle is only as portable as its least portable piece. Checking here is the
 # difference between finding out now and a teacher finding out on launch.
-OLDEST_SUPPORTED="${DATALINK_MIN_MACOS:-12.0}"
+# OpenCV's wheel is built for macOS 13, which sets the floor for the whole
+# bundle now that paper scanning ships inside it.
+OLDEST_SUPPORTED="${DATALINK_MIN_MACOS:-13.0}"
 HIGHEST=$(/usr/bin/find "$DIST_DIR/$APP_NAME.app/Contents" -type f \
     \( -name "*.so" -o -name "*.dylib" -o -name "Python" \) \
     -exec /usr/bin/otool -l {} \; 2>/dev/null \
@@ -82,14 +101,21 @@ if [[ -n "$HIGHEST" && "$HIGHEST" != "$OLDEST_SUPPORTED" ]] \
    && [[ "$(printf '%s\n%s\n' "$OLDEST_SUPPORTED" "$HIGHEST" | sort -V | tail -1)" == "$HIGHEST" ]]; then
   echo
   echo "This build needs macOS $HIGHEST or newer, which is too new to ship."
-  echo "Something in it — almost always the bundled Python — was built for this"
-  echo "Mac's macOS rather than for the oldest one we support."
+  echo "Built by whatever this Mac had rather than for the oldest macOS we"
+  echo "support. The files asking for it:"
+  /usr/bin/find "$DIST_DIR/$APP_NAME.app/Contents" -type f \
+      \( -name "*.so" -o -name "*.dylib" -o -name "Python" \) 2>/dev/null \
+    | while read -r found; do
+        got=$(/usr/bin/otool -l "$found" 2>/dev/null | grep -A4 LC_BUILD_VERSION \
+              | grep minos | tr -s ' ' | awk '{print $2}' | head -1)
+        [[ "$got" == "$HIGHEST" ]] && echo "    ${found##*/Contents/}"
+      done | head -5
   echo
-  echo "Build with a python.org framework instead:"
-  echo "  python3 -m venv .venv-dmg   # from /Library/Frameworks/Python.framework"
-  echo "  .venv-dmg/bin/pip install . pyinstaller"
+  echo "  the Python      — build with .venv-dmg, made from python.org"
+  echo "  poppler         — set DATALINK_POPPLER_PREFIX to a conda-forge prefix"
+  echo "  a wheel         — install the macosx_11_0 build of it explicitly"
   echo
-  echo "Set DATALINK_MIN_MACOS to raise the floor deliberately."
+  echo "See docs/RELEASING.md. DATALINK_MIN_MACOS raises the floor deliberately."
   exit 1
 fi
 

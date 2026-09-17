@@ -277,3 +277,67 @@ class JobTests(unittest.TestCase):
             __import__("time").sleep(0.01)
         job.reset()
         self.assertEqual(job.state, "idle")
+
+
+class FrozenBuildTests(unittest.TestCase):
+    """The disk-image build has no Python to spawn and no Homebrew to borrow."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        # Contents/MacOS/<app> is where a frozen sys.executable lives.
+        self.macos = Path(self.temporary.name) / "Contents" / "MacOS"
+        self.macos.mkdir(parents=True)
+        self.helpers = Path(self.temporary.name) / "Contents" / "Helpers"
+        self.helpers.mkdir(parents=True)
+        for name in ("pdftoppm", "pdfinfo"):
+            tool = self.helpers / name
+            tool.write_text("#!/bin/sh\nexit 0\n")
+            tool.chmod(0o755)
+        self.executable = self.macos / "DataLink Scanner"
+        self.executable.write_text("")
+
+    def frozen(self):
+        return mock.patch.multiple(
+            paper.sys, frozen=True, executable=str(self.executable), create=True
+        )
+
+    def test_the_pipeline_re_enters_the_app_instead_of_python(self):
+        with self.frozen():
+            command = paper.pipeline_command()
+        # sys.executable is the app itself, so passing it a script would open
+        # a second window rather than read any sheets.
+        self.assertEqual(command, [str(self.executable), paper.RUN_FLAG])
+
+    def test_an_ordinary_install_still_runs_the_script(self):
+        command = paper.pipeline_command()
+        self.assertEqual(command[1], str(paper.pipeline_script()))
+
+    def test_the_bundled_poppler_is_preferred_over_homebrew(self):
+        with self.frozen():
+            found = paper.tool_path("pdftoppm")
+        self.assertEqual(Path(found), (self.helpers / "pdftoppm").resolve())
+
+    def test_the_bundled_tools_are_put_on_the_path(self):
+        with self.frozen():
+            entries = paper.environment()["PATH"].split(":")
+        # The vendored reader calls pdftoppm by bare name.
+        self.assertEqual(Path(entries[0]), self.helpers.resolve())
+
+    def test_a_frozen_build_never_claims_it_can_install_packages(self):
+        # Asking would run `<the app> -m pip`, which opens a second window.
+        with self.frozen():
+            with mock.patch.object(paper.subprocess, "run") as run:
+                self.assertFalse(paper.pip_available())
+        run.assert_not_called()
+
+    def test_the_readiness_probe_re_enters_the_app_too(self):
+        with self.frozen():
+            with mock.patch.object(paper.subprocess, "run") as run:
+                run.return_value = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="5.0.0", stderr=""
+                )
+                ready, version = paper.packages_ready(run)
+        self.assertTrue(ready)
+        self.assertEqual(version, "5.0.0")
+        self.assertEqual(run.call_args.args[0][1:], [paper.RUN_FLAG, paper.PROBE_FLAG])

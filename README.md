@@ -97,8 +97,14 @@ and drag the app to Applications. That build bundles its own Python and is
 ad-hoc signed rather than Apple notarized, so the first launch needs a
 Control-click → **Open**. Updates are manual.
 
-It is built for Apple Silicon and runs on **macOS 11 or later**. An Intel Mac
+It is built for Apple Silicon and runs on **macOS 13 or later**. An Intel Mac
 needs the Homebrew install, which builds for whatever Mac it is on.
+
+Unlike the Homebrew install, this build carries everything paper scanning needs
+— OpenCV, NumPy, Pillow and poppler — so the **Paper** page works with nothing
+else to install. That is the build for a managed Mac that cannot reach GitHub
+or run Homebrew at all. It has no update path, though: a new version means a
+new disk image.
 
 Or install from source:
 

@@ -119,6 +119,29 @@ build a bundle that needs anything newer than macOS 12 — naming the version it
 found, because the failure is otherwise invisible until someone on an older Mac
 tries to open it. `DATALINK_MIN_MACOS` raises that floor deliberately.
 
+### poppler for the disk image
+
+The paper pipeline shells out to `pdftoppm` and `pdfinfo`, so the disk image
+carries its own — a Mac that cannot reach GitHub cannot install Homebrew to get
+them. Homebrew's poppler is no help: it is only bottled for the macOS it was
+built on, so bundling it moves the "too new" problem rather than solving it.
+conda-forge ships the same poppler version built for macOS 11.
+
+Make a prefix once:
+
+```bash
+curl -sfL https://micro.mamba.pm/api/micromamba/osx-arm64/latest | tar -xj bin/micromamba
+bin/micromamba create -y -p /tmp/poppler-prefix -c conda-forge poppler
+```
+
+Then build with `DATALINK_POPPLER_PREFIX=/tmp/poppler-prefix`. Without it the
+build falls back to Homebrew's copy and the deployment-target check stops it.
+
+Bundling the *same poppler version* matters: rendering the same batch with a
+different engine changed 2 of 450 responses. With conda-forge's build the disk
+image scored a real batch identically to the Homebrew install — 0 of 450
+responses different, same scores, same item statistics.
+
 Check a finished build with:
 
 ```bash

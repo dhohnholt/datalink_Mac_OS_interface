@@ -35,6 +35,11 @@ from . import paths
 
 
 PACKAGES = ("opencv-python-headless", "numpy", "Pillow")
+# A frozen app has no interpreter to spawn — sys.executable is the app itself,
+# and running it with -c would just open a second window. So it re-enters
+# itself behind this flag instead, and the entry point dispatches on it.
+RUN_FLAG = "--run-omr"
+PROBE_FLAG = "--probe"
 # Imported in a subprocess rather than here: this module must stay importable
 # with none of them installed.
 PROBE = "import cv2, numpy, PIL; print(cv2.__version__)"
@@ -89,7 +94,26 @@ def cache_root(capture_dir=None) -> Path:
     return paths.capture_root(capture_dir) / CACHE_DIRNAME
 
 
+def frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def bundled_helpers() -> Path | None:
+    """Where the disk-image build keeps its own copy of the poppler tools.
+
+    A Mac that cannot install Homebrew — a managed laptop behind a filter —
+    has no pdftoppm at all, so the .dmg carries one.
+    """
+    if not frozen():
+        return None
+    helpers = Path(sys.executable).resolve().parent.parent / "Helpers"
+    return helpers if helpers.is_dir() else None
+
+
 def tool_path(name: str) -> str | None:
+    helpers = bundled_helpers()
+    if helpers is not None and os.access(helpers / name, os.X_OK):
+        return str(helpers / name)
     found = shutil.which(name)
     if found:
         return found
@@ -98,6 +122,43 @@ def tool_path(name: str) -> str | None:
         if os.access(candidate, os.X_OK):
             return str(candidate)
     return None
+
+
+def pipeline_command() -> list[str]:
+    """How to start the sheet reader, frozen or not."""
+    if frozen():
+        return [sys.executable, RUN_FLAG]
+    return [sys.executable, str(pipeline_script())]
+
+
+def run_pipeline(arguments: list[str]) -> int:
+    """Run the vendored reader in this process. Only ever called by the flag.
+
+    The vendored modules import each other by plain name, the way they do in
+    the project they came from, so their directories go on the path rather
+    than being rewritten into package imports.
+    """
+    if arguments and arguments[0] == PROBE_FLAG:
+        import cv2  # noqa: F401  - the probe is the import
+
+        sys.stdout.write(cv2.__version__)
+        return 0
+    # The vendored reader looks up pdftoppm and pdfinfo on PATH. The caller
+    # sets one, but this must not depend on it: a frozen app carries its own
+    # copies and should find them however it was started.
+    helpers = bundled_helpers()
+    if helpers is not None:
+        os.environ["PATH"] = os.pathsep.join(
+            [str(helpers), os.environ.get("PATH", "")]
+        ).strip(os.pathsep)
+    for entry in (str(vendor_root() / "omr"), str(vendor_root())):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
+    import analyze_exam
+
+    sys.argv = ["analyze_exam.py", *arguments]
+    analyze_exam.main()
+    return 0
 
 
 def environment() -> dict:
@@ -113,7 +174,9 @@ def environment() -> dict:
     if existing:
         entries.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(entries)
-    path_entries = list(BINARY_HINTS) + env.get("PATH", "").split(os.pathsep)
+    helpers = bundled_helpers()
+    path_entries = ([str(helpers)] if helpers else []) + list(BINARY_HINTS)
+    path_entries += env.get("PATH", "").split(os.pathsep)
     env["PATH"] = os.pathsep.join(dict.fromkeys(entry for entry in path_entries if entry))
     env["PYTHONUNBUFFERED"] = "1"
     return env
@@ -127,9 +190,13 @@ def missing_tools() -> list[str]:
 
 
 def packages_ready(runner=subprocess.run) -> tuple[bool, str | None]:
+    probe = (
+        [sys.executable, RUN_FLAG, PROBE_FLAG] if frozen()
+        else [sys.executable, "-c", PROBE]
+    )
     try:
         result = runner(
-            [sys.executable, "-c", PROBE],
+            probe,
             capture_output=True,
             text=True,
             env=environment(),
@@ -143,7 +210,13 @@ def packages_ready(runner=subprocess.run) -> tuple[bool, str | None]:
 
 
 def pip_available(runner=subprocess.run) -> bool:
-    """A PyInstaller build has no pip, so it cannot install anything."""
+    """A PyInstaller build has no pip, so it cannot install anything.
+
+    Asked without this guard it would run `<the app> -m pip`, which opens a
+    second window rather than answering the question.
+    """
+    if frozen():
+        return False
     try:
         result = runner(
             [sys.executable, "-m", "pip", "--version"],
@@ -282,10 +355,7 @@ def progress_fraction(line: str) -> float | None:
 def contact_sheet(pdf, capture_dir=None, on_line=None) -> Path:
     """A thumbnail of every page, so the key page can be picked by eye."""
     out = Path(tempfile.mkdtemp(prefix="datalink-contact-"))
-    command = [
-        sys.executable, str(pipeline_script()), str(pdf),
-        "--list-pages", "--out", str(out),
-    ]
+    command = [*pipeline_command(), str(pdf), "--list-pages", "--out", str(out)]
     code, transcript = _stream(command, on_line, timeout=RUN_TIMEOUT_SECONDS)
     sheet = out / "contact_sheet.png"
     if code != 0 or not sheet.is_file():
@@ -317,7 +387,7 @@ def analyze(
     cache.mkdir(parents=True, exist_ok=True)
     out = Path(tempfile.mkdtemp(prefix="datalink-paper-"))
     command = [
-        sys.executable, str(pipeline_script()), str(pdf),
+        *pipeline_command(), str(pdf),
         "--key-page", str(int(key_page)),
         "--question-count", str(int(question_count)),
         "--pages", pages or "all",

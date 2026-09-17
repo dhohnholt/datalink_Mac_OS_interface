@@ -234,10 +234,64 @@ function formatTimestamp(value) {
     when.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
 }
 
+function formatBytes(bytes) {
+  if (!bytes) return "0 KB";
+  const units = ["bytes", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+function renderStorage(report) {
+  const since = report.oldest
+    ? ` · oldest ${new Date(report.oldest).toLocaleDateString([], {month: "short", year: "numeric"})}`
+    : "";
+  $("#storageSummary").textContent =
+    `${formatBytes(report.total_bytes)} in total — ${report.scans} sheets across ` +
+    `${report.sessions} sessions, plus ${report.log_files} plain-text logs${since}.`;
+  $("#storagePath").textContent = report.directory
+    ? `Everything is kept in ${report.directory}. Deleting a session removes its scans and its log file.`
+    : "";
+}
+
+async function loadStorage() {
+  try { renderStorage(await request("/api/storage")); }
+  catch (error) { $("#storageSummary").textContent = error.message; }
+}
+
 async function loadSessions() {
   const data = await request("/api/sessions");
   renderSessions(data.sessions);
+  loadStorage();
 }
+
+$("#pruneButton").addEventListener("click", async () => {
+  const days = Number($("#pruneAge").value);
+  const label = $("#pruneAge").selectedOptions[0].textContent;
+  const preview = await post("/api/storage/prune", {days, preview: true});
+  if (!preview.count) {
+    toast(`No sessions are older than ${label}`);
+    return;
+  }
+  if (!confirm(`Delete ${preview.count} session(s) older than ${label}? Their scans and log files are removed for good.`)) return;
+  const result = await post("/api/storage/prune", {days});
+  renderSessions(result.sessions_list);
+  renderStorage(result.storage);
+  closeSession();
+  toast(`Deleted ${result.sessions} session(s) and ${result.logs} log file(s)`);
+});
+
+$("#revealStorageButton").addEventListener("click", () => {
+  if (window.datalinkNative) {
+    window.webkit.messageHandlers.datalink.postMessage({action: "reveal"});
+  } else {
+    toast($("#storagePath").textContent || "No folder yet");
+  }
+});
 
 function renderSessions(sessions) {
   $("#sessionEmptyState").classList.toggle("hidden", sessions.length > 0);

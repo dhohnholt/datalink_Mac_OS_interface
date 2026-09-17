@@ -190,6 +190,29 @@
         </div>
       </section>
 
+      <section class="card">
+        <div class="section-title row">
+          <div>
+            <h2>Storage</h2>
+            <p id="storageSummary">Checking…</p>
+          </div>
+          <div class="button-row">
+            <label class="class-picker">Delete sessions older than
+              <select id="pruneAge">
+                <option value="1095">3 years</option>
+                <option value="730">2 years</option>
+                <option value="365" selected>1 year</option>
+                <option value="180">6 months</option>
+                <option value="90">3 months</option>
+              </select>
+            </label>
+            <button id="pruneButton" class="secondary">Delete old sessions</button>
+            <button id="revealStorageButton" class="ghost">Show in Finder</button>
+          </div>
+        </div>
+        <p class="safety" id="storagePath"></p>
+      </section>
+
       <section id="sessionDetailCard" class="card hidden">
         <div class="section-title row">
           <div>

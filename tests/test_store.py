@@ -1,6 +1,7 @@
 """Tests for the SQLite store behind classes, settings and scan history."""
 
 import unittest
+from pathlib import Path
 
 from datalink_scanner.store import Store
 
@@ -188,3 +189,117 @@ class ImportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StorageTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "library.sqlite3"
+        self.store = Store(self.path)
+
+    def scan(self, number):
+        return {
+            "number": number,
+            "role": "student",
+            "student_id": f"90000{number}",
+            "received_at": "2026-09-16T18:00:00+00:00",
+            "answered_count": 30,
+            "responses": ["A"] * 30,
+        }
+
+    def test_closing_leaves_no_write_ahead_log_behind(self):
+        # The app used to leave -wal and -shm files after every quit, with the
+        # .sqlite3 file itself nearly empty.
+        session_id = self.store.create_session("Unit 1", "P4", 30)
+        for number in range(1, 40):
+            self.store.add_scan(session_id, self.scan(number))
+        self.store.close()
+        leftovers = sorted(
+            entry.name
+            for entry in Path(self.directory.name).iterdir()
+            if entry.name.endswith(("-wal", "-shm"))
+        )
+        self.assertEqual(leftovers, [])
+        self.assertGreater(self.path.stat().st_size, 4096)
+
+    def test_report_counts_everything_it_keeps(self):
+        session_id = self.store.create_session("Unit 1", "P4", 30)
+        self.store.add_scan(session_id, self.scan(1))
+        self.store.save_class("P4", [{"id": "900011", "name": "Ada"}])
+        (Path(self.directory.name) / "browser_session_x.jsonl").write_text("{}\n")
+        report = self.store.storage_report()
+        self.assertEqual((report["sessions"], report["scans"], report["classes"]), (1, 1, 1))
+        self.assertEqual(report["log_files"], 1)
+        self.assertGreater(report["database_bytes"], 0)
+        self.assertEqual(
+            report["total_bytes"], report["database_bytes"] + report["log_bytes"]
+        )
+        self.addCleanup(self.store.close)
+
+    def test_only_sessions_past_the_cutoff_are_selected(self):
+        from datetime import datetime, timedelta, timezone
+
+        old = self.store.create_session("Old", "", 30)
+        recent = self.store.create_session("Recent", "", 30)
+        long_ago = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+        with self.store._lock:
+            self.store._connection.execute(
+                "UPDATE sessions SET started_at = ? WHERE id = ?", (long_ago, old)
+            )
+            self.store._connection.commit()
+
+        doomed = self.store.sessions_older_than(365)
+        self.assertEqual([item["id"] for item in doomed], [old])
+        self.assertEqual(self.store.delete_sessions([old]), 1)
+        self.assertIsNotNone(self.store.session(recent))
+        self.addCleanup(self.store.close)
+
+    def test_deleting_nothing_is_a_no_op(self):
+        self.assertEqual(self.store.delete_sessions([]), 0)
+        self.addCleanup(self.store.close)
+
+    def test_log_path_is_remembered_for_later_cleanup(self):
+        session_id = self.store.create_session("Unit 1", "P4", 30, log_path="/tmp/a.jsonl")
+        self.assertEqual(self.store.sessions_older_than(0)[0]["log_path"], "/tmp/a.jsonl")
+        self.addCleanup(self.store.close)
+
+    def test_vacuum_runs_after_a_bulk_delete(self):
+        session_id = self.store.create_session("Unit 1", "", 30)
+        for number in range(1, 200):
+            self.store.add_scan(session_id, self.scan(number))
+        self.store.delete_sessions([session_id])
+        self.store.vacuum()
+        self.assertEqual(self.store.list_sessions(), [])
+        self.addCleanup(self.store.close)
+
+    def test_a_database_from_an_earlier_version_gains_log_path(self):
+        import sqlite3
+
+        path = Path(self.directory.name) / "legacy.sqlite3"
+        legacy = sqlite3.connect(path)
+        legacy.execute(
+            "CREATE TABLE sessions (id INTEGER PRIMARY KEY, name TEXT NOT NULL "
+            "DEFAULT '', class_name TEXT NOT NULL DEFAULT '', question_count "
+            "INTEGER NOT NULL, started_at TEXT NOT NULL, ended_at TEXT)"
+        )
+        legacy.execute(
+            "INSERT INTO sessions(name, question_count, started_at) "
+            "VALUES('Kept', 30, '2026-01-01T00:00:00+00:00')"
+        )
+        legacy.commit()
+        legacy.close()
+
+        store = Store(path)
+        self.addCleanup(store.close)
+        self.assertEqual(store.list_sessions()[0]["name"], "Kept")
+        self.assertIsNone(store.sessions_older_than(0)[0]["log_path"])
+
+    def test_session_lookup_exposes_its_log_path(self):
+        # remove_sessions() reads this to delete the JSONL alongside the rows;
+        # leaving it out of the SELECT silently orphaned every log file.
+        session_id = self.store.create_session("U", "", 30, log_path="/tmp/b.jsonl")
+        self.assertEqual(self.store.session(session_id)["log_path"], "/tmp/b.jsonl")
+        self.addCleanup(self.store.close)

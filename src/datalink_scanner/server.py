@@ -152,6 +152,7 @@ class ScannerController:
                 self.store.get_setting("test_name"),
                 self.store.get_setting("selected_class"),
                 question_count,
+                log_path=str(output_path),
             )
             with self._lock:
                 self._scanner = scanner
@@ -355,6 +356,26 @@ class ScannerController:
             scanner.close()
         self._log("Scanner disconnected.")
 
+    def remove_sessions(self, session_ids: list[int]) -> dict[str, int]:
+        """Delete sessions, their scans and their JSONL logs together."""
+        doomed = []
+        for session_id in session_ids:
+            session = self.store.session(session_id)
+            if session and session.get("log_path"):
+                doomed.append(Path(session["log_path"]))
+        removed = self.store.delete_sessions(session_ids)
+        logs = 0
+        for path in doomed:
+            try:
+                path.unlink()
+                logs += 1
+            except OSError:
+                # A log the user has already moved or deleted is not an error.
+                pass
+        if removed:
+            self.store.vacuum()
+        return {"sessions": removed, "logs": logs}
+
     def current_session_id(self) -> int | None:
         with self._lock:
             return self._session_id
@@ -465,6 +486,9 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/sessions":
             self._send_json({"sessions": self.store.list_sessions()})
             return
+        if path == "/api/storage":
+            self._send_json(self.store.storage_report())
+            return
         session_id = self._session_id_from(path, "/export.csv")
         if session_id is not None:
             session = self.store.session(session_id)
@@ -562,8 +586,21 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": True})
                 return
             elif path == "/api/sessions/delete":
-                self.store.delete_session(int(body.get("id", 0)))
+                self.controller.remove_sessions([int(body.get("id", 0))])
                 self._send_json({"sessions": self.store.list_sessions()})
+                return
+            elif path == "/api/storage/prune":
+                days = int(body.get("days", 365))
+                doomed = self.store.sessions_older_than(days)
+                if body.get("preview"):
+                    self._send_json({"count": len(doomed), "days": days})
+                    return
+                result = self.controller.remove_sessions(
+                    [int(item["id"]) for item in doomed]
+                )
+                result["storage"] = self.store.storage_report()
+                result["sessions_list"] = self.store.list_sessions()
+                self._send_json(result)
                 return
             elif path == "/api/sessions/rename":
                 self.store.update_session(
@@ -647,4 +684,5 @@ def serve(
         shutdown_requested.set()
         controller.disconnect()
         server.server_close()
+        controller.store.close()
     return 0

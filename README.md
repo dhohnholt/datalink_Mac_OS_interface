@@ -97,6 +97,21 @@ Sheets are also appended live to a timestamped `browser_session_*.jsonl` file
 as a plain-text belt-and-braces log. Both live in
 `~/Library/Application Support/DataLink Scanner/captures`.
 
+### Storage
+
+Everything is kept in that one folder. It is user data, not a cache, so macOS
+does not purge it and Time Machine backs it up — but nothing else prunes it
+either, so the app does not delete anything on its own.
+
+Growth is slight: about 360 bytes per sheet. A year of six classes of thirty
+students sitting a fifty-question test every week — around 6,700 sheets — comes
+to roughly 2.5 MB.
+
+The **Sessions** page shows exactly what is stored and where, and
+**Delete sessions older than…** removes old sessions, their scans and their log
+files in one step, then compacts the database. Deleting a single session from
+the list does the same for that one.
+
 ### Classes
 
 On the **Classes** page choose **New class**, name it, and paste one student

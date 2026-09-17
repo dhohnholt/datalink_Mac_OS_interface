@@ -455,6 +455,9 @@ class DataLinkAppDelegate(NSObject):
             action = body["action"]
         except (TypeError, KeyError):
             return
+        if action == "reveal":
+            self.openSessionFolder_(None)
+            return
         if action == "export":
             query = body.get("query") or ""
             filename = body.get("filename") or "datalink-session.csv"
@@ -527,6 +530,9 @@ class DataLinkAppDelegate(NSObject):
     def applicationShouldTerminate_(self, sender):
         if self._controller is not None:
             self._controller.disconnect()
+            # Folds the write-ahead log back into the database; without it the
+            # app leaves -wal and -shm files behind on every quit.
+            self._controller.store.close()
         if self._server is not None:
             threading.Thread(target=self._server.shutdown, daemon=True).start()
         return NSTerminateNow

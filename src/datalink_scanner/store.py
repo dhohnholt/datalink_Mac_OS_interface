@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     class_name     TEXT NOT NULL DEFAULT '',
     question_count INTEGER NOT NULL,
     started_at     TEXT NOT NULL,
-    ended_at       TEXT
+    ended_at       TEXT,
+    log_path       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scans (
@@ -80,10 +81,30 @@ class Store:
             self._connection.execute("PRAGMA foreign_keys = ON")
             self._connection.execute("PRAGMA journal_mode = WAL")
             self._connection.executescript(SCHEMA)
+            self._migrate()
             self._connection.commit()
 
+    def _migrate(self) -> None:
+        """Add columns to a database created by an earlier version."""
+        columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(sessions)")
+        }
+        if "log_path" not in columns:
+            self._connection.execute("ALTER TABLE sessions ADD COLUMN log_path TEXT")
+
     def close(self) -> None:
+        """Fold the write-ahead log back into the database before closing.
+
+        Without this the app leaves a -wal and a -shm file behind on every
+        quit, and the .sqlite3 file itself stays almost empty while the real
+        data sits in the log.
+        """
         with self._lock:
+            try:
+                self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
             self._connection.close()
 
     # ------------------------------------------------------------- settings
@@ -192,12 +213,18 @@ class Store:
 
     # ------------------------------------------------------------- sessions
 
-    def create_session(self, name: str, class_name: str, question_count: int) -> int:
+    def create_session(
+        self,
+        name: str,
+        class_name: str,
+        question_count: int,
+        log_path: str | None = None,
+    ) -> int:
         with self._lock:
             cursor = self._connection.execute(
-                "INSERT INTO sessions(name, class_name, question_count, started_at) "
-                "VALUES(?, ?, ?, ?)",
-                (name or "", class_name or "", question_count, _now()),
+                "INSERT INTO sessions(name, class_name, question_count, started_at, "
+                "log_path) VALUES(?, ?, ?, ?, ?)",
+                (name or "", class_name or "", question_count, _now(), log_path),
             )
             self._connection.commit()
             return int(cursor.lastrowid)
@@ -262,7 +289,8 @@ class Store:
     def session(self, session_id: int) -> dict | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT id, name, class_name, question_count, started_at, ended_at "
+                "SELECT id, name, class_name, question_count, started_at, ended_at, "
+                "       log_path "
                 "FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()
@@ -298,6 +326,65 @@ class Store:
             )
             self._connection.commit()
             return cursor.rowcount
+
+    # -------------------------------------------------------------- storage
+
+    def storage_report(self) -> dict:
+        """What this app is keeping, and where."""
+        with self._lock:
+            counts = self._connection.execute(
+                "SELECT (SELECT COUNT(*) FROM sessions) AS sessions, "
+                "       (SELECT COUNT(*) FROM scans)    AS scans, "
+                "       (SELECT COUNT(*) FROM classes)  AS classes, "
+                "       (SELECT MIN(started_at) FROM sessions) AS oldest"
+            ).fetchone()
+        report = dict(counts)
+        directory = Path(self.path).parent if self.path != ":memory:" else None
+        database = 0
+        logs = 0
+        log_count = 0
+        if directory is not None and directory.is_dir():
+            for entry in directory.glob("library.sqlite3*"):
+                database += entry.stat().st_size
+            for entry in directory.glob("*.jsonl"):
+                logs += entry.stat().st_size
+                log_count += 1
+        report["database_bytes"] = database
+        report["log_bytes"] = logs
+        report["log_files"] = log_count
+        report["total_bytes"] = database + logs
+        report["directory"] = str(directory) if directory else ""
+        return report
+
+    def sessions_older_than(self, days: int) -> list[dict]:
+        """Sessions started more than `days` ago, with their log files."""
+        if days < 0:
+            raise ValueError("Days must not be negative")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, name, started_at, log_path FROM sessions "
+                "WHERE started_at < ? ORDER BY started_at",
+                (cutoff,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_sessions(self, session_ids: list[int]) -> int:
+        if not session_ids:
+            return 0
+        placeholders = ",".join("?" * len(session_ids))
+        with self._lock:
+            cursor = self._connection.execute(
+                f"DELETE FROM sessions WHERE id IN ({placeholders})", session_ids
+            )
+            self._connection.commit()
+            return cursor.rowcount
+
+    def vacuum(self) -> None:
+        """Hand freed pages back to the filesystem after a bulk delete."""
+        with self._lock:
+            self._connection.execute("VACUUM")
+            self._connection.commit()
 
     # ------------------------------------------------------------ migration
 

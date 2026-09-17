@@ -136,6 +136,23 @@ def find_app_bundle() -> Path | None:
     return None
 
 
+def stable_bundle_path(bundle: Path) -> Path:
+    """Rewrite a Homebrew Cellar path to the version-independent opt path.
+
+    `brew upgrade` repoints opt/<formula> at the new version and removes the
+    old Cellar directory, so a symlink into Cellar would either dangle or keep
+    launching the version it was installed with.
+    """
+    parts = bundle.parts
+    if "Cellar" not in parts:
+        return bundle
+    index = len(parts) - 1 - parts[::-1].index("Cellar")
+    if len(parts) <= index + 3:
+        return bundle
+    candidate = Path(*parts[:index]) / "opt" / parts[index + 1] / bundle.name
+    return candidate if candidate.is_dir() else bundle
+
+
 def command_install_app(args: argparse.Namespace) -> int:
     """Symlink the bundle into /Applications so `brew upgrade` updates it too."""
     bundle = find_app_bundle()
@@ -158,8 +175,9 @@ def command_install_app(args: argparse.Namespace) -> int:
             import shutil
 
             shutil.rmtree(destination)
-    destination.symlink_to(bundle)
-    print(f"Linked {destination} → {bundle}")
+    target = stable_bundle_path(bundle)
+    destination.symlink_to(target)
+    print(f"Linked {destination} → {target}")
     print("`brew upgrade datalink-scanner` now updates the app in place.")
     return 0
 

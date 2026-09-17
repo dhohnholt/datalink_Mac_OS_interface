@@ -155,3 +155,36 @@ class HttpApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppBundlePathTests(unittest.TestCase):
+    """`brew upgrade` must not strand the /Applications symlink."""
+
+    def test_cellar_path_is_rewritten_to_opt(self):
+        import tempfile as tf
+
+        from datalink_scanner.cli import stable_bundle_path
+
+        with tf.TemporaryDirectory() as prefix:
+            root = Path(prefix)
+            cellar = root / "Cellar" / "datalink-scanner" / "1.0.0" / "DataLink Scanner.app"
+            opt = root / "opt" / "datalink-scanner" / "DataLink Scanner.app"
+            cellar.mkdir(parents=True)
+            opt.mkdir(parents=True)
+            self.assertEqual(stable_bundle_path(cellar), opt)
+
+    def test_cellar_path_is_kept_when_opt_is_missing(self):
+        import tempfile as tf
+
+        from datalink_scanner.cli import stable_bundle_path
+
+        with tf.TemporaryDirectory() as prefix:
+            cellar = Path(prefix) / "Cellar" / "datalink-scanner" / "1.0.0" / "DataLink Scanner.app"
+            cellar.mkdir(parents=True)
+            self.assertEqual(stable_bundle_path(cellar), cellar)
+
+    def test_non_homebrew_path_is_untouched(self):
+        from datalink_scanner.cli import stable_bundle_path
+
+        bundle = Path("/Users/someone/build/DataLink Scanner.app")
+        self.assertEqual(stable_bundle_path(bundle), bundle)

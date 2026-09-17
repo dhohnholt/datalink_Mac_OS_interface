@@ -4,12 +4,12 @@ class DatalinkScanner < Formula
   desc "macOS interface for the Apperson DataLink 1200 optical mark scanner"
   homepage "https://github.com/dhohnholt/datalink_Mac_OS_interface"
   url "https://github.com/dhohnholt/datalink_Mac_OS_interface/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "PLACEHOLDER_TARBALL_SHA256"
+  sha256 "ec78708925a5654f73621f2a65fa7291d6c9c7f2bdbd5e611b4c5d662947357b"
   license "MIT"
   head "https://github.com/dhohnholt/datalink_Mac_OS_interface.git", branch: "main"
 
-  depends_on "python@3.13"
   depends_on :macos
+  depends_on "python@3.13"
 
   resource "pyserial" do
     url "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz"
@@ -61,7 +61,7 @@ class DatalinkScanner < Formula
 
     # The workspace must come up and serve its own UI without a scanner.
     port = free_port
-    pid = spawn "#{bin}/datalink-scanner", "serve", "--no-browser", "--port", port.to_s,
+    pid = spawn bin/"datalink-scanner", "serve", "--no-browser", "--port", port.to_s,
                 "--capture-dir", testpath/"captures"
     begin
       sleep 3

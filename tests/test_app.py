@@ -214,3 +214,18 @@ class HintTests(unittest.TestCase):
     def test_hint_can_be_dismissed(self):
         self.assertIn("closeHints", APP_JS)
         self.assertIn('event.key === "Escape"', APP_JS)
+
+    def test_the_bubble_is_kept_inside_the_window(self):
+        # Anchoring in CSS alone just moves the overflow to the other edge.
+        self.assertIn("placeHint", APP_JS)
+        self.assertIn("window.innerWidth", APP_JS)
+        self.assertIn('"resize"', APP_JS)
+        self.assertIn("--arrow-left", APP_JS)
+        self.assertIn("var(--arrow-left", self.css)
+
+    def test_the_hint_button_is_never_stretched_full_width(self):
+        # .controls button { width: 100% } at narrow widths turned the circle
+        # into a long ellipse.
+        self.assertNotIn(".controls button { width: 100%; }", self.css)
+        self.assertIn(".controls button:not(.hint)", self.css)
+        self.assertIn("aspect-ratio: 1", self.css)

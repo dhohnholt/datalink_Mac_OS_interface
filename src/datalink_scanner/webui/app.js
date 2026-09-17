@@ -367,6 +367,23 @@ questionCount.addEventListener("change", () => {
   refresh();
 });
 
+// Keep a bubble inside the window. Anchoring it to one edge in CSS only moves
+// the problem to the other edge, so measure and nudge, then slide the arrow
+// back the same distance so it still points at the button.
+function placeHint(bubble) {
+  const margin = 12;
+  bubble.style.left = "0px";
+  const rect = bubble.getBoundingClientRect();
+  let shift = 0;
+  if (rect.right > window.innerWidth - margin) {
+    shift = window.innerWidth - margin - rect.right;
+  }
+  if (rect.left + shift < margin) shift = margin - rect.left;
+  bubble.style.left = `${shift}px`;
+  const arrow = Math.min(Math.max(12 - shift, 8), Math.max(rect.width - 14, 8));
+  bubble.style.setProperty("--arrow-left", `${arrow}px`);
+}
+
 function closeHints(except) {
   for (const bubble of document.querySelectorAll(".hint-bubble.open")) {
     if (bubble === except) continue;
@@ -378,14 +395,23 @@ function closeHints(except) {
 for (const button of document.querySelectorAll("button.hint")) {
   const bubble = document.getElementById(button.getAttribute("aria-controls"));
   if (!bubble) continue;
+  const wrap = button.closest(".hint-wrap") || button.parentElement;
+  // Hover shows the bubble from CSS alone, so place it on the way in too.
+  wrap.addEventListener("mouseenter", () => placeHint(bubble));
+  button.addEventListener("focus", () => placeHint(bubble));
   button.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
     const open = bubble.classList.toggle("open");
     button.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) placeHint(bubble);
     closeHints(open ? bubble : null);
   });
 }
+
+window.addEventListener("resize", () => {
+  for (const bubble of document.querySelectorAll(".hint-bubble.open")) placeHint(bubble);
+});
 
 document.addEventListener("click", () => closeHints(null));
 document.addEventListener("keydown", event => {

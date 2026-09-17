@@ -116,7 +116,9 @@ dialog legend { padding: 0 7px; }
   .shell { padding: 26px 16px 50px; }
   header, .section-title.row { align-items: flex-start; flex-direction: column; }
   .controls, .metrics { grid-template-columns: 1fr; }
-  .controls button { width: 100%; }
+  /* Not .hint: it is a fixed circle, and stretching it to the column width
+     turns the border-radius into a long ellipse. */
+  .controls button:not(.hint) { width: 100%; }
 }
 
 /* The native shell supplies the window chrome, so the page does not need
@@ -144,7 +146,8 @@ body.native .shell { padding-top: 18px; }
    Click matters as well as hover — hover alone is unreachable by keyboard. */
 .hint-wrap { position: relative; display: inline-flex; align-items: center; gap: 6px; }
 .hint {
-  width: 17px; height: 17px; min-height: 0; padding: 0; flex: none;
+  width: 17px; min-width: 17px; max-width: 17px;
+  height: 17px; min-height: 0; aspect-ratio: 1; padding: 0; flex: none;
   border: 1px solid var(--line); border-radius: 50%; background: #fff;
   color: var(--muted); font-size: 11px; font-weight: 800; line-height: 1;
   font-style: italic; font-family: Georgia, serif; cursor: help;
@@ -164,13 +167,13 @@ body.native .shell { padding-top: 18px; }
   transition: opacity .13s ease, transform .13s ease, visibility .13s;
 }
 .hint-bubble::before {
-  content: ""; position: absolute; top: 100%; left: 12px;
+  content: ""; position: absolute; top: 100%; left: var(--arrow-left, 12px);
   border: 5px solid transparent; border-top-color: var(--ink);
 }
 .hint-wrap:hover .hint-bubble,
 .hint:focus-visible + .hint-bubble,
 .hint-bubble.open { opacity: 1; visibility: visible; transform: none; }
 
-@media (max-width: 820px) {
-  .hint-bubble { max-width: min(250px, 70vw); }
+@media (max-width: 850px) {
+  .hint-bubble { max-width: min(250px, calc(100vw - 32px)); }
 }

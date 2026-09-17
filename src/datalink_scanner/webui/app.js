@@ -57,11 +57,12 @@ function showView(name) {
   for (const button of document.querySelectorAll("#viewTabs button")) {
     button.classList.toggle("active", button.dataset.view === name);
   }
-  for (const view of ["scan", "classes", "sessions"]) {
+  for (const view of ["scan", "classes", "sessions", "analysis"]) {
     $(`#view-${view}`).hidden = view !== name;
   }
   if (name === "classes") loadClasses();
   if (name === "sessions") loadSessions();
+  if (name === "analysis") loadAnalysisSessions();
 }
 
 for (const button of document.querySelectorAll("#viewTabs button")) {
@@ -757,6 +758,7 @@ window.datalinkMenu = {
   showScan: () => showView("scan"),
   showClasses: () => showView("classes"),
   showSessions: () => showView("sessions"),
+  showAnalysis: () => showView("analysis"),
 };
 
 if (window.datalinkNative) {
@@ -785,6 +787,195 @@ if (window.datalinkNative) {
     });
   }
 }
+
+
+/* --------------------------------------------------------------- analysis */
+
+// The same cut points the omr_final results page uses, so an item that reads
+// as Priority there reads as Priority here.
+const PRIORITY_BELOW = 60;
+const SECURE_AT = 70;
+
+let analysisReport = null;
+let itemFilter = "all";
+
+function itemStatus(item) {
+  if (item.percent_correct < PRIORITY_BELOW) return "priority";
+  if (item.percent_correct < SECURE_AT) return "developing";
+  return "secure";
+}
+
+function statusLabel(status) {
+  return {priority: "Priority", developing: "Developing", secure: "Secure"}[status];
+}
+
+async function loadAnalysisSessions() {
+  const {sessions} = await request("/api/sessions");
+  const select = $("#analysisSession");
+  const previous = select.value;
+  select.innerHTML = '<option value="">Choose a test…</option>' + sessions.map(item =>
+    `<option value="${item.id}">${escapeHtml(item.name || "Untitled")} · ` +
+    `${formatTimestamp(item.started_at)} · ${item.scan_count} sheets</option>`
+  ).join("");
+  if (sessions.some(item => String(item.id) === previous)) select.value = previous;
+  if (!select.value) showAnalysisPlaceholder("No test selected");
+}
+
+function showAnalysisPlaceholder(message, error) {
+  analysisReport = null;
+  $("#analysisBody").classList.add("hidden");
+  $("#analysisDownload").classList.add("hidden");
+  $("#analysisEmptyState").classList.toggle("hidden", Boolean(error));
+  $("#analysisEmptyState").querySelector("h3").textContent = message;
+  const banner = $("#analysisError");
+  banner.classList.toggle("hidden", !error);
+  banner.textContent = error || "";
+}
+
+async function loadAnalysis(sessionId) {
+  if (!sessionId) {
+    showAnalysisPlaceholder("No test selected");
+    return;
+  }
+  try {
+    analysisReport = await request(`/api/sessions/${sessionId}/analysis`);
+  } catch (error) {
+    showAnalysisPlaceholder("This test cannot be scored", error.message);
+    return;
+  }
+  $("#analysisError").classList.add("hidden");
+  $("#analysisEmptyState").classList.add("hidden");
+  $("#analysisBody").classList.remove("hidden");
+  const download = $("#analysisDownload");
+  download.classList.remove("hidden");
+  download.href = `/api/sessions/${sessionId}/analysis.json`;
+  download.download = `${analysisReport.exam.name || "analysis"}.json`;
+  renderAnalysis(analysisReport);
+}
+
+function renderAnalysis(report) {
+  const summary = report.summary;
+  $("#statStudents").textContent = summary.student_count;
+  $("#statAverage").textContent =
+    summary.mean_percentage === null ? "—" : `${summary.mean_percentage}%`;
+  $("#statKr20").textContent = summary.kr20 === null ? "—" : summary.kr20;
+  $("#statReview").textContent = report.review_items.length;
+
+  const counts = {priority: 0, developing: 0, secure: 0, flagged: 0};
+  for (const item of report.items) {
+    counts[itemStatus(item)] += 1;
+    if (item.flags.length) counts.flagged += 1;
+  }
+  $("#countPriority").textContent = counts.priority;
+  $("#countDeveloping").textContent = counts.developing;
+  $("#countSecure").textContent = counts.secure;
+  $("#countFlagged").textContent = counts.flagged;
+
+  const callout = $("#priorityCallout");
+  const priorityItems = report.items.filter(item => itemStatus(item) === "priority");
+  callout.classList.toggle("hidden", priorityItems.length === 0);
+  if (priorityItems.length) {
+    const numbers = priorityItems.map(item => item.question).join(", ");
+    callout.textContent =
+      `Focus first on item${priorityItems.length === 1 ? "" : "s"} ${numbers}. ` +
+      `Fewer than ${PRIORITY_BELOW}% of students answered ${priorityItems.length === 1 ? "it" : "each"} correctly.`;
+  }
+
+  renderItems();
+  renderDiagnostics(report);
+  renderStudentScores(report);
+}
+
+function renderItems() {
+  const items = (analysisReport?.items || []).filter(item =>
+    itemFilter === "all" ? true
+      : itemFilter === "flagged" ? item.flags.length > 0
+      : itemStatus(item) === itemFilter);
+  $("#itemEmpty").classList.toggle("hidden", items.length > 0);
+  $("#itemRows").innerHTML = items.map(item => {
+    const status = itemStatus(item);
+    const width = Math.max(0, Math.min(100, item.percent_correct));
+    return `<tr>
+      <td><strong>${item.question}</strong></td>
+      <td>${escapeHtml(item.correct_answer)}</td>
+      <td class="bar-cell">
+        <span class="bar ${status}"><span style="width:${width}%"></span></span>
+        <span class="bar-value">${item.percent_correct.toFixed(1)}%</span>
+      </td>
+      <td>${item.n_correct}</td>
+      <td>${item.most_common_wrong ? escapeHtml(item.most_common_wrong) : "—"}</td>
+      <td><span class="pill ${status}">${statusLabel(status)}</span>${item.flags.length ? ' <span class="pill flagged">Flagged</span>' : ""}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderDiagnostics(report) {
+  const choices = ["A", "B", "C", "D", "E", "BLANK", "MULTIPLE"];
+  $("#diagnosticsHead").innerHTML =
+    "<th>Item</th><th>Key</th><th>% correct</th><th>Difficulty</th>" +
+    "<th>Point biserial</th><th>Upper−lower</th>" +
+    choices.map(choice => `<th>${choice === "MULTIPLE" ? "Mult" : choice} %</th>`).join("") +
+    "<th>Flags</th>";
+  const number = value => (value === null || value === undefined ? "—" : value);
+  $("#diagnosticsRows").innerHTML = report.items.map(item => `
+    <tr>
+      <td><strong>${item.question}</strong></td>
+      <td>${escapeHtml(item.correct_answer)}</td>
+      <td>${item.percent_correct.toFixed(1)}</td>
+      <td>${number(item.difficulty)}</td>
+      <td>${number(item.point_biserial)}</td>
+      <td>${number(item.upper_lower_discrimination)}</td>
+      ${choices.map(choice => `<td>${item.distribution[choice].pct}</td>`).join("")}
+      <td>${item.flags.length ? escapeHtml(item.flags.join(", ")) : "—"}</td>
+    </tr>`).join("");
+}
+
+function renderStudentScores(report) {
+  const rows = [...report.students].sort(
+    (a, b) => b.score.percentage - a.score.percentage
+  );
+  $("#studentScoreRows").innerHTML = rows.map(row => `
+    <tr>
+      <td>${escapeHtml(row.student_name || "—")}</td>
+      <td>${escapeHtml(row.student_id || row.student_id_read || "—")}</td>
+      <td>${row.score.correct} / ${row.score.total}</td>
+      <td>${row.score.percentage}%</td>
+      <td>${row.score.blank}</td>
+      <td>${row.score.multiple}</td>
+      <td class="missed">${row.score.missed_questions.length ? row.score.missed_questions.join(", ") : "—"}</td>
+    </tr>`).join("");
+}
+
+$("#analysisSession").addEventListener("change", event => loadAnalysis(event.target.value));
+
+for (const button of document.querySelectorAll("#itemFilters button")) {
+  button.addEventListener("click", () => {
+    itemFilter = button.dataset.filter;
+    for (const other of document.querySelectorAll("#itemFilters button")) {
+      other.classList.toggle("active", other === button);
+    }
+    renderItems();
+  });
+}
+
+$("#toggleDiagnostics").addEventListener("click", () => {
+  const wrap = $("#diagnosticsWrap");
+  const hidden = wrap.classList.toggle("hidden");
+  $("#toggleDiagnostics").textContent = hidden ? "Show diagnostics" : "Hide diagnostics";
+});
+
+$("#analysisDownload").addEventListener("click", event => {
+  if (!window.datalinkNative) return;
+  event.preventDefault();
+  const link = $("#analysisDownload");
+  const url = new URL(link.getAttribute("href"), location.origin);
+  window.webkit.messageHandlers.datalink.postMessage({
+    action: "export",
+    path: url.pathname,
+    query: "",
+    filename: link.download,
+  });
+});
 
 /* --------------------------------------------------------------- start-up */
 

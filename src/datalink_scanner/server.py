@@ -495,6 +495,21 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/storage":
             self._send_json(self.store.storage_report())
             return
+        # Same report, served inline for the Analysis page rather than as a
+        # download.
+        session_id = self._session_id_from(path, "/analysis")
+        if session_id is not None:
+            session = self.store.session(session_id)
+            if session is None:
+                self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                self._send_json(
+                    build_session_analysis(session, self.store.session_scans(session_id))
+                )
+            except AnalysisError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         session_id = self._session_id_from(path, "/analysis.json")
         if session_id is not None:
             session = self.store.session(session_id)

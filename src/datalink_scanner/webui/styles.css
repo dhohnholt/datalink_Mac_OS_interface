@@ -183,3 +183,52 @@ body.native .shell { padding-top: 18px; }
 }
 
 .button.disabled { opacity: .45; cursor: not-allowed; }
+
+/* ----------------------------------------------------------- item analysis */
+.status-counts {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 20px 0 4px;
+}
+.status-count {
+  padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+  border-left-width: 4px;
+}
+.status-count strong { display: block; font-size: 26px; line-height: 1.1; }
+.status-count span { display: block; margin-top: 2px; font-weight: 750; font-size: 13px; }
+.status-count small { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; }
+.status-count.priority { border-left-color: var(--red); }
+.status-count.developing { border-left-color: var(--amber); }
+.status-count.secure { border-left-color: var(--green); }
+.status-count.flagged { border-left-color: #8d9893; }
+
+.callout {
+  margin: 16px 0 0; padding: 12px 14px; border-radius: 10px;
+  background: #fff6e8; border: 1px solid #f0d8b0; color: #7a5312; font-weight: 600;
+}
+.filter-row { margin: 18px 0 6px; }
+.filter-row button.active { background: var(--green); border-color: var(--green); color: #fff; }
+
+.item-table td { vertical-align: middle; }
+.bar-cell { display: flex; align-items: center; gap: 10px; min-width: 190px; }
+.bar {
+  flex: 1; height: 9px; border-radius: 999px; background: #e7ebe9; overflow: hidden; min-width: 90px;
+}
+.bar > span { display: block; height: 100%; border-radius: 999px; background: var(--green); }
+.bar.priority > span { background: var(--red); }
+.bar.developing > span { background: var(--amber); }
+.bar-value { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 50px; text-align: right; }
+
+.pill {
+  display: inline-block; padding: 3px 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 800; letter-spacing: .01em;
+}
+.pill.priority { background: #fff1f1; color: var(--red); border: 1px solid #ebc0c0; }
+.pill.developing { background: #fff6e8; color: #8a5e14; border: 1px solid #f0d8b0; }
+.pill.secure { background: var(--green-soft); color: var(--green); border: 1px solid #aed7c5; }
+.pill.flagged { background: #eef1f0; color: #55625c; border: 1px solid var(--line); }
+
+.missed { max-width: 320px; font-size: .92em; color: var(--muted); }
+.safety.danger { color: var(--red); font-weight: 650; }
+
+@media (max-width: 850px) {
+  .status-counts { grid-template-columns: repeat(2, 1fr); }
+}

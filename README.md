@@ -99,8 +99,8 @@ Open **DataLink Scanner** from the Dock, Spotlight or Applications — or run
 `datalink-scanner`. It opens its own window with a normal macOS menu bar. No
 browser window, no terminal window.
 
-The window has three pages, on the tab bar and under the **View** menu:
-**Scan** (⌘1), **Classes** (⌘2) and **Sessions** (⌘3).
+The window has four pages, on the tab bar and under the **View** menu:
+**Scan** (⌘1), **Classes** (⌘2), **Sessions** (⌘3) and **Analysis** (⌘4).
 
 1. Enter a **test name** — it becomes the exported CSV's filename.
 2. Pick the **class** and type the **questions per form** (1–100, default 50).
@@ -127,11 +127,21 @@ as a plain-text belt-and-braces log. Both live in
 
 ### Item analysis
 
-Open a saved session and choose **Export item analysis** (⇧⌘E) to write a JSON
-report: per-student scores and missed questions, and per-question percent
-correct, difficulty, point-biserial, upper/lower discrimination, the full
-answer distribution, the most common wrong answer, and threshold flags — plus
-class statistics including mean, median, standard deviation and KR-20.
+The **Analysis** page scores a scanned test and shows where the class actually
+struggled. Pick a test and you get the headline numbers — students, class
+average, KR-20, how many sheets need review — then every question sorted into
+**Priority** (below 60% correct), **Developing** (60–69.9%) and **Secure**
+(70% and above), with a callout naming the items to reteach first. Filter to
+any of those buckets, or to items the analyzer flagged, and open **Full
+statistical diagnostics** when you want difficulty, point-biserial,
+upper/lower discrimination and the whole answer distribution. Student scores
+sit underneath, highest first, with each student's missed questions.
+
+Those cut points are the same ones the omr_final results page uses, so an item
+that reads as Priority there reads as Priority here.
+
+**Download JSON** on that page — or **Export item analysis** (⇧⌘E) from a
+session — writes the full report for upload.
 
 The scoring is not reimplemented here. `src/datalink_scanner/vendor/` holds
 verbatim copies of `analysis_core.py` and `result_schema.py` from the

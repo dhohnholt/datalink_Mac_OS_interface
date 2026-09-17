@@ -152,7 +152,7 @@ class ViewSwitchingTests(unittest.TestCase):
     def test_every_tab_has_a_matching_view(self):
         html = (WEBUI / "index.html").read_text()
         tabs = set(re.findall(r'data-view="(\w+)"', html))
-        self.assertEqual(tabs, {"scan", "classes", "sessions"})
+        self.assertEqual(tabs, {"scan", "classes", "sessions", "analysis"})
         for view in tabs:
             self.assertIn(f'id="view-{view}"', html)
 
@@ -191,9 +191,13 @@ class HintTests(unittest.TestCase):
         self.css = (WEBUI / "styles.css").read_text()
 
     def test_the_form_length_hint_is_a_bubble_not_body_text(self):
-        self.assertIn("hint-bubble", self.html)
-        self.assertIn("unanswered questions at the end are kept as blanks", self.html)
-        self.assertNotIn("<small>", self.html)
+        hint = "unanswered questions at the end are kept as blanks"
+        self.assertIn(hint, self.html)
+        # It belongs in the bubble, not as standing text under the field.
+        bubble = self.html[self.html.index('class="hint-bubble"') :]
+        self.assertIn(hint, bubble[: bubble.index("</span>")])
+        controls = self.html[self.html.index('class="controls"') :]
+        self.assertNotIn("<small>", controls[: controls.index("</section>")])
 
     def test_every_hint_button_controls_a_real_bubble(self):
         buttons = re.findall(r'<button[^>]*class="hint"[^>]*>', self.html)

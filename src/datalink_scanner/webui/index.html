@@ -24,6 +24,7 @@
       <button type="button" data-view="scan" class="active">Scan</button>
       <button type="button" data-view="classes">Classes</button>
       <button type="button" data-view="sessions">Sessions</button>
+      <button type="button" data-view="analysis">Analysis</button>
     </nav>
 
     <main id="view-scan">
@@ -232,6 +233,101 @@
           </table>
         </div>
       </section>
+    </main>
+
+    <main id="view-analysis" hidden>
+      <section class="card">
+        <div class="section-title row">
+          <div>
+            <h2>Item analysis</h2>
+            <p>Pick a scanned test to see which questions the class struggled with.</p>
+          </div>
+          <div class="button-row">
+            <label class="class-picker">Test
+              <select id="analysisSession"><option value="">Choose a test…</option></select>
+            </label>
+            <a id="analysisDownload" class="button secondary hidden" href="#" download>Download JSON</a>
+          </div>
+        </div>
+        <div id="analysisEmptyState" class="empty-state">
+          <div class="sheet-icon">%</div>
+          <h3>No test selected</h3>
+          <p>Choose a scanned test above. Scoring needs one answer key and at least one student sheet.</p>
+        </div>
+        <p id="analysisError" class="safety danger hidden"></p>
+      </section>
+
+      <div id="analysisBody" class="hidden">
+        <section class="metrics">
+          <article><span>Students</span><strong id="statStudents">—</strong></article>
+          <article><span>Class average</span><strong id="statAverage">—</strong></article>
+          <article><span>KR-20</span><strong id="statKr20">—</strong></article>
+          <article><span>Needs review</span><strong id="statReview">—</strong></article>
+        </section>
+
+        <section class="card">
+          <div class="section-title">
+            <div>
+              <h2>Item performance</h2>
+              <p>Start with priority items. Open the full statistics only when you want the diagnostics.</p>
+            </div>
+          </div>
+          <div class="status-counts">
+            <div class="status-count priority"><strong id="countPriority">0</strong><span>Priority</span><small>Below 60% correct</small></div>
+            <div class="status-count developing"><strong id="countDeveloping">0</strong><span>Developing</span><small>60% to 69.9%</small></div>
+            <div class="status-count secure"><strong id="countSecure">0</strong><span>Secure</span><small>70% and above</small></div>
+            <div class="status-count flagged"><strong id="countFlagged">0</strong><span>Flagged</span><small>Past a missed-answer threshold</small></div>
+          </div>
+          <p id="priorityCallout" class="callout hidden"></p>
+
+          <div class="button-row filter-row" id="itemFilters">
+            <button type="button" class="ghost active" data-filter="all">All items</button>
+            <button type="button" class="ghost" data-filter="priority">Priority</button>
+            <button type="button" class="ghost" data-filter="developing">Developing</button>
+            <button type="button" class="ghost" data-filter="secure">Secure</button>
+            <button type="button" class="ghost" data-filter="flagged">Flagged</button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="item-table">
+              <thead><tr><th>Item</th><th>Key</th><th>% correct</th><th>Correct</th><th>Common wrong</th><th>Status</th></tr></thead>
+              <tbody id="itemRows"></tbody>
+            </table>
+          </div>
+          <p id="itemEmpty" class="muted hidden">No items match this filter.</p>
+        </section>
+
+        <section class="card">
+          <div class="section-title row">
+            <div>
+              <h2>Full statistical diagnostics</h2>
+              <p>Difficulty, discrimination, response distribution, blanks and multiple marks.</p>
+            </div>
+            <button id="toggleDiagnostics" class="ghost">Show diagnostics</button>
+          </div>
+          <div id="diagnosticsWrap" class="table-wrap hidden">
+            <table>
+              <thead><tr id="diagnosticsHead"></tr></thead>
+              <tbody id="diagnosticsRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-title">
+            <div>
+              <h2>Student scores</h2>
+              <p>Highest first. Missed questions are listed so you can spot patterns.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Student</th><th>ID</th><th>Score</th><th>%</th><th>Blank</th><th>Multiple</th><th>Missed questions</th></tr></thead>
+              <tbody id="studentScoreRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </main>
   </div>
 

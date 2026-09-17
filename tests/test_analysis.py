@@ -6,6 +6,7 @@ originals.
 """
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -209,3 +210,46 @@ class ParityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnalysisPageTests(unittest.TestCase):
+    """The page mirrors omr_final's results view, so an item that reads as
+    Priority there must read as Priority here."""
+
+    def setUp(self):
+        root = Path(__file__).resolve().parents[1] / "src" / "datalink_scanner"
+        self.html = (root / "webui" / "index.html").read_text()
+        self.js = (root / "webui" / "app.js").read_text()
+
+    def test_the_view_and_its_tab_exist(self):
+        self.assertIn('data-view="analysis"', self.html)
+        self.assertIn('id="view-analysis"', self.html)
+
+    def test_it_reads_the_inline_endpoint_not_the_download(self):
+        # The download variant sets Content-Disposition, which a fetch for the
+        # page should not be using.
+        self.assertIn("}/analysis`", self.js)
+
+    @unittest.skipUnless((OMR_FINAL / "app.py").is_file(), "omr_final is not on this machine")
+    def test_status_cut_points_match_omr_final(self):
+        import re
+
+        source = (OMR_FINAL / "app.py").read_text()
+        theirs = re.search(
+            r'"Priority" if value < (\d+) else "Developing" if value < (\d+) else "Secure"',
+            source,
+        )
+        self.assertIsNotNone(theirs, "omr_final's status thresholds moved")
+        priority_below, secure_at = (int(value) for value in theirs.groups())
+
+        mine_priority = int(re.search(r"PRIORITY_BELOW = (\d+)", self.js).group(1))
+        mine_secure = int(re.search(r"SECURE_AT = (\d+)", self.js).group(1))
+        self.assertEqual((mine_priority, mine_secure), (priority_below, secure_at))
+
+    def test_every_status_bucket_is_offered_as_a_filter(self):
+        filters = set(re.findall(r'data-filter="(\w+)"', self.html))
+        self.assertEqual(filters, {"all", "priority", "developing", "secure", "flagged"})
+
+    def test_diagnostics_start_collapsed(self):
+        wrap = self.html[self.html.index('id="diagnosticsWrap"') :]
+        self.assertIn("hidden", wrap[: wrap.index(">")])

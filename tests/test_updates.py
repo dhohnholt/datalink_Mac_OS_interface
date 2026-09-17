@@ -233,40 +233,74 @@ class UpgradeTests(unittest.TestCase):
         patch = mock.patch.object(updates, "brew_path", return_value="/opt/brew")
         patch.start()
         self.addCleanup(patch.stop)
+        self.commands = []
+        self.progress = []
 
-    def runner(self, *results):
-        return mock.Mock(
-            side_effect=[
-                subprocess.CompletedProcess(args=[], returncode=code, stdout=out, stderr="")
-                for code, out in results
-            ]
+    def runner(self, *results, announce=()):
+        """Stand in for one brew command, with the lines it would print."""
+        replies = list(results)
+
+        def run(command, env, on_line, timeout):
+            self.commands.append((command, env))
+            code, output = replies.pop(0)
+            for line in announce:
+                on_line(line)
+            return code, output
+
+        return run
+
+    def upgrade(self, runner):
+        return updates.upgrade(
+            on_progress=lambda fraction, message: self.progress.append((fraction, message)),
+            runner=runner,
         )
 
     def test_runs_update_upgrade_and_cleanup_without_asking_anything(self):
-        runner = self.runner((0, "updated"), (0, "upgraded"), (0, "cleaned"))
-        updates.upgrade(runner=runner)
-        commands = [call.args[0] for call in runner.call_args_list]
-        self.assertEqual([command[1] for command in commands],
-                         ["update", "upgrade", "cleanup"])
+        self.upgrade(self.runner((0, "updated"), (0, "upgraded"), (0, "cleaned")))
+        self.assertEqual(
+            [command[1] for command, _env in self.commands],
+            ["update", "upgrade", "cleanup"],
+        )
         # Homebrew 7 asks for confirmation, and no one is there to answer it.
-        self.assertIn("--yes", commands[1])
-        for call in runner.call_args_list:
-            self.assertEqual(call.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIn("--yes", self.commands[1][0])
+        for _command, env in self.commands:
+            self.assertEqual(env["HOMEBREW_NO_AUTO_UPDATE"], "1")
+
+    def test_progress_only_ever_moves_forward_and_ends_at_one(self):
+        self.upgrade(
+            self.runner(
+                (0, ""), (0, ""), (0, ""),
+                announce=["==> Downloading", "==> Pouring", "plain output"],
+            )
+        )
+        fractions = [fraction for fraction, _message in self.progress]
+        self.assertEqual(fractions, sorted(fractions))
+        self.assertEqual(fractions[-1], 1.0)
+        self.assertTrue(all(0.0 <= value <= 1.0 for value in fractions))
+
+    def test_the_line_shown_is_homebrews_own_words(self):
+        self.upgrade(self.runner((0, ""), (0, ""), (0, ""), announce=["==> Pouring datalink"]))
+        self.assertIn("Pouring datalink", [message for _fraction, message in self.progress])
+
+    def test_output_that_is_not_a_step_does_not_move_the_bar(self):
+        self.upgrade(self.runner((0, ""), (0, ""), (0, ""), announce=["Already up-to-date."]))
+        # One report per step plus the final one; nothing from the noise.
+        self.assertEqual(len(self.progress), len(updates.UPGRADE_STEPS) + 1)
 
     def test_a_failed_upgrade_reports_what_homebrew_said(self):
-        runner = self.runner((0, "updated"), (1, "Error: no such formula"))
         with self.assertRaises(updates.UpdateError) as caught:
-            updates.upgrade(runner=runner)
+            self.upgrade(self.runner((0, "updated"), (1, "Error: no such formula")))
         self.assertIn("no such formula", str(caught.exception))
 
     def test_a_failed_cleanup_does_not_sink_a_good_upgrade(self):
-        runner = self.runner((0, "updated"), (0, "upgraded"), (1, "could not remove"))
-        updates.upgrade(runner=runner)
+        self.upgrade(self.runner((0, "updated"), (0, "upgraded"), (1, "could not remove")))
 
     def test_a_hung_homebrew_is_stopped_and_explained(self):
-        runner = mock.Mock(side_effect=subprocess.TimeoutExpired("brew", 900))
+        def run(command, env, on_line, timeout):
+            raise updates.UpdateError("`upgrade` was still running after 15 minutes and was stopped.")
+
         with self.assertRaises(updates.UpdateError) as caught:
-            updates.upgrade(runner=runner)
+            self.upgrade(run)
         self.assertIn("still running", str(caught.exception))
 
     def test_without_homebrew_the_download_page_is_offered(self):

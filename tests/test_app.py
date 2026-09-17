@@ -547,3 +547,28 @@ class CheckForUpdatesTests(unittest.TestCase):
         self.assertIn('type="checkbox"', card[: card.index("</section>")])
         self.assertIn('$("#autoUpdateCheck")', APP_JS)
         self.assertIn("auto_update_check", APP_JS)
+
+    def test_the_update_shows_a_progress_sheet_while_it_runs(self):
+        offer = self.app_source[self.app_source.index("def _offer_update") :]
+        offer = offer[: offer.index("def _install_update")]
+        # Opened before the thread starts, so the window is never left looking
+        # frozen while Homebrew works.
+        self.assertLess(offer.index("_open_update_sheet"), offer.index("threading.Thread"))
+
+    def test_the_sheet_is_closed_before_anything_is_reported(self):
+        finish = self.app_source[self.app_source.index("def finishUpdate_") :]
+        finish = finish[: finish.index("def _offer_cleanup")]
+        self.assertLess(finish.index("_close_update_sheet"), finish.index("alert("))
+
+    def test_homebrews_progress_is_passed_to_the_sheet(self):
+        install = self.app_source[self.app_source.index("def _install_update") :]
+        install = install[: install.index("def finishUpdate_")]
+        self.assertIn("updates.upgrade(on_progress=self._report_update_progress)", install)
+
+    def test_appkit_is_only_touched_on_the_main_thread(self):
+        # The upgrade runs on a worker thread; setting a progress bar from
+        # there is a crash waiting for a slow week.
+        report = self.app_source[self.app_source.index("def _report_update_progress") :]
+        report = report[: report.index("def _install_update")]
+        self.assertIn("performSelectorOnMainThread", report)
+        self.assertNotIn("setDoubleValue_", report)

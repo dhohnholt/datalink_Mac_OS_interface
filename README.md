@@ -64,7 +64,9 @@ brew upgrade datalink-scanner
 
 Or from inside the app: **DataLink Scanner → Check for Updates…**. It asks
 GitHub what the newest release is and, when there is one, runs the Homebrew
-upgrade for you, then closes and reopens itself on the new version. Copies of
+upgrade for you behind a progress sheet — the bar follows Homebrew's own steps
+and the line underneath is whatever it is doing at the time — then closes and
+reopens itself on the new version. Copies of
 the app left over from an earlier disk image or a local build are moved to the
 Trash in the same pass, so only the current one is left to launch. Nothing is
 deleted, and Homebrew's own storage is left to `brew cleanup`.

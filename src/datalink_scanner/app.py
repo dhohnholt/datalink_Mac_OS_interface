@@ -28,17 +28,22 @@ from AppKit import (
     NSApplication,
     NSApplicationActivationPolicyRegular,
     NSBackingStoreBuffered,
+    NSColor,
     NSEventModifierFlagCommand,
     NSEventModifierFlagOption,
     NSEventModifierFlagShift,
+    NSFont,
     NSImage,
     NSMenu,
     NSMenuItem,
     NSModalResponseOK,
     NSOpenPanel,
+    NSProgressIndicator,
+    NSProgressIndicatorStyleBar,
     NSSavePanel,
     NSScreen,
     NSTerminateNow,
+    NSTextField,
     NSWindow,
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskMiniaturizable,
@@ -195,6 +200,10 @@ class DataLinkAppDelegate(NSObject):
         self._webview = None
         self._url = None
         self._update_item = None
+        self._update_sheet = None
+        self._update_bar = None
+        self._update_line = None
+        self._update_step = (0.0, "")
         self._update_busy = False
         self._update_quiet = False
         self._update_result = None
@@ -637,16 +646,96 @@ class DataLinkAppDelegate(NSObject):
         choice = panel.runModal()
         if choice == NSAlertFirstButtonReturn:
             self._begin_update_work("Updating…")
+            self._open_update_sheet()
             threading.Thread(
                 target=self._install_update, args=(release,), daemon=True
             ).start()
         elif choice == NSAlertSecondButtonReturn:
             self._open_external(release.get("url") or updates.RELEASES_PAGE)
 
+    # ------------------------------------------------------- progress sheet
+
+    def _sheet_text(self, frame, size, colour=None):
+        field = NSTextField.alloc().initWithFrame_(frame)
+        field.setBezeled_(False)
+        field.setDrawsBackground_(False)
+        field.setEditable_(False)
+        field.setSelectable_(False)
+        field.setFont_(NSFont.systemFontOfSize_(size))
+        if colour is not None:
+            field.setTextColor_(colour)
+        return field
+
+    def _open_update_sheet(self):
+        """A sheet rather than an alert: an alert needs a button, and there is
+        nothing useful to press while Homebrew is part-way through replacing
+        the app underneath us."""
+        if self._window is None:
+            return
+        width, height = 460.0, 118.0
+        sheet = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(0, 0, width, height),
+            NSWindowStyleMaskTitled,
+            NSBackingStoreBuffered,
+            False,
+        )
+        content = sheet.contentView()
+
+        title = self._sheet_text(NSMakeRect(22, height - 44, width - 44, 20), 13)
+        title.setFont_(NSFont.boldSystemFontOfSize_(13))
+        title.setStringValue_(f"Updating {APP_NAME}")
+        content.addSubview_(title)
+
+        bar = NSProgressIndicator.alloc().initWithFrame_(
+            NSMakeRect(22, height - 74, width - 44, 20)
+        )
+        bar.setStyle_(NSProgressIndicatorStyleBar)
+        bar.setIndeterminate_(False)
+        bar.setMinValue_(0.0)
+        bar.setMaxValue_(1.0)
+        bar.setDoubleValue_(0.0)
+        content.addSubview_(bar)
+
+        line = self._sheet_text(
+            NSMakeRect(22, height - 100, width - 44, 18), 11, NSColor.secondaryLabelColor()
+        )
+        line.setStringValue_("Starting…")
+        content.addSubview_(line)
+
+        self._update_sheet = sheet
+        self._update_bar = bar
+        self._update_line = line
+        self._window.beginSheet_completionHandler_(sheet, None)
+
+    def _close_update_sheet(self):
+        if self._update_sheet is None:
+            return
+        if self._window is not None:
+            self._window.endSheet_(self._update_sheet)
+        self._update_sheet.orderOut_(None)
+        self._update_sheet = None
+        self._update_bar = None
+        self._update_line = None
+
+    def updateSheetProgress_(self, sender):
+        """Called on the main thread; AppKit must not be touched from the
+        thread running Homebrew."""
+        fraction, message = self._update_step
+        if self._update_bar is not None:
+            self._update_bar.setDoubleValue_(fraction)
+        if self._update_line is not None and message:
+            self._update_line.setStringValue_(message)
+
+    def _report_update_progress(self, fraction, message):
+        self._update_step = (fraction, message)
+        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+            "updateSheetProgress:", None, False
+        )
+
     def _install_update(self, release):
         result: dict = {"release": release}
         try:
-            updates.upgrade()
+            updates.upgrade(on_progress=self._report_update_progress)
         except Exception as exc:
             result["error"] = str(exc)
         else:
@@ -661,6 +750,7 @@ class DataLinkAppDelegate(NSObject):
         )
 
     def finishUpdate_(self, sender):
+        self._close_update_sheet()
         self._end_update_work()
         result = self._update_result or {}
         if result.get("error"):

@@ -353,8 +353,56 @@ def _tail(text: str, lines: int = 12) -> str:
     return "\n".join(kept[-lines:])
 
 
-def upgrade(runner=subprocess.run) -> str:
-    """Run the Homebrew upgrade, without a terminal to answer prompts."""
+# Installing is nearly all of the wait; refreshing and tidying are quick.
+UPGRADE_STEPS = (
+    (["update"], 0.15, "Refreshing Homebrew…"),
+    (["upgrade", "--yes", FORMULA], 0.80, "Installing the new version…"),
+    (["cleanup", FORMULA_NAME], 0.05, "Removing the old version…"),
+)
+
+
+def _run_step(command: list[str], env: dict, on_line, timeout: float) -> tuple[int, str]:
+    """Run one brew command, handing each line over as it arrives."""
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            # Nothing is watching stdin, so a prompt would simply hang.
+            stdin=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+    except OSError as exc:
+        raise UpdateError(f"Homebrew could not be run: {exc}") from None
+    lines: list[str] = []
+    try:
+        assert process.stdout is not None
+        for line in process.stdout:
+            line = line.rstrip()
+            lines.append(line)
+            if on_line is not None:
+                on_line(line)
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise UpdateError(
+            f"`{' '.join(command[1:2])}` was still running after "
+            f"{timeout / 60:.0f} minutes and was stopped."
+        ) from None
+    return process.returncode, "\n".join(lines)
+
+
+def upgrade(on_progress=None, runner=_run_step) -> str:
+    """Run the Homebrew upgrade, reporting progress as it goes.
+
+    Homebrew does not say how far through it is, so the bar is driven by what
+    it does announce: each step carries a share of the whole, and inside a
+    step every `==>` line moves the bar part of the way through that share.
+    It always advances and never runs ahead of itself, and the line underneath
+    is Homebrew's own words rather than a guess.
+    """
     brew = brew_path()
     if brew is None:
         raise UpdateError(
@@ -363,37 +411,42 @@ def upgrade(runner=subprocess.run) -> str:
         )
     environment = {
         **os.environ,
-        # Nothing is watching stdout, so a prompt would simply hang.
         "HOMEBREW_NO_ENV_HINTS": "1",
         "HOMEBREW_NO_AUTO_UPDATE": "1",
     }
+
+    def report(fraction: float, message: str) -> None:
+        if on_progress is not None:
+            on_progress(max(0.0, min(1.0, fraction)), message)
+
     transcript: list[str] = []
-    for arguments in (["update"], ["upgrade", "--yes", FORMULA], ["cleanup", FORMULA_NAME]):
-        try:
-            result = runner(
-                [brew, *arguments],
-                capture_output=True,
-                text=True,
-                timeout=UPGRADE_TIMEOUT_SECONDS,
-                stdin=subprocess.DEVNULL,
-                env=environment,
-            )
-        except subprocess.TimeoutExpired:
-            raise UpdateError(
-                f"`brew {arguments[0]}` was still running after "
-                f"{UPGRADE_TIMEOUT_SECONDS / 60:.0f} minutes and was stopped."
-            ) from None
-        except OSError as exc:
-            raise UpdateError(f"Homebrew could not be run: {exc}") from None
-        transcript.append(result.stdout or "")
-        transcript.append(result.stderr or "")
+    base = 0.0
+    for arguments, weight, title in UPGRADE_STEPS:
+        report(base, title)
+        marks = 0
+
+        def watch(line: str, _base=base, _weight=weight, _title=title) -> None:
+            nonlocal marks
+            if not line.startswith("==>"):
+                return
+            marks += 1
+            # Asymptotic inside the step: always forward, never past its share.
+            share = 1.0 - 0.5**marks
+            report(_base + _weight * share, line[3:].strip()[:70] or _title)
+
+        code, text = runner(
+            [brew, *arguments], environment, watch, UPGRADE_TIMEOUT_SECONDS
+        )
+        transcript.append(text)
+        base += weight
         # A failed cleanup leaves an old version on disk; that is untidy, not
         # a failed update, so it does not sink the whole operation.
-        if result.returncode != 0 and arguments[0] != "cleanup":
+        if code != 0 and arguments[0] != "cleanup":
             raise UpdateError(
-                f"`brew {arguments[0]}` failed.\n\n{_tail(''.join(transcript))}"
+                f"`brew {arguments[0]}` failed.\n\n{_tail(chr(10).join(transcript))}"
             )
-    return "".join(transcript)
+    report(1.0, "Finishing…")
+    return "\n".join(transcript)
 
 
 def relaunch_target(keeper: Path | None, running: Path | None = None) -> Path | None:

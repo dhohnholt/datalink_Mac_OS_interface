@@ -638,6 +638,56 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     )
                 self._send_json({"ok": True})
                 return
+            elif path == "/api/sessions/correct":
+                session_id = int(body.get("session_id", 0))
+                session = self.store.session(session_id)
+                if session is None:
+                    self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                    return
+                corrections = list(body.get("corrections", []))
+                if not corrections:
+                    raise DataLinkError("No corrections were supplied")
+                applied = 0
+                for correction in corrections:
+                    number = int(correction.get("number", 0))
+                    responses = correction.get("responses")
+                    if responses is not None:
+                        responses = [str(value).strip().upper() for value in responses]
+                        expected = int(session["question_count"])
+                        if len(responses) != expected:
+                            raise DataLinkError(
+                                f"Sheet {number} needs exactly {expected} responses"
+                            )
+                        for value in responses:
+                            if value and not all(
+                                letter in "ABCDE" for letter in value
+                            ):
+                                raise DataLinkError(
+                                    f"{value!r} is not a valid response"
+                                )
+                    student_id = correction.get("student_id")
+                    if student_id is not None:
+                        student_id = str(student_id).strip()
+                        if student_id and not student_id.isdigit():
+                            raise DataLinkError("Student ID must contain digits only")
+                    name = correction.get("student_name")
+                    if self.store.update_scan(
+                        session_id,
+                        number,
+                        student_id=student_id,
+                        student_name=None if name is None else str(name).strip(),
+                        responses=responses,
+                    ):
+                        applied += 1
+                scans = self.store.session_scans(session_id)
+                payload = {"applied": applied}
+                try:
+                    payload["analysis"] = build_session_analysis(session, scans)
+                except AnalysisError as exc:
+                    payload["analysis"] = None
+                    payload["analysis_error"] = str(exc)
+                self._send_json(payload)
+                return
             elif path == "/api/sessions/delete":
                 self.controller.remove_sessions([int(body.get("id", 0))])
                 self._send_json({"sessions": self.store.list_sessions()})

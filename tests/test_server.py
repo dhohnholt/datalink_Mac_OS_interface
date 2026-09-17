@@ -232,6 +232,58 @@ class HttpApiTests(unittest.TestCase):
     def controller_store(self):
         return DataLinkRequestHandler.controller.store
 
+    def test_a_correction_rewrites_the_sheet_and_rescores(self):
+        store = self.controller_store()
+        session_id = store.create_session("Unit 9", "P4", 5)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "2026-09-16T18:00:00+00:00",
+                                    "answered_count": 5, "responses": ["A", "B", "C", "D", "E"]})
+        store.add_scan(session_id, {"number": 2, "role": "student", "student_id": None,
+                                    "received_at": "2026-09-16T18:00:00+00:00",
+                                    "answered_count": 5, "responses": ["A", "B", "C", "D", "E"]})
+        result = self.post("/api/sessions/correct", {
+            "session_id": session_id,
+            "corrections": [{"number": 2, "student_id": "900444"}],
+        })
+        self.assertEqual(result["applied"], 1)
+        self.assertEqual(result["analysis"]["students"][0]["student_id"], "900444")
+        self.assertEqual(result["analysis"]["review_items"], [])
+
+    def test_a_correction_with_the_wrong_number_of_responses_is_rejected(self):
+        store = self.controller_store()
+        session_id = store.create_session("Unit 9", "P4", 5)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                    "answered_count": 5, "responses": ["A"] * 5})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/sessions/correct", {
+                "session_id": session_id,
+                "corrections": [{"number": 1, "responses": ["A", "B"]}],
+            })
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_a_correction_rejects_a_non_letter_response(self):
+        store = self.controller_store()
+        session_id = store.create_session("Unit 9", "P4", 3)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/sessions/correct", {
+                "session_id": session_id,
+                "corrections": [{"number": 1, "responses": ["A", "B", "Z"]}],
+            })
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_a_correction_rejects_a_non_numeric_student_id(self):
+        store = self.controller_store()
+        session_id = store.create_session("Unit 9", "P4", 3)
+        store.add_scan(session_id, {"number": 1, "role": "student", "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/sessions/correct", {
+                "session_id": session_id,
+                "corrections": [{"number": 1, "student_id": "abc"}],
+            })
+        self.assertEqual(caught.exception.code, 400)
+
     def test_unknown_api_path_is_404(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/api/nope", {})

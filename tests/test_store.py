@@ -303,3 +303,35 @@ class StorageTests(unittest.TestCase):
         session_id = self.store.create_session("U", "", 30, log_path="/tmp/b.jsonl")
         self.assertEqual(self.store.session(session_id)["log_path"], "/tmp/b.jsonl")
         self.addCleanup(self.store.close)
+
+    def test_a_scan_can_be_corrected_in_place(self):
+        # Review and the answer key editor both work by rewriting the stored
+        # sheet; the analysis is recomputed from these rows, so it follows.
+        session_id = self.store.create_session("U", "", 30)
+        self.store.add_scan(session_id, self.scan(1))
+        self.assertTrue(
+            self.store.update_scan(session_id, 1, student_id="900123", responses=["B"] * 30)
+        )
+        stored = self.store.session_scans(session_id)[0]
+        self.assertEqual(stored["student_id"], "900123")
+        self.assertEqual(stored["responses"], ["B"] * 30)
+        self.assertEqual(stored["answered_count"], 30)
+        self.addCleanup(self.store.close)
+
+    def test_correcting_recounts_the_answered_total(self):
+        session_id = self.store.create_session("U", "", 30)
+        self.store.add_scan(session_id, self.scan(1))
+        self.store.update_scan(session_id, 1, responses=["A"] * 10 + [""] * 20)
+        self.assertEqual(self.store.session_scans(session_id)[0]["answered_count"], 10)
+        self.addCleanup(self.store.close)
+
+    def test_correcting_an_unknown_sheet_reports_no_change(self):
+        session_id = self.store.create_session("U", "", 30)
+        self.assertFalse(self.store.update_scan(session_id, 99, student_id="900123"))
+        self.addCleanup(self.store.close)
+
+    def test_an_empty_correction_changes_nothing(self):
+        session_id = self.store.create_session("U", "", 30)
+        self.store.add_scan(session_id, self.scan(1))
+        self.assertFalse(self.store.update_scan(session_id, 1))
+        self.addCleanup(self.store.close)

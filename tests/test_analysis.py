@@ -253,3 +253,14 @@ class AnalysisPageTests(unittest.TestCase):
     def test_diagnostics_start_collapsed(self):
         wrap = self.html[self.html.index('id="diagnosticsWrap"') :]
         self.assertIn("hidden", wrap[: wrap.index(">")])
+
+    def test_pane_switching_does_not_hide_the_sub_tabs(self):
+        # The tab buttons carry data-pane as well, so the selector that hides
+        # panes has to be scoped to direct children of the body.
+        self.assertIn('"#analysisBody > [data-pane]"', self.js)
+
+    def test_review_and_answer_key_panes_exist(self):
+        for pane in ("review", "key"):
+            self.assertIn(f'data-pane="{pane}"', self.html)
+        self.assertIn("applyReviewButton", self.html)
+        self.assertIn("saveKeyButton", self.html)

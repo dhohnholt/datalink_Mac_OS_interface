@@ -232,3 +232,45 @@ body.native .shell { padding-top: 18px; }
 @media (max-width: 850px) {
   .status-counts { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* --------------------------------------------------- analysis sub-sections */
+.subtabs { margin: 22px 0 18px; }
+.badge-count {
+  display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 999px;
+  background: var(--red); color: #fff; font-size: 11px; font-weight: 800;
+}
+
+#reviewRows input[type=text], #reviewRows select { min-height: 38px; width: 100%; max-width: 190px; }
+#reviewRows code { background: #f1f4f2; padding: 2px 7px; border-radius: 6px; font-weight: 700; }
+
+.key-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 8px 18px; margin-top: 20px;
+}
+.key-row {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 8px; border-radius: 9px; border: 1px solid transparent;
+}
+.key-row.changed { border-color: var(--amber); background: #fff8ee; }
+.key-question {
+  min-width: 30px; font-weight: 800; color: var(--muted);
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.key-choice {
+  min-height: 32px; min-width: 34px; padding: 0; border-radius: 8px;
+  border: 1px solid var(--line); background: #fff; font-weight: 750; color: var(--muted);
+}
+.key-choice:hover { border-color: var(--green); color: var(--ink); }
+.key-choice.selected {
+  background: var(--green); border-color: var(--green); color: #fff;
+}
+
+/* The analysis summary has four figures, not the scan page's three, and they
+   are all numbers — the monospace treatment is for the scan page's filename. */
+#view-analysis .metrics { grid-template-columns: repeat(4, 1fr); }
+#view-analysis .metrics article:last-child strong {
+  font-size: 27px; font-family: inherit; padding-top: 0;
+}
+@media (max-width: 850px) {
+  #view-analysis .metrics { grid-template-columns: repeat(2, 1fr); }
+}

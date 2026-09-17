@@ -884,6 +884,9 @@ function renderAnalysis(report) {
   renderItems();
   renderDiagnostics(report);
   renderStudentScores(report);
+  renderReview(report);
+  renderAnswerKey(report);
+  showAnalysisPane(analysisPane);
 }
 
 function renderItems() {
@@ -975,6 +978,195 @@ $("#analysisDownload").addEventListener("click", event => {
     query: "",
     filename: link.download,
   });
+});
+
+
+/* ------------------------------------------------- analysis sub-sections */
+
+let analysisPane = "items";
+let editedKey = null;
+
+function showAnalysisPane(name) {
+  analysisPane = name;
+  for (const button of document.querySelectorAll("#analysisTabs button")) {
+    button.classList.toggle("active", button.dataset.pane === name);
+  }
+  // Direct children only: the sub-tab buttons carry data-pane too, and a
+  // descendant selector would hide every tab but the active one.
+  for (const pane of document.querySelectorAll("#analysisBody > [data-pane]")) {
+    pane.hidden = pane.dataset.pane !== name;
+  }
+}
+
+for (const button of document.querySelectorAll("#analysisTabs button")) {
+  button.addEventListener("click", () => showAnalysisPane(button.dataset.pane));
+}
+
+/* ------------------------------------------------------------------ review */
+
+function reviewProblems(report) {
+  // One row per thing a human has to decide, keyed to the sheet it came from.
+  const bySheet = new Map(report.students.map(row => [row.page, row]));
+  const rows = [];
+  for (const item of report.review_items) {
+    const student = bySheet.get(item.page);
+    if (item.field === "student_id") {
+      rows.push({
+        sheet: item.page,
+        student,
+        kind: "student_id",
+        problem: "No student ID was read",
+        read: student?.student_id_read || "—",
+      });
+    } else if (item.field === "answer") {
+      const answer = student?.answers?.find(entry => entry.question === item.question);
+      rows.push({
+        sheet: item.page,
+        student,
+        kind: "answer",
+        question: item.question,
+        problem: `Question ${item.question} has more than one mark`,
+        read: answer ? answer.response : "MULTIPLE",
+      });
+    }
+  }
+  return rows.sort((a, b) => a.sheet - b.sheet || (a.question || 0) - (b.question || 0));
+}
+
+function renderReview(report) {
+  const rows = reviewProblems(report);
+  const badge = $("#reviewBadge");
+  badge.textContent = rows.length;
+  badge.classList.toggle("hidden", rows.length === 0);
+  $("#reviewEmpty").classList.toggle("hidden", rows.length > 0);
+  $("#reviewWrap").classList.toggle("hidden", rows.length === 0);
+  $("#applyReviewButton").disabled = rows.length === 0;
+
+  $("#reviewRows").innerHTML = rows.map(row => {
+    const who = row.student?.student_name
+      ? escapeHtml(row.student.student_name)
+      : row.student?.student_id
+        ? escapeHtml(row.student.student_id)
+        : "—";
+    const control = row.kind === "student_id"
+      ? `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Student ID"
+                data-fix="student_id" data-sheet="${row.sheet}">`
+      : `<select data-fix="answer" data-sheet="${row.sheet}" data-question="${row.question}">
+           <option value="">Keep as read</option>
+           ${[..."ABCDE"].map(letter => `<option value="${letter}">${letter}</option>`).join("")}
+           <option value="BLANK">Blank</option>
+         </select>`;
+    return `<tr>
+      <td><strong>${row.sheet}</strong></td>
+      <td>${who}</td>
+      <td>${escapeHtml(row.problem)}</td>
+      <td><code>${escapeHtml(row.read)}</code></td>
+      <td>${control}</td>
+    </tr>`;
+  }).join("");
+}
+
+$("#applyReviewButton").addEventListener("click", async () => {
+  if (!analysisReport) return;
+  const sessionId = $("#analysisSession").value;
+  const bySheet = new Map();
+  const sheetAnswers = new Map(
+    analysisReport.students.map(row => [row.page, row.answers.map(a => a.response)])
+  );
+
+  for (const field of document.querySelectorAll("#reviewRows [data-fix]")) {
+    const value = field.value.trim();
+    if (!value) continue;
+    const sheet = Number(field.dataset.sheet);
+    const entry = bySheet.get(sheet) || {number: sheet};
+    if (field.dataset.fix === "student_id") {
+      if (!/^\d+$/.test(value)) {
+        toast(`Student ID for sheet ${sheet} must be digits only`);
+        return;
+      }
+      entry.student_id = value;
+    } else {
+      const responses = entry.responses || [...sheetAnswers.get(sheet)];
+      // The stored sheet uses "" for a blank, not the analysis label.
+      responses[Number(field.dataset.question) - 1] = value === "BLANK" ? "" : value;
+      entry.responses = responses.map(r => (r === "BLANK" ? "" : r));
+    }
+    bySheet.set(sheet, entry);
+  }
+
+  if (!bySheet.size) {
+    toast("Enter at least one correction first");
+    return;
+  }
+  try {
+    const result = await post("/api/sessions/correct", {
+      session_id: Number(sessionId),
+      corrections: [...bySheet.values()],
+    });
+    toast(`Applied ${result.applied} correction(s)`);
+    await loadAnalysis(sessionId);
+    showAnalysisPane("review");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+/* ------------------------------------------------------------- answer key */
+
+function renderAnswerKey(report) {
+  editedKey = report.exam.answer_key.map(entry => entry.answer);
+  drawAnswerKey(report);
+}
+
+function drawAnswerKey(report) {
+  const original = report.exam.answer_key.map(entry => entry.answer);
+  $("#keyGrid").innerHTML = editedKey.map((answer, index) => {
+    const changed = answer !== original[index];
+    return `<div class="key-row${changed ? " changed" : ""}">
+      <span class="key-question">${index + 1}</span>
+      ${[..."ABCDE"].map(letter => `
+        <button type="button" class="key-choice${letter === answer ? " selected" : ""}"
+                data-question="${index + 1}" data-answer="${letter}">${letter}</button>`).join("")}
+    </div>`;
+  }).join("");
+
+  const changes = editedKey.filter((answer, index) => answer !== original[index]).length;
+  $("#saveKeyButton").disabled = changes === 0;
+  const note = $("#keyDirtyNote");
+  note.classList.toggle("hidden", changes === 0);
+  if (changes) {
+    note.textContent = `${changes} answer${changes === 1 ? "" : "s"} changed. Saving rescores every sheet in this test.`;
+  }
+
+  for (const button of $("#keyGrid").querySelectorAll(".key-choice")) {
+    button.addEventListener("click", () => {
+      editedKey[Number(button.dataset.question) - 1] = button.dataset.answer;
+      drawAnswerKey(report);
+    });
+  }
+}
+
+$("#resetKeyButton").addEventListener("click", () => {
+  if (!analysisReport) return;
+  renderAnswerKey(analysisReport);
+});
+
+$("#saveKeyButton").addEventListener("click", async () => {
+  if (!analysisReport) return;
+  const sessionId = $("#analysisSession").value;
+  const keySheet = analysisReport.exam.key_page;
+  if (!confirm("Save this answer key? Every sheet in the test is rescored against it.")) return;
+  try {
+    const result = await post("/api/sessions/correct", {
+      session_id: Number(sessionId),
+      corrections: [{number: keySheet, responses: editedKey}],
+    });
+    toast(result.applied ? "Answer key saved and sheets rescored" : "No change was made");
+    await loadAnalysis(sessionId);
+    showAnalysisPane("key");
+  } catch (error) {
+    toast(error.message);
+  }
 });
 
 /* --------------------------------------------------------------- start-up */

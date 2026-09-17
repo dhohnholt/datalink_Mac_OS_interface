@@ -265,7 +265,14 @@
           <article><span>Needs review</span><strong id="statReview">—</strong></article>
         </section>
 
-        <section class="card">
+        <nav class="tabs subtabs" id="analysisTabs" aria-label="Analysis sections">
+          <button type="button" data-pane="items" class="active">Item analysis</button>
+          <button type="button" data-pane="students">Student scores</button>
+          <button type="button" data-pane="review">Review<span id="reviewBadge" class="badge-count hidden">0</span></button>
+          <button type="button" data-pane="key">Answer key</button>
+        </nav>
+
+        <section class="card" data-pane="items">
           <div class="section-title">
             <div>
               <h2>Item performance</h2>
@@ -297,7 +304,7 @@
           <p id="itemEmpty" class="muted hidden">No items match this filter.</p>
         </section>
 
-        <section class="card">
+        <section class="card" data-pane="items">
           <div class="section-title row">
             <div>
               <h2>Full statistical diagnostics</h2>
@@ -313,7 +320,7 @@
           </div>
         </section>
 
-        <section class="card">
+        <section class="card" data-pane="students">
           <div class="section-title">
             <div>
               <h2>Student scores</h2>
@@ -326,6 +333,45 @@
               <tbody id="studentScoreRows"></tbody>
             </table>
           </div>
+        </section>
+
+        <section class="card" data-pane="review" hidden>
+          <div class="section-title row">
+            <div>
+              <h2>Review</h2>
+              <p>Sheets the scanner could not read cleanly. Fixing one here updates the saved session and the analysis.</p>
+            </div>
+            <button id="applyReviewButton" class="primary">Apply corrections</button>
+          </div>
+          <div id="reviewEmpty" class="empty-state">
+            <div class="sheet-icon">✓</div>
+            <h3>Nothing to review</h3>
+            <p>Every sheet in this test has a student ID and an unambiguous answer for each question.</p>
+          </div>
+          <div id="reviewWrap" class="hidden">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Sheet</th><th>Student</th><th>Problem</th><th>Read as</th><th>Correction</th></tr></thead>
+                <tbody id="reviewRows"></tbody>
+              </table>
+            </div>
+            <p class="safety">Leave a correction blank to keep a sheet as it is.</p>
+          </div>
+        </section>
+
+        <section class="card" data-pane="key" hidden>
+          <div class="section-title row">
+            <div>
+              <h2>Answer key</h2>
+              <p>Click a letter to change the correct answer. Saving rescores every sheet in this test.</p>
+            </div>
+            <div class="button-row">
+              <button id="resetKeyButton" class="ghost">Undo changes</button>
+              <button id="saveKeyButton" class="primary" disabled>Save answer key</button>
+            </div>
+          </div>
+          <p id="keyDirtyNote" class="callout hidden"></p>
+          <div id="keyGrid" class="key-grid"></div>
         </section>
       </div>
     </main>

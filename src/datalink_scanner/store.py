@@ -276,6 +276,45 @@ class Store:
             self._connection.commit()
             return int(cursor.lastrowid)
 
+    def update_scan(
+        self,
+        session_id: int,
+        number: int,
+        student_id: str | None = None,
+        student_name: str | None = None,
+        responses: list[str] | None = None,
+    ) -> bool:
+        """Correct one stored sheet.
+
+        The scanner is accurate, but a sheet can still be fed with a smudged
+        ID, and an answer key can be bubbled wrong. Editing the stored row is
+        enough: the analysis is computed from these rows on demand, so it
+        follows automatically.
+        """
+        assignments, values = [], []
+        if student_id is not None:
+            assignments.append("student_id = ?")
+            values.append(student_id or None)
+        if student_name is not None:
+            assignments.append("student_name = ?")
+            values.append(student_name or None)
+        if responses is not None:
+            assignments.append("responses = ?")
+            values.append(json.dumps(list(responses)))
+            assignments.append("answered_count = ?")
+            values.append(sum(1 for value in responses if value))
+        if not assignments:
+            return False
+        values.extend([session_id, number])
+        with self._lock:
+            cursor = self._connection.execute(
+                f"UPDATE scans SET {', '.join(assignments)} "
+                "WHERE session_id = ? AND number = ?",
+                values,
+            )
+            self._connection.commit()
+            return cursor.rowcount > 0
+
     def list_sessions(self) -> list[dict]:
         with self._lock:
             rows = self._connection.execute(

@@ -140,6 +140,24 @@ sit underneath, highest first, with each student's missed questions.
 Those cut points are the same ones the omr_final results page uses, so an item
 that reads as Priority there reads as Priority here.
 
+Four sections sit under the test picker:
+
+- **Item analysis** — the buckets, the filters and the diagnostics above
+- **Student scores** — highest first, with each student's missed questions
+- **Review** — every sheet the scanner could not read cleanly: a missing
+  student ID, or a question where an erasure left two marks. Type the ID or
+  pick the intended answer and **Apply corrections**; the saved session is
+  updated and the analysis follows. The tab carries a count when anything is
+  waiting.
+- **Answer key** — the whole key as a grid. Click a letter to change it,
+  **Save answer key**, and every sheet is rescored against the new key.
+  Changed rows are highlighted until saved, and **Undo changes** puts them
+  back.
+
+The DataLink reads far more reliably than a document scanner, so Review should
+usually be empty — but a smudged ID or a half-erased answer still happens, and
+an answer key can simply be bubbled wrong.
+
 **Download JSON** on that page — or **Export item analysis** (⇧⌘E) from a
 session — writes the full report for upload.
 

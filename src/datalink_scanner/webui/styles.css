@@ -165,6 +165,10 @@ body.native .shell { padding-top: 18px; }
   box-shadow: 0 10px 26px rgba(0, 0, 0, .22);
   opacity: 0; visibility: hidden; transform: translateY(3px);
   transition: opacity .13s ease, transform .13s ease, visibility .13s;
+  /* The bubble is a child of its hover target and floats over neighbouring
+     controls. Without this it keeps itself open whenever the pointer crosses
+     it, and swallows clicks meant for the field underneath. */
+  pointer-events: none;
 }
 .hint-bubble::before {
   content: ""; position: absolute; top: 100%; left: var(--arrow-left, 12px);

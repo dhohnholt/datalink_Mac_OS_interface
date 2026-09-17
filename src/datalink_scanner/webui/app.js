@@ -398,7 +398,11 @@ for (const button of document.querySelectorAll("button.hint")) {
   const wrap = button.closest(".hint-wrap") || button.parentElement;
   // Hover shows the bubble from CSS alone, so place it on the way in too.
   wrap.addEventListener("mouseenter", () => placeHint(bubble));
+  // Leaving also drops a bubble that was opened by a click, so the hint never
+  // lingers over the controls beside it.
+  wrap.addEventListener("mouseleave", () => closeHints(null));
   button.addEventListener("focus", () => placeHint(bubble));
+  button.addEventListener("blur", () => closeHints(null));
   button.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();

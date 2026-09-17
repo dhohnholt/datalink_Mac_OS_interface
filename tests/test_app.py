@@ -211,6 +211,16 @@ class HintTests(unittest.TestCase):
         self.assertIn(".hint:focus-visible + .hint-bubble", self.css)
         self.assertIn(".hint-bubble.open", self.css)
 
+    def test_the_bubble_does_not_capture_the_pointer(self):
+        # It is a child of its own hover target and floats over neighbouring
+        # controls, so without this it holds itself open and eats their clicks.
+        bubble = self.css[self.css.index(".hint-bubble {"):]
+        self.assertIn("pointer-events: none", bubble[: bubble.index("}")])
+
+    def test_leaving_closes_a_hint_opened_by_clicking(self):
+        self.assertIn('"mouseleave"', APP_JS)
+        self.assertIn('"blur"', APP_JS)
+
     def test_hint_can_be_dismissed(self):
         self.assertIn("closeHints", APP_JS)
         self.assertIn('event.key === "Escape"', APP_JS)

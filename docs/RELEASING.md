@@ -8,10 +8,14 @@ by checksum. `packaging/release.sh` does all of it:
 packaging/release.sh 1.1.0
 ```
 
-It bumps both version strings, runs the tests, commits, tags `v1.1.0`, pushes,
-downloads the GitHub tag tarball to compute its `sha256`, rewrites
-`packaging/homebrew/datalink-scanner.rb`, and copies that formula into the tap
-checkout and pushes it.
+In order it: bumps both version strings, runs the tests, commits, tags `v1.1.0`
+and pushes, downloads the GitHub tag tarball to compute its `sha256`, rewrites
+`packaging/homebrew/datalink-scanner.rb`, publishes that formula to the tap,
+builds the `.dmg`, and creates the GitHub release with the disk image attached.
+
+It refuses to start on a dirty working tree, and if the tests fail it stops
+before tagging, so nothing is published. Pass `--skip-dmg` to publish the
+release without spending the ~40 seconds on a fresh disk image.
 
 Users then get the new version — command and app together — with:
 
@@ -63,8 +67,10 @@ brew update-python-resources datalink-scanner
 
 ## The DMG
 
-`packaging/build_macos.sh` still builds the standalone, Python-bundling `.app`
-and `.dmg` for people without Homebrew. It is not part of the release script —
-build it and attach it to the GitHub release manually when you want to refresh
-it. Unlike the Homebrew build it is architecture-specific and, being
-downloaded, is subject to Gatekeeper.
+`packaging/build_macos.sh` builds the standalone, Python-bundling `.app` and
+`.dmg` for people without Homebrew, and the release script runs it so the
+Releases page never goes stale against the formula.
+
+Unlike the Homebrew build it is architecture-specific — it produces a disk
+image for whichever Mac builds it — and, being downloaded, it is subject to
+Gatekeeper. Homebrew remains the better path for anyone who has it.

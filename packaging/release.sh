@@ -7,9 +7,18 @@
 # new URL and checksum so `brew upgrade datalink-scanner` picks it up.
 set -euo pipefail
 
-VERSION="${1:-}"
+VERSION=""
+SKIP_DMG=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-dmg) SKIP_DMG=1; shift ;;
+    -*) echo "unknown option: $1"; exit 2 ;;
+    *) VERSION="$1"; shift ;;
+  esac
+done
 if [[ -z "$VERSION" ]]; then
-  echo "usage: packaging/release.sh <version>   e.g. packaging/release.sh 1.1.0"
+  echo "usage: packaging/release.sh [--skip-dmg] <version>"
+  echo "   e.g. packaging/release.sh 1.1.0"
   exit 2
 fi
 if [[ ! "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]]; then
@@ -26,6 +35,16 @@ TAP_DIR="${TAP_DIR:-$(brew --repository)/Library/Taps/dhohnholt/homebrew-datalin
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree is dirty. Commit or stash first."
+  exit 1
+fi
+if ! command -v gh >/dev/null; then
+  echo "The GitHub CLI (gh) is required to publish the release."
+  exit 1
+fi
+if [[ $SKIP_DMG -eq 0 ]] && ! "${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python}" -c "import PyInstaller" 2>/dev/null; then
+  echo "PyInstaller is missing, so the .dmg cannot be built."
+  echo "Install it with: .venv/bin/pip install pyinstaller"
+  echo "Or re-run with --skip-dmg to publish without refreshing the disk image."
   exit 1
 fi
 
@@ -84,6 +103,40 @@ git -C "$TAP_DIR" add Formula/datalink-scanner.rb
 git -C "$TAP_DIR" commit -m "datalink-scanner $VERSION"
 git -C "$TAP_DIR" push
 
+ASSETS=()
+if [[ $SKIP_DMG -eq 0 ]]; then
+  echo "==> Building the disk image"
+  packaging/build_macos.sh >/dev/null
+  for image in "$PROJECT_DIR"/dist/DataLink-Scanner-macOS-*.dmg; do
+    [[ -f "$image" ]] && ASSETS+=("$image")
+  done
+  if [[ ${#ASSETS[@]} -eq 0 ]]; then
+    echo "The build reported success but produced no .dmg."
+    exit 1
+  fi
+fi
+
+echo "==> Publishing the GitHub release"
+gh release create "v$VERSION" "${ASSETS[@]}" \
+  --title "v$VERSION" \
+  --generate-notes \
+  --notes "## Install
+
+\`\`\`bash
+brew install dhohnholt/datalink/datalink-scanner
+datalink-scanner install-app
+\`\`\`
+
+Already installed? \`brew update && brew upgrade datalink-scanner\` updates the
+command and the app together.
+
+Without Homebrew, download the disk image below and drag the app to
+Applications. That build bundles its own Python, is built for $(/usr/bin/uname -m)
+only, and is ad-hoc signed rather than Apple notarized, so its first launch
+needs a Control-click → **Open**."
+
 echo
-echo "Released v$VERSION. Users update with:"
+echo "Released v$VERSION."
+echo "  https://github.com/$REPO/releases/tag/v$VERSION"
+echo "Users update with:"
 echo "    brew update && brew upgrade datalink-scanner"

@@ -58,14 +58,43 @@ class HelperLocationTests(unittest.TestCase):
         # Rebuilding would make a new file for the Keychain to be unsure about.
         self.assertEqual(first.stat().st_mtime_ns, stamped)
 
-    def test_it_is_rebuilt_when_the_interpreter_underneath_changes(self):
+    def test_a_working_helper_is_kept_when_the_interpreter_changes(self):
         helper = keychain.ensure_helper()
         if helper is None:
             self.skipTest("no interpreter to copy in this build")
         stamp = helper.with_name(helper.name + ".source")
+        was = helper.stat().st_ino
         stamp.write_text("a different interpreter entirely")
         keychain.ensure_helper()
+        # Replacing the file is what costs a password prompt, so a Python
+        # upgrade — or the app being run from another environment — must not
+        # be reason enough to do it.
+        self.assertEqual(helper.stat().st_ino, was)
         self.assertNotEqual(stamp.read_text(), "a different interpreter entirely")
+
+    def test_a_broken_helper_is_repaired_when_it_is_used(self):
+        helper = keychain.ensure_helper()
+        if helper is None:
+            self.skipTest("no interpreter to copy in this build")
+        helper.write_text("not an interpreter")
+        # Nothing checks the helper on the way past — it is trying to use it
+        # that reveals the breakage, and one rebuild is earned there. Without
+        # this the app would fall back to asking in-process for good.
+        answered = keychain._ask_helper(
+            {"action": "get", "service": "org.tmechs.datalink.nothing", "account": "x"}
+        )
+        self.assertEqual(answered, {"value": None})
+        self.assertGreater(helper.stat().st_size, 1000)
+
+    def test_a_rebuild_is_attempted_only_once(self):
+        with mock.patch.object(keychain, "ensure_helper") as ensure:
+            ensure.return_value = Path(self.temporary.name) / "missing-helper"
+            with mock.patch.object(
+                keychain.subprocess, "run", side_effect=OSError("still broken")
+            ):
+                self.assertIsNone(keychain._ask_helper({"action": "get"}))
+        self.assertEqual([call.kwargs for call in ensure.call_args_list],
+                         [{"rebuild": False}, {"rebuild": True}])
 
     def test_the_copy_carries_its_own_signature(self):
         helper = keychain.ensure_helper()

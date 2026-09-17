@@ -194,11 +194,18 @@ def _interpreter() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def ensure_helper() -> Path | None:
-    """Put the interpreter at the fixed path, and keep it current.
+def ensure_helper(rebuild: bool = False) -> Path | None:
+    """Put an interpreter at the fixed path, and then leave it alone.
 
     Copied rather than symlinked: a symlink resolves to the versioned original
     and the recorded path would move again with the next upgrade.
+
+    Replacing it is what costs a password prompt, because the Keychain records
+    the exact binary it trusts. So an existing helper is kept even when the
+    interpreter it was copied from has changed — a Python upgrade, or the app
+    being run from a different environment, is no reason to ask the teacher for
+    their password again. `rebuild` is for the one case that matters: the
+    helper stopped working, which _ask_helper notices by trying to use it.
     """
     source = _interpreter()
     if source is None:
@@ -214,9 +221,13 @@ def ensure_helper() -> Path | None:
     except OSError:
         return None
     try:
-        if destination.is_file() and stamp.is_file():
-            if stamp.read_text().strip() == digest:
-                return destination
+        if destination.is_file() and not rebuild:
+            # A different interpreter asking is not a reason to replace it;
+            # record what we compared against so the next call is a cheap
+            # string comparison rather than another digest.
+            if not stamp.is_file() or stamp.read_text().strip() != digest:
+                stamp.write_text(digest)
+            return destination
         destination.parent.mkdir(parents=True, exist_ok=True)
         # Replaced through a temporary name so a half-written helper is never
         # left behind for the next launch to run.
@@ -255,26 +266,32 @@ def _ask_helper(request: dict) -> dict | None:
     """Run one Keychain operation in the helper. None when it cannot be used."""
     if os.environ.get("DATALINK_KEYCHAIN_NO_HELPER"):
         return None
-    helper = ensure_helper()
-    if helper is None:
-        return None
-    try:
-        finished = subprocess.run(
-            [str(helper), str(Path(__file__).resolve()), HELPER_FLAG],
-            # The secret goes down stdin, so it never appears in `ps`.
-            input=json.dumps(request),
-            capture_output=True,
-            text=True,
-            timeout=HELPER_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if finished.returncode != 0 or not finished.stdout.strip():
-        return None
-    try:
-        return json.loads(finished.stdout)
-    except ValueError:
-        return None
+    # A helper that has stopped working — a deleted framework, a truncated
+    # copy — would otherwise send every call back to asking in-process, which
+    # is a password prompt each time. Trying it is how that gets noticed, so a
+    # failure earns exactly one rebuild and one retry.
+    for rebuild in (False, True):
+        helper = ensure_helper(rebuild=rebuild)
+        if helper is None:
+            return None
+        try:
+            finished = subprocess.run(
+                [str(helper), str(Path(__file__).resolve()), HELPER_FLAG],
+                # The secret goes down stdin, so it never appears in `ps`.
+                input=json.dumps(request),
+                capture_output=True,
+                text=True,
+                timeout=HELPER_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if finished.returncode != 0 or not finished.stdout.strip():
+            continue
+        try:
+            return json.loads(finished.stdout)
+        except ValueError:
+            return None
+    return None
 
 
 def _through_helper(action: str, service: str, account: str, password: str = ""):

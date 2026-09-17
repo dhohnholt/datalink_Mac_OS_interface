@@ -297,3 +297,60 @@ class AnalysisButtonTests(unittest.TestCase):
 
     def test_a_disabled_export_does_not_navigate(self):
         self.assertIn('classList.contains("disabled")', APP_JS)
+
+
+class InstallAppTests(unittest.TestCase):
+    """Replacing a previous install must not strand the user on a stale build,
+    and must not clobber somebody else's app."""
+
+    def setUp(self):
+        import tempfile
+
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def make_app(self, path, identifier):
+        (path / "Contents").mkdir(parents=True)
+        (path / "Contents" / "Info.plist").write_bytes(
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            b'"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+            b'<plist version="1.0"><dict><key>CFBundleIdentifier</key>'
+            + f"<string>{identifier}</string>".encode()
+            + b"</dict></plist>"
+        )
+        return path
+
+    def test_reads_a_bundle_identifier(self):
+        from datalink_scanner.cli import BUNDLE_IDENTIFIER, bundle_identifier
+
+        app = self.make_app(self.root / "One.app", BUNDLE_IDENTIFIER)
+        self.assertEqual(bundle_identifier(app), BUNDLE_IDENTIFIER)
+
+    def test_an_unreadable_bundle_has_no_identifier(self):
+        from datalink_scanner.cli import bundle_identifier
+
+        (self.root / "Broken.app").mkdir()
+        self.assertIsNone(bundle_identifier(self.root / "Broken.app"))
+
+    def test_trash_names_do_not_collide(self):
+        # Two replacements in the same second used to nest one inside the other.
+        import os
+        from datalink_scanner.cli import move_to_trash
+
+        home = self.root / "home"
+        (home / ".Trash").mkdir(parents=True)
+        previous = os.environ.get("HOME")
+        os.environ["HOME"] = str(home)
+        try:
+            first = move_to_trash(self.make_app(self.root / "A.app", "x"))
+            second = move_to_trash(self.make_app(self.root / "A.app", "x"))
+        finally:
+            if previous is None:
+                del os.environ["HOME"]
+            else:
+                os.environ["HOME"] = previous
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.is_dir() and second.is_dir())
+        self.assertNotIn(second.name, [item.name for item in first.iterdir()])

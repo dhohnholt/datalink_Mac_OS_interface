@@ -51,6 +51,11 @@ Then link the app once so it appears in the Dock and Spotlight:
 datalink-scanner install-app
 ```
 
+If you previously drag-installed the app from a `.dmg`, that copy is moved to
+the Trash and replaced with the link — otherwise you would keep launching the
+old build, which Homebrew cannot update. A different application that happens
+to share the name is left alone.
+
 Updating later, including the app:
 
 ```bash

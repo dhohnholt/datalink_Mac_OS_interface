@@ -215,6 +215,38 @@ def stable_bundle_path(bundle: Path) -> Path:
     return candidate if candidate.is_dir() else bundle
 
 
+BUNDLE_IDENTIFIER = "org.davidhohnholt.datalink-scanner"
+
+
+def bundle_identifier(app: Path) -> str | None:
+    import plistlib
+
+    try:
+        with (app / "Contents" / "Info.plist").open("rb") as stream:
+            return plistlib.load(stream).get("CFBundleIdentifier")
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def move_to_trash(app: Path) -> Path:
+    """Move rather than delete, so replacing the wrong thing is recoverable."""
+    import shutil
+    from datetime import datetime
+
+    trash = Path.home() / ".Trash"
+    trash.mkdir(exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = trash / f"{app.stem} (replaced {stamp}){app.suffix}"
+    # Two replacements in the same second would otherwise collide, and
+    # shutil.move puts the second *inside* the first rather than failing.
+    attempt = 2
+    while target.exists():
+        target = trash / f"{app.stem} (replaced {stamp}-{attempt}){app.suffix}"
+        attempt += 1
+    shutil.move(str(app), str(target))
+    return target
+
+
 def command_install_app(args: argparse.Namespace) -> int:
     """Symlink the bundle into /Applications so `brew upgrade` updates it too."""
     bundle = find_app_bundle()
@@ -225,18 +257,23 @@ def command_install_app(args: argparse.Namespace) -> int:
             "point at one built by packaging/make_app_bundle.sh."
         )
     destination = Path(args.applications).expanduser() / APP_BUNDLE_NAME
-    if destination.is_symlink() or destination.exists():
-        if not destination.is_symlink() and not args.force:
-            raise DataLinkError(
-                f"{destination} already exists and is not a symlink. "
-                "Move it aside, or re-run with --force to replace it."
-            )
-        if destination.is_symlink():
-            destination.unlink()
+    if destination.is_symlink():
+        destination.unlink()
+    elif destination.exists():
+        # Very likely an earlier copy of this same app, drag-installed from a
+        # .dmg. Refusing leaves the user launching a stale build that Homebrew
+        # cannot update - which looks like the app being broken - so replace
+        # it, but into the Trash rather than deleting it.
+        identifier = bundle_identifier(destination)
+        if identifier == BUNDLE_IDENTIFIER or args.force:
+            moved = move_to_trash(destination)
+            print(f"Moved the previous app to {moved}")
         else:
-            import shutil
-
-            shutil.rmtree(destination)
+            raise DataLinkError(
+                f"{destination} is a different application "
+                f"(bundle id {identifier or 'unknown'}), so it was left alone. "
+                "Re-run with --force to replace it anyway."
+            )
     target = stable_bundle_path(bundle)
     destination.symlink_to(target)
     print(f"Linked {destination} → {target}")

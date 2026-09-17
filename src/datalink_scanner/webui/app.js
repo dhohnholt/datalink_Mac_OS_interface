@@ -1183,6 +1183,10 @@ function renderConnection(state) {
   connected = Boolean(state.connected);
   destinations = state.destinations || [];
   $("#apiUrlLabel").textContent = state.api_url || "";
+  // Only when the server sent one: renderConnection is also called with states
+  // assembled in the page, which carry no site_url, and overwriting the link
+  // with "" there would leave a button that goes nowhere.
+  if (state.site_url) $("#ttessSiteLink").href = state.site_url;
   $("#connectForm").classList.toggle("hidden", connected);
   $("#connectedPanel").classList.toggle("hidden", !connected);
   $("#disconnectTtessButton").classList.toggle("hidden", !connected);

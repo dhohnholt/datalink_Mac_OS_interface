@@ -228,7 +228,7 @@ def bundle_identifier(app: Path) -> str | None:
         return None
 
 
-def move_to_trash(app: Path) -> Path:
+def move_to_trash(app: Path, label: str = "replaced") -> Path:
     """Move rather than delete, so replacing the wrong thing is recoverable."""
     import shutil
     from datetime import datetime
@@ -236,12 +236,12 @@ def move_to_trash(app: Path) -> Path:
     trash = Path.home() / ".Trash"
     trash.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    target = trash / f"{app.stem} (replaced {stamp}){app.suffix}"
+    target = trash / f"{app.stem} ({label} {stamp}){app.suffix}"
     # Two replacements in the same second would otherwise collide, and
     # shutil.move puts the second *inside* the first rather than failing.
     attempt = 2
     while target.exists():
-        target = trash / f"{app.stem} (replaced {stamp}-{attempt}){app.suffix}"
+        target = trash / f"{app.stem} ({label} {stamp}-{attempt}){app.suffix}"
         attempt += 1
     shutil.move(str(app), str(target))
     return target

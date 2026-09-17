@@ -22,6 +22,7 @@ import objc
 from AppKit import (
     NSAlert,
     NSAlertFirstButtonReturn,
+    NSAlertSecondButtonReturn,
     NSApplication,
     NSApplicationActivationPolicyRegular,
     NSBackingStoreBuffered,
@@ -59,12 +60,13 @@ from WebKit import (
     WKWebViewConfiguration,
 )
 
-from . import __version__, paths
+from . import __version__, paths, updates
 from .server import build_server
 
 
 APP_NAME = "DataLink Scanner"
 REPO_URL = "https://github.com/dhohnholt/datalink_Mac_OS_interface"
+_UPDATE_ACTION = "checkForUpdates:"
 
 # Marks the page as running inside the native shell. app.js hides its own Quit
 # button when this is set, because Cmd-Q already does the job properly.
@@ -120,6 +122,34 @@ def alert(message: str, informative: str = "", buttons=("OK",)):
     return panel
 
 
+def _action_name(item) -> str:
+    """The selector on a menu item, as text. PyObjC hands it over as bytes."""
+    action = item.action()
+    if action is None:
+        return ""
+    return action.decode() if isinstance(action, bytes) else str(action)
+
+
+def _copies(number: int) -> str:
+    return "the other copy" if number == 1 else f"the {number} other copies"
+
+
+def _moved_note(moved) -> str:
+    if not moved:
+        return ""
+    names = "\n".join(f"•  {Path(path).name}" for path in moved)
+    return f"\n\nMoved to the Trash:\n{names}"
+
+
+def _same_bundle(left, right) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        return Path(left).resolve() == Path(right).resolve()
+    except OSError:
+        return False
+
+
 def _item(title, action, key="", target=None, modifiers=None):
     """Build a menu item. A nil target sends the action down the responder
     chain, which is what the standard Edit commands need in order to reach the
@@ -158,6 +188,9 @@ class DataLinkAppDelegate(NSObject):
         self._window = None
         self._webview = None
         self._url = None
+        self._update_item = None
+        self._update_busy = False
+        self._update_result = None
         return self
 
     # ---------------------------------------------------------------- startup
@@ -241,6 +274,11 @@ class DataLinkAppDelegate(NSObject):
         # The first menu's title is what appears in bold next to the Apple menu.
         app_menu = _submenu(menubar, APP_NAME)
         app_menu.addItem_(_item(f"About {APP_NAME}", "showAbout:", target=self))
+        app_menu.addItem_(_separator())
+        self._update_item = _item(
+            "Check for Updates…", "checkForUpdates:", target=self
+        )
+        app_menu.addItem_(self._update_item)
         app_menu.addItem_(_separator())
         app_menu.addItem_(
             _item("Open Session Folder", "openSessionFolder:", target=self)
@@ -443,6 +481,198 @@ class DataLinkAppDelegate(NSObject):
             "scanner.\n\nEverything stays on this Mac — no scan data is sent "
             "to any network service.",
         ).runModal()
+
+    # ---------------------------------------------------------------- updates
+
+    def validateMenuItem_(self, item):
+        # Cocoa re-enables every item with a live target each time a menu
+        # opens, so the check has to happen here rather than once at build.
+        if _action_name(item) == _UPDATE_ACTION and self._update_busy:
+            return False
+        return True
+
+    def checkForUpdates_(self, sender):
+        if self._update_busy:
+            return
+        self._begin_update_work("Checking for Updates…")
+        threading.Thread(target=self._look_for_update, daemon=True).start()
+
+    def _begin_update_work(self, title):
+        self._update_busy = True
+        if self._update_item is not None:
+            self._update_item.setTitle_(title)
+
+    def _end_update_work(self):
+        self._update_busy = False
+        if self._update_item is not None:
+            self._update_item.setTitle_("Check for Updates…")
+
+    def _look_for_update(self):
+        """Network and disk work, off the main thread so the UI keeps drawing."""
+        result: dict = {}
+        try:
+            result["release"] = updates.latest_release()
+        except Exception as exc:  # a stuck menu item is worse than a message
+            result["error"] = str(exc)
+        try:
+            result["survey"] = updates.survey()
+        except Exception:
+            result["survey"] = {}
+        self._update_result = result
+        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+            "presentUpdate:", None, False
+        )
+
+    def presentUpdate_(self, sender):
+        self._end_update_work()
+        result = self._update_result or {}
+        if result.get("error"):
+            panel = alert(
+                "Could not check for updates",
+                result["error"],
+                buttons=("OK", "Open Releases Page"),
+            )
+            if panel.runModal() != NSAlertFirstButtonReturn:
+                self._open_external(updates.RELEASES_PAGE)
+            return
+        release = result.get("release") or {}
+        survey = result.get("survey") or {}
+        if updates.is_newer(release.get("version", ""), __version__):
+            self._offer_update(release, survey)
+        else:
+            self._offer_cleanup(survey)
+
+    def _offer_update(self, release, survey):
+        version = release.get("version") or ""
+        if not updates.homebrew_managed():
+            panel = alert(
+                f"Version {version} is available",
+                f"You are running {__version__}. This copy was installed from "
+                "the disk image rather than Homebrew, so it cannot replace "
+                "itself — download the new one and drag it to Applications.",
+                buttons=("Download…", "Later"),
+            )
+            if panel.runModal() == NSAlertFirstButtonReturn:
+                self._open_external(release.get("url") or updates.RELEASES_PAGE)
+            return
+
+        extra = survey.get("duplicates") or []
+        tidy = ""
+        if extra:
+            tidy = (
+                f"\n\nIt will also move {_copies(len(extra))} of the app on this "
+                "Mac to the Trash."
+            )
+        panel = alert(
+            f"Version {version} is available",
+            f"You are running {__version__}. DataLink Scanner will install the "
+            f"update, then close and reopen.{tidy}",
+            buttons=("Update & Relaunch", "Release Notes", "Later"),
+        )
+        choice = panel.runModal()
+        if choice == NSAlertFirstButtonReturn:
+            self._begin_update_work("Updating…")
+            threading.Thread(
+                target=self._install_update, args=(release,), daemon=True
+            ).start()
+        elif choice == NSAlertSecondButtonReturn:
+            self._open_external(release.get("url") or updates.RELEASES_PAGE)
+
+    def _install_update(self, release):
+        result: dict = {"release": release}
+        try:
+            updates.upgrade()
+        except Exception as exc:
+            result["error"] = str(exc)
+        else:
+            # Surveyed again afterwards: Homebrew has just moved things, and
+            # the copy to keep is the one it now points at.
+            survey = updates.survey()
+            result["survey"] = survey
+            result["moved"] = updates.sweep(survey.get("duplicates") or [])
+        self._update_result = result
+        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+            "finishUpdate:", None, False
+        )
+
+    def finishUpdate_(self, sender):
+        self._end_update_work()
+        result = self._update_result or {}
+        if result.get("error"):
+            alert("The update did not finish", result["error"]).runModal()
+            return
+        version = (result.get("release") or {}).get("version") or ""
+        moved = result.get("moved") or []
+        alert(
+            f"Updated to {version}",
+            f"DataLink Scanner will close and reopen now.{_moved_note(moved)}",
+        ).runModal()
+        self._reopen_after_update(result.get("survey") or {})
+
+    def _offer_cleanup(self, survey):
+        extra = survey.get("duplicates") or []
+        if not extra:
+            alert(
+                f"{APP_NAME} is up to date",
+                f"Version {__version__} is the latest release.",
+            ).runModal()
+            return
+        # The path the user recognises, rather than the Homebrew opt path the
+        # symlink in /Applications points at.
+        kept = updates.relaunch_target(survey.get("keeper"), survey.get("running"))
+        listing = "\n".join(f"•  {path}" for path in extra[:8])
+        if len(extra) > 8:
+            listing += f"\n•  and {len(extra) - 8} more"
+        found = (
+            "there is another copy"
+            if len(extra) == 1
+            else f"there are {len(extra)} other copies"
+        )
+        panel = alert(
+            f"{APP_NAME} is up to date",
+            f"Version {__version__} is the latest release, but {found} of the "
+            f"app on this Mac:\n\n{listing}\n\n"
+            f"{'Moving it' if len(extra) == 1 else 'Moving those'} to the Trash "
+            f"leaves {kept} as the only one.",
+            buttons=("Move to Trash", "Keep Them"),
+        )
+        if panel.runModal() != NSAlertFirstButtonReturn:
+            return
+        # Checked before the sweep, because a moved path no longer resolves.
+        running = survey.get("running")
+        reopening = any(_same_bundle(path, running) for path in extra)
+        moved = updates.sweep(extra)
+        if reopening:
+            alert(
+                "Older copies moved to the Trash",
+                f"The copy that was running is one of them, so DataLink "
+                f"Scanner will close and reopen from {survey.get('keeper')}."
+                f"{_moved_note(moved)}",
+            ).runModal()
+            self._reopen_after_update(survey)
+            return
+        alert(
+            "Older copies moved to the Trash",
+            "\n".join(f"•  {Path(path).name}" for path in moved),
+        ).runModal()
+
+    def _reopen_after_update(self, survey):
+        target = updates.relaunch_target(survey.get("keeper"), survey.get("running"))
+        if target is None:
+            alert(
+                f"Reopen {APP_NAME}",
+                "Everything is installed — open the app again from Applications.",
+            ).runModal()
+            return
+        try:
+            updates.relaunch(target)
+        except OSError as exc:
+            alert(
+                f"{APP_NAME} could not reopen itself",
+                f"Everything is installed — open it again from Applications. ({exc})",
+            ).runModal()
+            return
+        NSApplication.sharedApplication().terminate_(None)
 
     # ------------------------------------------------------------- CSV saving
 

@@ -453,3 +453,69 @@ class TtessInterfaceTests(unittest.TestCase):
 
     def test_the_token_is_never_rendered_back_into_the_page(self):
         self.assertNotIn("dlk_live_", APP_JS.replace('placeholder="dlk_live_…"', ""))
+
+    def test_the_settings_card_links_to_the_teacher_site(self):
+        card = self.html[self.html.index("T-TESS connection") :]
+        card = card[: card.index("</section>")]
+        self.assertIn('id="ttessSiteLink"', card)
+        self.assertIn("https://ttess.tmechsmonitor.org/ttess/reteach", card)
+        # Opened in the real browser: the native shell sends anything off our
+        # own server out through NSWorkspace rather than the web view.
+        link = card[card.index('id="ttessSiteLink"') :]
+        self.assertIn('target="_blank"', link[: link.index(">")])
+
+    def test_the_link_matches_the_address_the_server_publishes(self):
+        from datalink_scanner import ttess
+
+        self.assertIn(ttess.SITE_URL, self.html)
+
+
+class CheckForUpdatesTests(unittest.TestCase):
+    """The menu item, and the glue behind it that fails silently when wrong."""
+
+    def setUp(self):
+        source = Path(__file__).resolve().parents[1] / "src" / "datalink_scanner" / "app.py"
+        self.app_source = source.read_text()
+        # Menu items are written across one or several lines as they fit.
+        self.flat = re.sub(r"\s+", " ", self.app_source)
+
+    def test_the_app_menu_offers_check_for_updates(self):
+        self.assertIn('"Check for Updates…", "checkForUpdates:"', self.flat)
+
+    def test_every_menu_action_is_implemented_by_the_delegate(self):
+        # A menu item whose selector has no matching method is not an error in
+        # Cocoa; the item is simply disabled and does nothing.
+        actions = set(re.findall(r'_item\( ?"[^"]+", "(\w+):"[^)]*target=self', self.flat))
+        defined = set(re.findall(r"^    def (\w+)_\(self", self.app_source, re.MULTILINE))
+        self.assertTrue(actions)
+        self.assertFalse(actions - defined, f"no method for {actions - defined}")
+
+    def test_every_main_thread_hop_names_a_real_method(self):
+        # performSelectorOnMainThread_ takes the selector as a string, so a
+        # typo there is a callback that never arrives and no exception.
+        hops = set(
+            re.findall(
+                r'self\.performSelectorOnMainThread_withObject_waitUntilDone_\(\s*"(\w+):"',
+                self.app_source,
+            )
+        )
+        defined = set(re.findall(r"^    def (\w+)_\(self", self.app_source, re.MULTILINE))
+        self.assertTrue(hops)
+        self.assertFalse(hops - defined, f"no method for {hops - defined}")
+
+    def test_the_check_runs_off_the_main_thread(self):
+        # A blocking network call on the main thread freezes the whole window.
+        handler = self.app_source[self.app_source.index("def checkForUpdates_") :]
+        handler = handler[: handler.index("def _begin_update_work")]
+        self.assertIn("threading.Thread", handler)
+
+    def test_a_second_click_while_working_is_ignored(self):
+        handler = self.app_source[self.app_source.index("def checkForUpdates_") :]
+        self.assertIn("if self._update_busy:", handler[: handler.index("threading")])
+
+    def test_the_sweep_runs_after_the_upgrade_not_before(self):
+        # Homebrew moves the bundle it manages, so a survey taken beforehand
+        # would name paths that no longer exist.
+        install = self.app_source[self.app_source.index("def _install_update") :]
+        install = install[: install.index("def finishUpdate_")]
+        self.assertLess(install.index("updates.upgrade"), install.index("updates.sweep"))

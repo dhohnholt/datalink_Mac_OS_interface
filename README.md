@@ -62,6 +62,16 @@ Updating later, including the app:
 brew upgrade datalink-scanner
 ```
 
+Or from inside the app: **DataLink Scanner → Check for Updates…**. It asks
+GitHub what the newest release is and, when there is one, runs the Homebrew
+upgrade for you, then closes and reopens itself on the new version. Copies of
+the app left over from an earlier disk image or a local build are moved to the
+Trash in the same pass, so only the current one is left to launch. Nothing is
+deleted, and Homebrew's own storage is left to `brew cleanup`.
+
+A copy installed from the `.dmg` cannot replace itself, so there the same menu
+item offers the download page instead.
+
 The `.app` is a thin launcher around the `datalink-scanner` command, so an
 upgrade takes effect immediately with nothing to rebuild or re-download. It is
 built on your machine rather than downloaded, so macOS does not quarantine it
@@ -174,7 +184,9 @@ Center, so there is no file to export and re-upload by hand.
 
 Connect once, under **Settings** (⌘5): on the T-TESS website go to
 **Reteaching → Connect DataLink**, generate a connection token, and paste it
-in. The token is held in this Mac's **Keychain** and nowhere else — not in the
+in. **Open T-TESS** on that card opens the Reteach Center in your normal
+browser, which is where that token is generated and where the uploaded reports
+are read. The token is held in this Mac's **Keychain** and nowhere else — not in the
 app database, not in a preferences file, not in any log. It travels only as an
 `Authorization: Bearer` header. No password, email, or other account
 credential is ever requested; the server works out the teacher from the token.

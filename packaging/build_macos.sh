@@ -52,6 +52,16 @@ mkdir -p "$DIST_DIR" "$DMG_ROOT"
   --specpath "$PACKAGING_DIR" \
   "$PACKAGING_DIR/pyinstaller_entry.py"
 
+# PyInstaller stamps every bundle 0.0.0, which leaves Finder's Get Info and the
+# app's own Check for Updates unable to tell one copy from another. Must happen
+# before the signature, which covers Info.plist.
+VERSION=$("$PYTHON_BIN" -c 'import datalink_scanner; print(datalink_scanner.__version__)')
+INFO_PLIST="$DIST_DIR/$APP_NAME.app/Contents/Info.plist"
+for key in CFBundleShortVersionString CFBundleVersion; do
+  /usr/libexec/PlistBuddy -c "Set :$key $VERSION" "$INFO_PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$INFO_PLIST"
+done
+
 # Ad-hoc signature: this build is not Apple notarized, so macOS still asks the
 # user to confirm the first launch. See packaging/INSTALL.md.
 /usr/bin/codesign --force --deep --sign - "$DIST_DIR/$APP_NAME.app"

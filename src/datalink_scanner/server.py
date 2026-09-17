@@ -522,6 +522,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             payload = {
                 "connected": bool(bearer),
                 "api_url": ttess.API_URL,
+                "site_url": ttess.SITE_URL,
                 "destinations": [],
                 "error": None,
             }

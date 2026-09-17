@@ -410,7 +410,14 @@
             <h2>T-TESS connection</h2>
             <p id="connectionStatus">Checking…</p>
           </div>
-          <button id="disconnectTtessButton" class="ghost danger hidden">Disconnect</button>
+          <div class="button-row">
+            <!-- Off our own server, so the native shell hands this to the
+                 real browser rather than opening it in the app window. -->
+            <a id="ttessSiteLink" class="button secondary"
+               href="https://ttess.tmechsmonitor.org/ttess/reteach"
+               target="_blank" rel="noopener">Open T-TESS</a>
+            <button id="disconnectTtessButton" class="ghost danger hidden">Disconnect</button>
+          </div>
         </div>
         <div id="connectForm">
           <p class="dialog-copy">

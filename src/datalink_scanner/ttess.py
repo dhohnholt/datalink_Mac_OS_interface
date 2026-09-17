@@ -29,6 +29,11 @@ REVIEW_BASE_URL = os.environ.get(
     "DATALINK_REVIEW_BASE_URL",
     "https://ttess.tmechsmonitor.org/ttess/reteach/scantron",
 )
+# Where the teacher goes to generate a token, and to read the reports this app
+# uploads. Opened in the real browser, never inside the app's web view.
+SITE_URL = os.environ.get(
+    "DATALINK_SITE_URL", "https://ttess.tmechsmonitor.org/ttess/reteach"
+)
 KEYCHAIN_SERVICE = os.environ.get("DATALINK_KEYCHAIN_SERVICE", "org.tmechs.datalink")
 KEYCHAIN_ACCOUNT = os.environ.get(
     "DATALINK_KEYCHAIN_ACCOUNT", "scantron-upload-token"

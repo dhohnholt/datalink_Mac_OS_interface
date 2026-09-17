@@ -141,10 +141,14 @@ scanner attached.
 | 4 | Direct interface | ✅ working against real hardware |
 | 5 | Test scoring | ⬜ answer key + per-student scoring |
 | 6 | Item analysis | ⬜ per-question stats across a class |
-| 7 | Native SwiftUI app | ⬜ model layer only, see [`macos-app/`](macos-app/) |
+| 7 | Native macOS app | 🔨 in progress |
 
 Scoring and item analysis are not built yet — export the CSV and score
 elsewhere for now.
+
+An early SwiftUI model layer is parked on the
+[`swiftui-frontend`](https://github.com/dhohnholt/datalink_Mac_OS_interface/tree/swiftui-frontend)
+branch. It predates the protocol discovery and is not part of the build.
 
 ## Repository layout
 
@@ -155,7 +159,6 @@ scripts/                phase 1–3 discovery tools (see below)
 packaging/              app bundle builder, DMG build, Homebrew formula
 docs/                   protocol notes, experiment log, installer analysis
 windows_capture_kit/    portable collector for a Windows DataLink Connect PC
-macos-app/              experimental native front end (phase 7)
 captures/               local scan data — gitignored, never committed
 ```
 

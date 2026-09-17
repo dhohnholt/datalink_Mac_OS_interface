@@ -45,14 +45,3 @@ jobs:
             --version "0.0.0-ci"
           plutil -lint "$RUNNER_TEMP/DataLink Scanner.app/Contents/Info.plist"
           test -x "$RUNNER_TEMP/DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
-
-  swift:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v5
-      - name: Build the (experimental) native front end
-        working-directory: macos-app
-        run: |
-          swift --version
-          swift build
-          swift test

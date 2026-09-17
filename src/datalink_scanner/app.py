@@ -11,6 +11,7 @@ process needs to find it, so there is no fixed port to collide over.
 
 from __future__ import annotations
 
+import json
 import signal
 import sys
 import threading
@@ -34,6 +35,7 @@ from AppKit import (
     NSMenu,
     NSMenuItem,
     NSModalResponseOK,
+    NSOpenPanel,
     NSSavePanel,
     NSScreen,
     NSTerminateNow,
@@ -315,6 +317,10 @@ class DataLinkAppDelegate(NSObject):
             _item("Edit Selected Class…", "editClass:", target=self)
         )
         file_menu.addItem_(_separator())
+        file_menu.addItem_(
+            _item("Read Paper Batch…", "readPaperBatch:", "o", target=self)
+        )
+        file_menu.addItem_(_separator())
         file_menu.addItem_(_item("Export CSV…", "exportCSV:", "e", target=self))
         file_menu.addItem_(
             _item(
@@ -368,10 +374,11 @@ class DataLinkAppDelegate(NSObject):
 
         view_menu = _submenu(menubar, "View")
         view_menu.addItem_(_item("Scan", "showScan:", "1", target=self))
-        view_menu.addItem_(_item("Classes", "showClasses:", "2", target=self))
-        view_menu.addItem_(_item("Sessions", "showSessions:", "3", target=self))
-        view_menu.addItem_(_item("Analysis", "showAnalysis:", "4", target=self))
-        view_menu.addItem_(_item("Settings", "showSettings:", "5", target=self))
+        view_menu.addItem_(_item("Paper", "showPaper:", "2", target=self))
+        view_menu.addItem_(_item("Classes", "showClasses:", "3", target=self))
+        view_menu.addItem_(_item("Sessions", "showSessions:", "4", target=self))
+        view_menu.addItem_(_item("Analysis", "showAnalysis:", "5", target=self))
+        view_menu.addItem_(_item("Settings", "showSettings:", "6", target=self))
         view_menu.addItem_(_separator())
         view_menu.addItem_(
             _item("Show Protocol Details", "toggleProtocol:", target=self)
@@ -427,6 +434,12 @@ class DataLinkAppDelegate(NSObject):
 
     def showScan_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.showScan()")
+
+    def showPaper_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.showPaper()")
+
+    def readPaperBatch_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.choosePaperPdf()")
 
     def showClasses_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.showClasses()")
@@ -750,6 +763,22 @@ class DataLinkAppDelegate(NSObject):
         except Exception as exc:  # surfaced to the user, not swallowed
             alert("The CSV could not be saved", str(exc)).runModal()
 
+    def choose_pdf(self):
+        """A real Open panel: a web file input hands the page bytes, and the
+        image pipeline needs a path on disk."""
+        panel = NSOpenPanel.openPanel()
+        panel.setTitle_("Choose the scanned PDF")
+        panel.setAllowedFileTypes_(["pdf"])
+        panel.setAllowsMultipleSelection_(False)
+        panel.setCanChooseDirectories_(False)
+        if panel.runModal() != NSModalResponseOK:
+            return
+        url = panel.URL()
+        if url is None:
+            return
+        chosen = json.dumps(str(url.path()))
+        self._run_js(f"window.datalinkPaper && datalinkPaper.chosen({chosen})")
+
     # ------------------------------------------- WKScriptMessageHandler
 
     def userContentController_didReceiveScriptMessage_(self, controller, message):
@@ -760,6 +789,9 @@ class DataLinkAppDelegate(NSObject):
             return
         if action == "reveal":
             self.openSessionFolder_(None)
+            return
+        if action == "choosePdf":
+            self.choose_pdf()
             return
         if action == "export":
             query = body.get("query") or ""

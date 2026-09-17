@@ -22,6 +22,7 @@
 
     <nav class="tabs" id="viewTabs" aria-label="Sections">
       <button type="button" data-view="scan" class="active">Scan</button>
+      <button type="button" data-view="paper">Paper</button>
       <button type="button" data-view="classes">Classes</button>
       <button type="button" data-view="sessions">Sessions</button>
       <button type="button" data-view="analysis">Analysis</button>
@@ -114,6 +115,93 @@
           <button id="toggleProtocol" class="ghost">Show protocol details</button>
         </div>
         <ol id="activityList"><li class="muted">Waiting for activity.</li></ol>
+      </section>
+    </main>
+
+    <main id="view-paper" hidden>
+      <section class="card">
+        <div class="section-title row">
+          <div>
+            <h2>Read a paper batch</h2>
+            <p id="paperIntro">Scan the sheets on any document scanner, then read the PDF here — for when the DataLink is not to hand.</p>
+          </div>
+          <div class="button-row">
+            <button id="paperChooseButton" class="secondary">Choose PDF…</button>
+          </div>
+        </div>
+
+        <div id="paperSetup" class="hidden">
+          <p class="callout" id="paperFileLine"></p>
+          <div class="controls">
+            <label>
+              <span class="label-text">Test name</span>
+              <input id="paperName" type="text" autocomplete="off" placeholder="Unit 2 Exam — 5th Period">
+            </label>
+            <label>
+              <span class="label-text">Class</span>
+              <select id="paperClass"><option value="">No roster</option></select>
+            </label>
+            <label>
+              <span class="label-text hint-wrap">Answer key page
+                <button type="button" class="hint" aria-controls="paperKeyHint" aria-expanded="false" aria-label="About the answer key page">i</button>
+                <span id="paperKeyHint" class="hint-bubble" role="tooltip">The page number of the marked key, counting every page in the PDF including blank backs.</span>
+              </span>
+              <input id="paperKeyPage" type="number" inputmode="numeric" min="1" step="1" value="1" aria-describedby="paperKeyHint">
+            </label>
+            <label>
+              <span class="label-text">Questions per form</span>
+              <input id="paperQuestions" type="number" inputmode="numeric" min="1" max="50" step="1" value="50">
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="paperRunButton" class="primary">Read the sheets</button>
+          </div>
+        </div>
+
+        <div id="paperProgressWrap" class="hidden">
+          <p class="callout" id="paperProgressMessage">Working…</p>
+          <div class="meter"><span id="paperProgressBar"></span></div>
+        </div>
+
+        <p id="paperError" class="safety danger hidden"></p>
+
+        <div id="paperDone" class="hidden">
+          <p class="callout success" id="paperDoneMessage"></p>
+          <div class="button-row">
+            <button id="paperOpenAnalysis" class="primary">Open the item analysis</button>
+            <button id="paperAgainButton" class="secondary">Read another batch</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="paperSupportCard">
+        <div class="section-title row">
+          <div>
+            <h2>Paper scanning support</h2>
+            <p id="paperSupportStatus">Checking…</p>
+          </div>
+          <div class="button-row">
+            <button id="paperInstallButton" class="primary hidden">Install support</button>
+          </div>
+        </div>
+        <p class="safety" id="paperSupportDetail"></p>
+      </section>
+
+      <section class="card">
+        <div class="section-title row">
+          <div>
+            <h2>Scanned page cache</h2>
+            <p id="paperStorageSummary">Checking…</p>
+          </div>
+          <div class="button-row">
+            <button id="paperPurgeButton" class="secondary">Empty the cache</button>
+          </div>
+        </div>
+        <p class="safety">
+          Pages are kept at full resolution so a batch can be re-read without
+          scanning again. Emptying the cache removes only those images —
+          saved sessions, scores and item analyses are untouched.
+        </p>
       </section>
     </main>
 

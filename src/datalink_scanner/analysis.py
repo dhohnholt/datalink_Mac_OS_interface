@@ -179,9 +179,12 @@ def build_session_analysis(
         run_id=run_id,
         scan_student_ids=True,
         question_count=question_count,
-        # Deliberately the same value the CSV importer emits: the site already
-        # accepts it, and the scans came off a DataLink either way.
-        source_type="datalink_csv",
+        # Scans read off the scanner report the same value the CSV importer
+        # emits — the site already accepts it, and they came off a DataLink
+        # either way. A batch read from a PDF says so instead.
+        source_type=(
+            "pdf_scan" if session.get("source") == "paper" else "datalink_csv"
+        ),
     )
 
 

@@ -320,3 +320,10 @@ body.native .shell { padding-top: 18px; }
   width: 17px; height: 17px; min-height: 0; margin: 0; border: 0;
   accent-color: var(--green); flex: none;
 }
+
+/* Reading a batch takes minutes, so it gets a real progress bar rather than a
+   spinner that says nothing about how far along it is. */
+.meter { height: 10px; border-radius: 999px; background: #e6ece8; overflow: hidden; margin-top: 12px; }
+.meter span { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--green); transition: width .3s ease; }
+.callout.success { background: #eef7f1; border-color: #bfe0cb; color: var(--ink); }
+.callout.warn { background: #fdeceb; border-color: #f2c0bb; color: #7a1c14; }

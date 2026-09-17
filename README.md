@@ -148,6 +148,37 @@ Sheets are also appended live to a timestamped `browser_session_*.jsonl` file
 as a plain-text belt-and-braces log. Both live in
 `~/Library/Application Support/DataLink Scanner/captures`.
 
+### Paper batches, without the DataLink
+
+If the scanner is not to hand, scan the sheets on any document scanner — a
+ScanSnap, a copier — and read the PDF on the **Paper** page (⌘2). Choose the
+file, say which page holds the marked answer key, and the sheets are read and
+filed as an ordinary session. From there nothing knows the difference:
+Sessions, Review, Answer key, Item analysis and Send to T-TESS all work on it,
+and the scoring is the same code that scores a DataLink capture.
+
+The reading itself is the pipeline from the
+[omr_final](https://github.com/dhohnholt) project, vendored unchanged in
+`src/datalink_scanner/vendor/omr/`, so a sheet read this way and a sheet read
+by that project produce the same numbers. It handles the green Apperson
+"AccuScan" A–E form it was calibrated against; other layouts are skipped and
+counted rather than guessed at.
+
+It needs OpenCV, NumPy and Pillow — about 51 MB to download, 154 MB on disk —
+which are **not** part of the normal install, because most people only ever use
+the device. **Install support** on that page fetches them in the background
+into `~/Library/Application Support/DataLink Scanner/paper-support`, outside
+the app, so updating the app does not download them again. Rendering also needs
+poppler (`brew install poppler`). A copy installed from the `.dmg` cannot
+install packages for itself; use the Homebrew install for paper scanning.
+
+Pages are rendered at 400 dpi and cached so a batch can be re-read without
+scanning again, which costs roughly **100 MB per 16-page batch**. The Paper
+page reports the cache and empties it on request, and once it passes 500 MB the
+app offers to empty it after a run. Only the page images go — sessions, scores
+and item analyses are kept, and nothing needs the PDF again once a batch has
+been read.
+
 ### Item analysis
 
 The **Analysis** page scores a scanned test and shows where the class actually
@@ -243,6 +274,11 @@ either, so the app does not delete anything on its own.
 Growth is slight: about 360 bytes per sheet. A year of six classes of thirty
 students sitting a fifty-question test every week — around 6,700 sheets — comes
 to roughly 2.5 MB.
+
+Paper batches are the exception, because their rendered pages are images:
+around 100 MB per 16-page batch. Those are a cache rather than data — see
+**Paper batches** above — and the app offers to empty them once they pass
+500 MB.
 
 The **Sessions** page shows exactly what is stored and where, and
 **Delete sessions older than…** removes old sessions, their scans and their log

@@ -210,6 +210,15 @@ def prepare_analysis(analysis: dict, test_code: str) -> tuple[dict, bytes]:
     payload = json.loads(json.dumps(analysis))
     payload.setdefault("exam", {})
     payload["exam"]["test_code"] = test_code
+    # source_type says how it reached T-TESS, which is the same either way.
+    # capture_method keeps how the sheets were actually read, so a batch off a
+    # document scanner is not recorded as having come from the device.
+    payload["exam"].setdefault(
+        "capture_method",
+        "paper_scan"
+        if payload["exam"].get("source_type") == "pdf_scan"
+        else "datalink",
+    )
     payload["exam"]["source_type"] = "datalink_direct"
     encoded = json.dumps(payload).encode("utf-8")
     if len(encoded) > MAX_ANALYSIS_BYTES:

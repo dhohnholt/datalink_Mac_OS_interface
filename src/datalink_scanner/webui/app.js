@@ -57,9 +57,10 @@ function showView(name) {
   for (const button of document.querySelectorAll("#viewTabs button")) {
     button.classList.toggle("active", button.dataset.view === name);
   }
-  for (const view of ["scan", "classes", "sessions", "analysis", "settings"]) {
+  for (const view of ["scan", "paper", "classes", "sessions", "analysis", "settings"]) {
     $(`#view-${view}`).hidden = view !== name;
   }
+  if (name === "paper") loadPaper();
   if (name === "classes") loadClasses();
   if (name === "sessions") loadSessions();
   if (name === "analysis") loadAnalysisSessions();
@@ -756,6 +757,8 @@ window.datalinkMenu = {
   startAtFirst: () => $("#resetRosterButton").click(),
   toggleProtocol: () => $("#toggleProtocol").click(),
   showScan: () => showView("scan"),
+  showPaper: () => showView("paper"),
+  choosePaperPdf: () => { showView("paper"); $("#paperChooseButton").click(); },
   showClasses: () => showView("classes"),
   showSessions: () => showView("sessions"),
   showAnalysis: () => showView("analysis"),
@@ -1377,6 +1380,234 @@ async function migrateBrowserStorage() {
     /* Leave localStorage untouched so the next launch can try again. */
   }
 }
+
+/* ---------------------------------------------------------------- paper */
+
+let paperPath = "";
+let paperPollTimer = null;
+let paperWarnedOverLimit = false;
+
+function readableSize(bytes) {
+  const mb = (bytes || 0) / 1048576;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+}
+
+function renderPaperSupport(support) {
+  const ready = support.ready;
+  $("#paperSupportStatus").textContent = ready
+    ? `Ready · OpenCV ${support.opencv_version}`
+    : "Not installed yet";
+  $("#paperInstallButton").classList.toggle("hidden", ready || !support.can_install_packages);
+  $("#paperChooseButton").disabled = !ready;
+
+  const parts = [];
+  if (ready) {
+    parts.push(`${support.packages.join(", ")} are installed in ${support.support_dir}.`);
+  } else {
+    if (support.missing.includes("packages")) {
+      parts.push(
+        `Reading paper sheets needs ${support.packages.join(", ")} — about ` +
+        `${support.download_mb} MB to download and ${support.installed_mb} MB on disk. ` +
+        "They are kept outside the app so an update does not download them again."
+      );
+      if (!support.can_install_packages) {
+        parts.push("This build cannot install them itself; install DataLink Scanner with Homebrew instead.");
+      }
+    }
+    if (support.missing.includes("poppler")) {
+      parts.push("poppler is also missing. Install it with: brew install poppler");
+    }
+  }
+  $("#paperSupportDetail").textContent = parts.join(" ");
+}
+
+function renderPaperStorage(storage) {
+  const summary =
+    `${readableSize(storage.cache_bytes)} of rendered pages` +
+    (storage.batches ? ` from ${storage.batches} batch${storage.batches === 1 ? "" : "es"}` : "");
+  $("#paperStorageSummary").textContent = storage.cache_bytes
+    ? summary
+    : "Nothing cached yet.";
+  $("#paperPurgeButton").disabled = !storage.cache_bytes;
+  if (!storage.over_limit) paperWarnedOverLimit = false;
+  return storage;
+}
+
+function renderPaperJob(job) {
+  const running = job.state === "installing" || job.state === "reading";
+  $("#paperProgressWrap").classList.toggle("hidden", !running);
+  $("#paperProgressMessage").textContent = job.message || "Working…";
+  $("#paperProgressBar").style.width = `${Math.round((job.progress || 0) * 100)}%`;
+  $("#paperRunButton").disabled = running;
+  $("#paperChooseButton").disabled = running;
+  $("#paperInstallButton").disabled = running;
+
+  const failed = job.state === "failed";
+  $("#paperError").classList.toggle("hidden", !failed);
+  if (failed) $("#paperError").textContent = job.message;
+
+  const finished = job.state === "done" && job.session_id;
+  $("#paperDone").classList.toggle("hidden", !finished);
+  $("#paperSetup").classList.toggle("hidden", !paperPath || running || finished);
+  if (finished) {
+    $("#paperDoneMessage").textContent =
+      `${job.message}. They are saved as a session, ready to review and send to T-TESS.`;
+    $("#paperOpenAnalysis").dataset.session = job.session_id;
+  }
+}
+
+async function loadPaper() {
+  try {
+    const data = await request("/api/paper");
+    renderPaperSupport(data.support);
+    renderPaperStorage(data.storage);
+    renderPaperJob(data.job);
+    $("#paperQuestions").max = data.max_questions;
+    await loadClasses();
+    const select = $("#paperClass");
+    const chosen = select.value;
+    select.innerHTML = '<option value="">No roster</option>' + classes.map(item =>
+      `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`
+    ).join("");
+    select.value = chosen || selectedClassName || "";
+    if (data.job.busy) startPaperPolling();
+  } catch (error) {
+    $("#paperSupportStatus").textContent = error.message;
+  }
+}
+
+function startPaperPolling() {
+  if (paperPollTimer !== null) return;
+  paperPollTimer = setInterval(async () => {
+    let data;
+    try {
+      data = await request("/api/paper/job");
+    } catch (error) {
+      return;
+    }
+    renderPaperJob(data.job);
+    const storage = renderPaperStorage(data.storage);
+    if (!data.job.busy) {
+      clearInterval(paperPollTimer);
+      paperPollTimer = null;
+      if (data.job.state === "done") {
+        loadSessions().catch(() => {});
+        offerPurgeIfLarge(storage);
+      }
+    }
+  }, 1000);
+}
+
+async function offerPurgeIfLarge(storage) {
+  // Asked once per run, and only when the cache has actually grown past the
+  // limit: a prompt on every batch would be trained away in a week.
+  if (!storage.over_limit || paperWarnedOverLimit) return;
+  paperWarnedOverLimit = true;
+  const answer = confirm(
+    `The scanned page cache is now ${readableSize(storage.cache_bytes)}, over the ` +
+    `${readableSize(storage.warn_bytes)} mark.\n\n` +
+    "Empty it? Only the page images go — your sessions, scores and item analyses are kept."
+  );
+  if (answer) await purgePaperCache();
+}
+
+async function purgePaperCache() {
+  const result = await post("/api/paper/purge", {});
+  renderPaperStorage(result);
+  toast(`Freed ${readableSize(result.freed_bytes)}`);
+}
+
+$("#paperChooseButton").addEventListener("click", async () => {
+  if (window.datalinkNative) {
+    // A WKWebView file input gives the page no path, and the pipeline needs
+    // one, so the app puts up a real Open panel and calls back.
+    window.webkit.messageHandlers.datalink.postMessage({action: "choosePdf"});
+    return;
+  }
+  const typed = prompt("Full path to the scanned PDF:", paperPath || "");
+  if (typed) setPaperPdf(typed.trim());
+});
+
+async function setPaperPdf(path) {
+  if (!path) return;
+  paperPath = path;
+  $("#paperError").classList.add("hidden");
+  $("#paperDone").classList.add("hidden");
+  try {
+    const {pages} = await post("/api/paper/pages", {path});
+    const name = path.split("/").pop();
+    $("#paperFileLine").textContent = `${name} · ${pages} page${pages === 1 ? "" : "s"}`;
+    $("#paperKeyPage").max = pages;
+    $("#paperSetup").classList.remove("hidden");
+    if (!$("#paperName").value) $("#paperName").value = name.replace(/\.pdf$/i, "");
+  } catch (error) {
+    paperPath = "";
+    $("#paperSetup").classList.add("hidden");
+    $("#paperError").classList.remove("hidden");
+    $("#paperError").textContent = error.message;
+  }
+}
+
+window.datalinkPaper = {chosen: setPaperPdf};
+
+$("#paperRunButton").addEventListener("click", async () => {
+  $("#paperError").classList.add("hidden");
+  try {
+    const {job} = await post("/api/paper/run", {
+      path: paperPath,
+      key_page: Number($("#paperKeyPage").value),
+      question_count: Number($("#paperQuestions").value),
+      name: $("#paperName").value.trim(),
+      class_name: $("#paperClass").value,
+    });
+    renderPaperJob(job);
+    startPaperPolling();
+  } catch (error) {
+    $("#paperError").classList.remove("hidden");
+    $("#paperError").textContent = error.message;
+  }
+});
+
+$("#paperInstallButton").addEventListener("click", async () => {
+  $("#paperError").classList.add("hidden");
+  try {
+    const {job} = await post("/api/paper/install", {});
+    renderPaperJob(job);
+    startPaperPolling();
+    const finished = setInterval(async () => {
+      const data = await request("/api/paper/job").catch(() => null);
+      if (data && !data.job.busy) {
+        clearInterval(finished);
+        loadPaper();
+      }
+    }, 1500);
+  } catch (error) {
+    $("#paperError").classList.remove("hidden");
+    $("#paperError").textContent = error.message;
+  }
+});
+
+$("#paperPurgeButton").addEventListener("click", async () => {
+  if (!confirm("Empty the scanned page cache? Sessions, scores and item analyses are kept.")) return;
+  await purgePaperCache();
+});
+
+$("#paperAgainButton").addEventListener("click", async () => {
+  paperPath = "";
+  await post("/api/paper/dismiss", {});
+  $("#paperDone").classList.add("hidden");
+  $("#paperFileLine").textContent = "";
+  $("#paperName").value = "";
+  loadPaper();
+});
+
+$("#paperOpenAnalysis").addEventListener("click", async () => {
+  const sessionId = $("#paperOpenAnalysis").dataset.session;
+  showView("analysis");
+  await loadAnalysisSessions();
+  $("#analysisSession").value = sessionId;
+  $("#analysisSession").dispatchEvent(new Event("change"));
+});
 
 function renderUpdateSettings(settings) {
   $("#autoUpdateCheck").checked = settings.auto_update_check !== false;

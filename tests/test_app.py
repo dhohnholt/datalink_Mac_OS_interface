@@ -153,7 +153,7 @@ class ViewSwitchingTests(unittest.TestCase):
         html = (WEBUI / "index.html").read_text()
         tabs = set(re.findall(r'data-view="(\w+)"', html))
         self.assertEqual(
-            tabs, {"scan", "classes", "sessions", "analysis", "settings"}
+            tabs, {"scan", "paper", "classes", "sessions", "analysis", "settings"}
         )
         for view in tabs:
             self.assertIn(f'id="view-{view}"', html)

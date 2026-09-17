@@ -61,6 +61,23 @@ class VendorTests(unittest.TestCase):
                 f"{name} has drifted from omr_final; re-copy it",
             )
 
+    @unittest.skipUnless(OMR_FINAL.is_dir(), "omr_final is not on this machine")
+    def test_the_vendored_paper_pipeline_matches_the_originals(self):
+        """Same rule for the image pipeline: the sheet reading and the
+        calibration it was measured against are copies, not a fork."""
+        for name in (
+            "analyze_exam.py",
+            "calibrate_page.py",
+            "extract_template_a.py",
+            "page_selection.py",
+            "reference_page.png",
+        ):
+            self.assertEqual(
+                (VENDOR / "omr" / name).read_bytes(),
+                (OMR_FINAL / name).read_bytes(),
+                f"{name} has drifted from omr_final; re-copy it",
+            )
+
 
 class NormalizeTests(unittest.TestCase):
     def test_matches_the_csv_importers_rules(self):

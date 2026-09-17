@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     ended_at       TEXT,
     log_path       TEXT,
     analysis_run_id      TEXT,
-    analysis_fingerprint TEXT
+    analysis_fingerprint TEXT,
+    source         TEXT NOT NULL DEFAULT 'datalink'
 );
 
 CREATE TABLE IF NOT EXISTS scans (
@@ -103,6 +104,13 @@ class Store:
         if "analysis_fingerprint" not in columns:
             self._connection.execute(
                 "ALTER TABLE sessions ADD COLUMN analysis_fingerprint TEXT"
+            )
+        # How the sheets were read. Everything created before this column
+        # existed came off the scanner itself, which is the default.
+        if "source" not in columns:
+            self._connection.execute(
+                "ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL "
+                "DEFAULT 'datalink'"
             )
 
     def close(self) -> None:
@@ -231,12 +239,20 @@ class Store:
         class_name: str,
         question_count: int,
         log_path: str | None = None,
+        source: str = "datalink",
     ) -> int:
         with self._lock:
             cursor = self._connection.execute(
                 "INSERT INTO sessions(name, class_name, question_count, started_at, "
-                "log_path) VALUES(?, ?, ?, ?, ?)",
-                (name or "", class_name or "", question_count, _now(), log_path),
+                "log_path, source) VALUES(?, ?, ?, ?, ?, ?)",
+                (
+                    name or "",
+                    class_name or "",
+                    question_count,
+                    _now(),
+                    log_path,
+                    source or "datalink",
+                ),
             )
             self._connection.commit()
             return int(cursor.lastrowid)
@@ -340,7 +356,7 @@ class Store:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT s.id, s.name, s.class_name, s.question_count, s.started_at, "
-                "       s.ended_at, COUNT(c.id) AS scan_count "
+                "       s.ended_at, s.source, COUNT(c.id) AS scan_count "
                 "FROM sessions s LEFT JOIN scans c ON c.session_id = s.id "
                 "GROUP BY s.id ORDER BY s.started_at DESC"
             ).fetchall()
@@ -350,7 +366,7 @@ class Store:
         with self._lock:
             row = self._connection.execute(
                 "SELECT id, name, class_name, question_count, started_at, ended_at, "
-                "       log_path, analysis_run_id, analysis_fingerprint "
+                "       log_path, analysis_run_id, analysis_fingerprint, source "
                 "FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()

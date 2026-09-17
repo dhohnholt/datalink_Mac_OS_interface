@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__, paths
+from . import paper
 from . import ttess
 from . import updates
 from .analysis import (
@@ -56,6 +57,7 @@ def safe_export_filename(test_name: str) -> str:
 
 
 DESTINATIONS = ttess.DestinationCache()
+PAPER_JOB = paper.Job()
 
 
 def scored_session(store: Store, session_id: int) -> tuple[dict, dict]:
@@ -76,6 +78,60 @@ def scored_session(store: Store, session_id: int) -> tuple[dict, dict]:
     if run_id != report["run_id"]:
         store.remember_run_id(session_id, report["run_id"], fingerprint)
     return session, report
+
+
+def _install_paper_support(report) -> dict:
+    """The install button's work: pip output is mostly noise, so only the
+    lines that name a step are passed on."""
+    def watch(line: str) -> None:
+        if line.startswith(("Collecting", "Downloading", "Installing", "Successfully")):
+            report(message=line[:90])
+
+    paper.install_packages(on_line=watch)
+    return {"message": f"Installed {', '.join(paper.PACKAGES)}"}
+
+
+def _paper_run(store: Store, capture_root: Path, body: dict):
+    """Read a PDF batch and file the result as a session."""
+    pdf = str(body.get("path", ""))
+    key_page = int(body.get("key_page", 0) or 0)
+    question_count = int(body.get("question_count", paper.MAX_QUESTIONS) or 0)
+    pages = str(body.get("pages", "all") or "all")
+    skip_pages = str(body.get("skip_pages", "") or "")
+    name = str(body.get("name", "") or "")
+    class_name = str(body.get("class_name", "") or "")
+
+    def work(report) -> dict:
+        if key_page < 1:
+            raise paper.PaperError("Choose which page holds the answer key.")
+
+        def watch(line: str) -> None:
+            fraction = paper.progress_fraction(line)
+            if fraction is not None:
+                report(
+                    progress=fraction,
+                    message=("Rendering the pages…" if fraction < 0.5 else "Reading the sheets…"),
+                )
+
+        result = paper.analyze(
+            pdf,
+            key_page=key_page,
+            question_count=question_count,
+            pages=pages,
+            skip_pages=skip_pages,
+            exam_name=name or None,
+            capture_dir=capture_root,
+            on_line=watch,
+        )
+        report(progress=0.98, message="Filing the results…")
+        session_id = paper.session_from_report(store, result, name=name, class_name=class_name)
+        students = len(result.get("students") or [])
+        return {
+            "session_id": session_id,
+            "message": f"Read {students} sheet{'' if students == 1 else 's'}",
+        }
+
+    return work
 
 
 def records_to_csv(
@@ -550,7 +606,29 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if path == "/api/storage":
-            self._send_json(self.store.storage_report())
+            report = self.store.storage_report()
+            report["paper"] = paper.cache_report(self.controller.capture_root)
+            self._send_json(report)
+            return
+        if path == "/api/paper":
+            # The status probe starts an interpreter, so it is not run on the
+            # progress poll — only when the page asks for the whole picture.
+            self._send_json(
+                {
+                    "support": paper.status(),
+                    "storage": paper.cache_report(self.controller.capture_root),
+                    "job": PAPER_JOB.snapshot(),
+                    "max_questions": paper.MAX_QUESTIONS,
+                }
+            )
+            return
+        if path == "/api/paper/job":
+            self._send_json(
+                {
+                    "job": PAPER_JOB.snapshot(),
+                    "storage": paper.cache_report(self.controller.capture_root),
+                }
+            )
             return
         # Same report, served inline for the Analysis page rather than as a
         # download.
@@ -692,6 +770,46 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                         ),
                     )
                 self._send_json({"ok": True})
+                return
+            elif path == "/api/paper/install":
+                try:
+                    PAPER_JOB.start(
+                        "installing",
+                        "Downloading about 51 MB…",
+                        lambda report: _install_paper_support(report),
+                    )
+                except paper.PaperError as exc:
+                    self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+                    return
+                self._send_json({"job": PAPER_JOB.snapshot()})
+                return
+            elif path == "/api/paper/pages":
+                try:
+                    count = paper.page_count(str(body.get("path", "")))
+                except paper.PaperError as exc:
+                    self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                    return
+                self._send_json({"pages": count})
+                return
+            elif path == "/api/paper/run":
+                try:
+                    PAPER_JOB.start(
+                        "reading",
+                        "Rendering the pages…",
+                        _paper_run(self.store, self.controller.capture_root, body),
+                    )
+                except paper.PaperError as exc:
+                    self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+                    return
+                self._send_json({"job": PAPER_JOB.snapshot()})
+                return
+            elif path == "/api/paper/purge":
+                result = paper.purge_cache(self.controller.capture_root)
+                self._send_json(result)
+                return
+            elif path == "/api/paper/dismiss":
+                PAPER_JOB.reset()
+                self._send_json({"job": PAPER_JOB.snapshot()})
                 return
             elif path == "/api/sessions/correct":
                 session_id = int(body.get("session_id", 0))

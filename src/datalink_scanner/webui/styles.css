@@ -36,10 +36,22 @@ main { display: grid; gap: 22px; min-width: 0; }
 .section-title h2 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
 .section-title p { color: var(--muted); margin: 7px 0 0; }
 .section-title.row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.controls { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(220px, 1fr) 170px auto auto; gap: 12px; align-items: end; margin-top: 22px; }
+/* Four equal fields on one row. Each label is a flex column with a fixed-height
+   caption, so every control starts and ends at the same y no matter how tall
+   its caption is — the hint button made one of them taller than the rest. */
+.controls { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; align-items: stretch; margin-top: 22px; }
+.controls label { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.controls .label-text { display: flex; align-items: center; gap: 6px; min-height: 19px; line-height: 1.2; }
 label { color: var(--muted); font-size: 13px; font-weight: 700; }
 select, input, button, .button { min-height: 44px; border-radius: 10px; border: 1px solid var(--line); font: inherit; }
 select, .controls input { display: block; width: 100%; margin-top: 7px; padding: 0 12px; background: #fff; color: var(--ink); }
+/* After the rule above, which sets a 7px top margin at the same specificity:
+   the flex column already provides the gap, and leaving the margin on made
+   inputs sit 7px lower than selects in the same row. */
+.controls input, .controls select { height: 44px; margin-top: 0; }
+.connect-card .section-title.row { align-items: flex-start; gap: 20px; }
+.connect-card .section-title .button-row { flex: none; }
+.roster-line { margin-top: 6px; font-size: 13px; color: var(--muted); }
 .class-picker { min-width: 210px; }
 .class-picker select { display: block; width: 100%; margin-top: 7px; padding: 0 12px; background: #fff; color: var(--ink); }
 input { color: var(--ink); }
@@ -115,7 +127,9 @@ dialog legend { padding: 0 7px; }
 @media (max-width: 850px) {
   .shell { padding: 26px 16px 50px; }
   header, .section-title.row { align-items: flex-start; flex-direction: column; }
-  .controls, .metrics { grid-template-columns: 1fr; }
+  .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics { grid-template-columns: 1fr; }
+  .connect-card .section-title.row .button-row { width: 100%; }
   /* Not .hint: it is a fixed circle, and stretching it to the column width
      turns the border-radius into a long ellipse. */
   .controls button:not(.hint) { width: 100%; }

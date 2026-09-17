@@ -181,7 +181,6 @@ function parseRoster(text) {
 
 $("#newClassButton").addEventListener("click", () => openClassEditor(null));
 $("#cancelClassButton").addEventListener("click", closeClassEditor);
-$("#manageClassesButton").addEventListener("click", () => showView("classes"));
 
 $("#classForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -884,7 +883,7 @@ function renderAnalysis(report) {
   renderItems();
   renderDiagnostics(report);
   renderStudentScores(report);
-  renderReview(report);
+  renderAnalysisReview(report);
   renderAnswerKey(report);
   showAnalysisPane(analysisPane);
 }
@@ -1033,7 +1032,7 @@ function reviewProblems(report) {
   return rows.sort((a, b) => a.sheet - b.sheet || (a.question || 0) - (b.question || 0));
 }
 
-function renderReview(report) {
+function renderAnalysisReview(report) {
   const rows = reviewProblems(report);
   const badge = $("#reviewBadge");
   badge.textContent = rows.length;

@@ -354,3 +354,69 @@ class InstallAppTests(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertTrue(first.is_dir() and second.is_dir())
         self.assertNotIn(second.name, [item.name for item in first.iterdir()])
+
+
+class NoShadowedFunctionsTests(unittest.TestCase):
+    """Two top-level functions with one name silently shadow each other.
+
+    This is not hypothetical: an analysis-page renderReview() overwrote the
+    scan page's review dialog, so feeding a sheet that needed a student ID
+    threw instead of prompting.
+    """
+
+    def test_no_top_level_function_is_defined_twice(self):
+        names = re.findall(r"^function (\w+)", APP_JS, re.MULTILINE)
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        self.assertEqual(duplicates, [], f"defined more than once: {duplicates}")
+
+    def test_no_top_level_const_or_let_is_declared_twice(self):
+        names = re.findall(r"^(?:const|let) (\w+)\s*=", APP_JS, re.MULTILINE)
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        self.assertEqual(duplicates, [], f"declared more than once: {duplicates}")
+
+
+class ConnectCardLayoutTests(unittest.TestCase):
+    """The connection row holds four fields that must line up."""
+
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+        self.css = (WEBUI / "styles.css").read_text()
+
+    def test_the_class_picker_sits_with_the_other_fields(self):
+        controls = self.html[self.html.index('class="controls"') :]
+        controls = controls[: controls.index("</div>")]
+        for field in ("testName", "classSelect", "portSelect", "questionCount"):
+            self.assertIn(f'id="{field}"', controls, field)
+
+    def test_connect_buttons_moved_to_the_card_header(self):
+        header = self.html[self.html.index('class="card connect-card"') :]
+        header = header[: header.index('class="controls"')]
+        self.assertIn('id="connectButton"', header)
+        self.assertIn('id="disconnectButton"', header)
+
+    def test_every_field_is_captioned_the_same_way(self):
+        # A bare text node next to the control made one caption taller than the
+        # rest, which is what knocked the row out of alignment.
+        controls = self.html[self.html.index('class="controls"') :]
+        controls = controls[: controls.index("</div>")]
+        self.assertEqual(controls.count("label-text"), 4)
+
+    def test_controls_are_given_one_height_after_the_rule_that_offsets_them(self):
+        # Both selectors have the same specificity, so source order decides.
+        offset = self.css.index("select, .controls input {")
+        fixed = self.css.index(".controls input, .controls select {")
+        self.assertGreater(fixed, offset)
+        rule = self.css[fixed : self.css.index("}", fixed)]
+        self.assertIn("height: 44px", rule)
+        self.assertIn("margin-top: 0", rule)
+
+    def test_the_roster_card_is_gone_and_its_pieces_kept(self):
+        self.assertNotIn("roster-card", self.html)
+        workflow = self.html[self.html.index('id="workflowCard"') :]
+        workflow = workflow[: workflow.index("</section>")]
+        self.assertIn('id="rosterSummary"', workflow)
+        self.assertIn('id="resetRosterButton"', workflow)
+
+    def test_nothing_references_the_removed_manage_classes_button(self):
+        self.assertNotIn("manageClassesButton", self.html)
+        self.assertNotIn("manageClassesButton", APP_JS)

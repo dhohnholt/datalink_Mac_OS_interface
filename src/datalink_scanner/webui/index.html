@@ -29,28 +29,36 @@
 
     <main id="view-scan">
       <section class="card connect-card">
-        <div class="section-title">
+        <div class="section-title row">
           <div>
             <h2>Scanner connection</h2>
             <p id="connectionDetail">Connect the scanner by USB, then select its serial port.</p>
           </div>
+          <div class="button-row">
+            <button id="connectButton" class="primary">Connect and enter Data Collection</button>
+            <button id="disconnectButton" class="secondary" disabled>Disconnect</button>
+          </div>
         </div>
         <div class="controls">
-          <label>Test name
+          <label>
+            <span class="label-text">Test name</span>
             <input id="testName" type="text" autocomplete="off" placeholder="Unit 1 Exam — 4th Period">
           </label>
-          <label>Serial port
+          <label>
+            <span class="label-text">Class</span>
+            <select id="classSelect"><option value="">No roster</option></select>
+          </label>
+          <label>
+            <span class="label-text">Serial port</span>
             <select id="portSelect"><option value="">Auto-detect scanner</option></select>
           </label>
           <label>
-            <span class="hint-wrap">Questions per form
+            <span class="label-text hint-wrap">Questions per form
               <button type="button" class="hint" aria-controls="questionCountHint" aria-expanded="false" aria-label="About questions per form">i</button>
               <span id="questionCountHint" class="hint-bubble" role="tooltip">1–100. Set the real form length so unanswered questions at the end are kept as blanks.</span>
             </span>
             <input id="questionCount" type="number" inputmode="numeric" min="1" max="100" step="1" value="50" aria-describedby="questionCountHint">
           </label>
-          <button id="connectButton" class="primary">Connect and enter Data Collection</button>
-          <button id="disconnectButton" class="secondary" disabled>Disconnect</button>
         </div>
         <p class="safety">Connecting sends the command sequence recovered from DataLink Connect. Keep sheets out of the feeder until the status says Ready to scan.</p>
       </section>
@@ -66,23 +74,11 @@
         <div>
           <strong id="workflowTitle">Scan the answer key first</strong>
           <p id="workflowDetail">After the scanner says Ready to scan, feed the marked answer key before any student sheets.</p>
+          <p id="rosterSummary" class="roster-line">No saved roster. Student IDs will be entered manually.</p>
         </div>
-        <button id="skipStudentButton" class="secondary hidden">Skip absent</button>
-      </section>
-
-      <section class="card roster-card">
-        <div class="section-title row">
-          <div>
-            <h2>Class roster</h2>
-            <p id="rosterSummary">No saved roster. Student IDs will be entered manually.</p>
-          </div>
-          <div class="button-row">
-            <label class="class-picker">Selected class
-              <select id="classSelect"><option value="">No roster</option></select>
-            </label>
-            <button id="resetRosterButton" class="ghost hidden">Start at first student</button>
-            <button id="manageClassesButton" class="secondary">Manage classes</button>
-          </div>
+        <div class="button-row">
+          <button id="resetRosterButton" class="ghost hidden">Start at first student</button>
+          <button id="skipStudentButton" class="secondary hidden">Skip absent</button>
         </div>
       </section>
 

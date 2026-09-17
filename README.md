@@ -108,7 +108,8 @@ The window has four pages, on the tab bar and under the **View** menu:
 **Scan** (⌘1), **Classes** (⌘2), **Sessions** (⌘3) and **Analysis** (⌘4).
 
 1. Enter a **test name** — it becomes the exported CSV's filename.
-2. Pick the **class** and type the **questions per form** (1–100, default 50).
+2. Pick the **class** from the same row, and type the **questions per form**
+   (1–100, default 50).
    Set the real form length: the count decides how many answer slots are read,
    so questions a student left blank at the end stay blank instead of being
    trimmed away.
@@ -206,7 +207,8 @@ the list does the same for that one.
 
 ### Classes
 
-On the **Classes** page choose **New class**, name it, and paste one student
+Classes are picked on the Scan page and managed on the **Classes** page. There,
+choose **New class**, name it, and paste one student
 per line as `student ID, name`. Rosters are stored in the app's database on
 that Mac and reused every time you scan. The Scan page names the next student
 and offers **Skip absent** and **Start at first student**; progress is tracked

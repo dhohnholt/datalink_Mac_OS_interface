@@ -76,6 +76,9 @@ if [[ ! -d "$TAP_DIR" ]]; then
   exit 1
 fi
 echo "==> Publishing to $TAP_REPO"
+# The tap checkout is whatever `brew tap` last fetched, so it is routinely
+# behind the remote.
+git -C "$TAP_DIR" pull --rebase --quiet
 /bin/cp packaging/homebrew/datalink-scanner.rb "$TAP_DIR/Formula/datalink-scanner.rb"
 git -C "$TAP_DIR" add Formula/datalink-scanner.rb
 git -C "$TAP_DIR" commit -m "datalink-scanner $VERSION"

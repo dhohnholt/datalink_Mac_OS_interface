@@ -152,7 +152,9 @@ class ViewSwitchingTests(unittest.TestCase):
     def test_every_tab_has_a_matching_view(self):
         html = (WEBUI / "index.html").read_text()
         tabs = set(re.findall(r'data-view="(\w+)"', html))
-        self.assertEqual(tabs, {"scan", "classes", "sessions", "analysis"})
+        self.assertEqual(
+            tabs, {"scan", "classes", "sessions", "analysis", "settings"}
+        )
         for view in tabs:
             self.assertIn(f'id="view-{view}"', html)
 
@@ -420,3 +422,34 @@ class ConnectCardLayoutTests(unittest.TestCase):
     def test_nothing_references_the_removed_manage_classes_button(self):
         self.assertNotIn("manageClassesButton", self.html)
         self.assertNotIn("manageClassesButton", APP_JS)
+
+
+class TtessInterfaceTests(unittest.TestCase):
+    """The connection and upload surfaces described by the T-TESS spec."""
+
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+
+    def test_settings_view_collects_the_token(self):
+        self.assertIn('id="view-settings"', self.html)
+        self.assertIn('id="tokenInput"', self.html)
+        # A credential field must not be a plain text input.
+        field = self.html[self.html.index('id="tokenInput"') :]
+        self.assertIn('type="password"', field[: field.index(">")])
+
+    def test_the_destination_picker_is_course_section_unit_test(self):
+        order = [
+            self.html.index(f'id="upload{part}"')
+            for part in ("Course", "Section", "Unit", "Test")
+        ]
+        self.assertEqual(order, sorted(order))
+
+    def test_the_success_panel_offers_the_review_link_and_says_it_is_not_final(self):
+        panel = self.html[self.html.index('id="uploadSuccess"') :]
+        panel = panel[: panel.index("</div>")]
+        self.assertIn("uploadRunId", panel)
+        self.assertIn("uploadReviewLink", panel)
+        self.assertIn("does not finalize", panel)
+
+    def test_the_token_is_never_rendered_back_into_the_page(self):
+        self.assertNotIn("dlk_live_", APP_JS.replace('placeholder="dlk_live_…"', ""))

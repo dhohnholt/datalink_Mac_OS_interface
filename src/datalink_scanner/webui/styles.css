@@ -288,3 +288,27 @@ body.native .shell { padding-top: 18px; }
 @media (max-width: 850px) {
   #view-analysis .metrics { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ------------------------------------------------------------ T-TESS panes */
+.upload-controls, .connect-controls { margin-top: 18px; }
+.connect-controls { grid-template-columns: minmax(0, 2fr) auto; }
+.connect-controls button { height: 44px; }
+
+.success-panel {
+  margin-top: 20px; padding: 18px 20px; border-radius: 12px;
+  background: var(--green-soft); border: 1px solid #aed7c5;
+}
+.success-panel strong { display: block; font-size: 17px; color: var(--green); }
+.success-panel p { margin: 8px 0 0; }
+.success-panel code {
+  background: #fff; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid #aed7c5; font-weight: 700;
+}
+.success-panel .button { margin-top: 14px; }
+
+.plain-list { margin: 16px 0 0; padding-left: 20px; color: var(--muted); line-height: 1.6; }
+.plain-list code { background: #f1f4f2; padding: 1px 6px; border-radius: 5px; }
+
+@media (max-width: 850px) {
+  .connect-controls { grid-template-columns: 1fr; }
+}

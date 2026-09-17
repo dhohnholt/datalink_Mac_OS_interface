@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     question_count INTEGER NOT NULL,
     started_at     TEXT NOT NULL,
     ended_at       TEXT,
-    log_path       TEXT
+    log_path       TEXT,
+    analysis_run_id      TEXT,
+    analysis_fingerprint TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scans (
@@ -92,6 +94,16 @@ class Store:
         }
         if "log_path" not in columns:
             self._connection.execute("ALTER TABLE sessions ADD COLUMN log_path TEXT")
+        # The run_id identifies one scoring run to T-TESS. It is kept so a
+        # retry reuses it, and regenerated only when the scans behind it change.
+        if "analysis_run_id" not in columns:
+            self._connection.execute(
+                "ALTER TABLE sessions ADD COLUMN analysis_run_id TEXT"
+            )
+        if "analysis_fingerprint" not in columns:
+            self._connection.execute(
+                "ALTER TABLE sessions ADD COLUMN analysis_fingerprint TEXT"
+            )
 
     def close(self) -> None:
         """Fold the write-ahead log back into the database before closing.
@@ -255,6 +267,15 @@ class Store:
             )
             self._connection.commit()
 
+    def remember_run_id(self, session_id: int, run_id: str, fingerprint: str) -> None:
+        with self._lock:
+            self._connection.execute(
+                "UPDATE sessions SET analysis_run_id = ?, analysis_fingerprint = ? "
+                "WHERE id = ?",
+                (run_id, fingerprint, session_id),
+            )
+            self._connection.commit()
+
     def add_scan(self, session_id: int, scan: dict) -> int:
         with self._lock:
             cursor = self._connection.execute(
@@ -329,7 +350,7 @@ class Store:
         with self._lock:
             row = self._connection.execute(
                 "SELECT id, name, class_name, question_count, started_at, ended_at, "
-                "       log_path "
+                "       log_path, analysis_run_id, analysis_fingerprint "
                 "FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()

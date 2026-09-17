@@ -12,6 +12,9 @@ site that consumes it sees a single schema.
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from .vendor.analysis_core import (
     class_statistics,
     item_analysis,
@@ -54,11 +57,38 @@ def _answers(scan: dict, question_count: int) -> dict[int, str]:
     }
 
 
+def scan_fingerprint(session: dict, scans: list[dict]) -> str:
+    """Identify the inputs a score was computed from.
+
+    A retry of one upload must keep its run_id; a re-score after a corrected
+    student ID or answer key is a new audit record and must not. Hashing what
+    actually went into the score tells the two apart.
+    """
+    material = json.dumps(
+        {
+            "questions": session.get("question_count"),
+            "scans": [
+                [
+                    scan.get("number"),
+                    scan.get("role"),
+                    scan.get("student_id"),
+                    scan.get("student_name"),
+                    list(scan.get("responses") or []),
+                ]
+                for scan in sorted(scans, key=lambda item: item.get("number") or 0)
+            ],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
 def build_session_analysis(
     session: dict,
     scans: list[dict],
     exam_name: str | None = None,
     flag_thresholds: tuple[int, ...] = DEFAULT_FLAG_THRESHOLDS,
+    run_id: str | None = None,
 ) -> dict:
     """Score one session and return the upload payload."""
     question_count = int(session.get("question_count") or 0)
@@ -146,6 +176,7 @@ def build_session_analysis(
         review_items=review_items,
         applied_corrections=[],
         flag_thresholds=flag_thresholds,
+        run_id=run_id,
         scan_student_ids=True,
         question_count=question_count,
         # Deliberately the same value the CSV importer emits: the site already

@@ -57,12 +57,13 @@ function showView(name) {
   for (const button of document.querySelectorAll("#viewTabs button")) {
     button.classList.toggle("active", button.dataset.view === name);
   }
-  for (const view of ["scan", "classes", "sessions", "analysis"]) {
+  for (const view of ["scan", "classes", "sessions", "analysis", "settings"]) {
     $(`#view-${view}`).hidden = view !== name;
   }
   if (name === "classes") loadClasses();
   if (name === "sessions") loadSessions();
   if (name === "analysis") loadAnalysisSessions();
+  if (name === "settings") loadConnection();
 }
 
 for (const button of document.querySelectorAll("#viewTabs button")) {
@@ -758,6 +759,7 @@ window.datalinkMenu = {
   showClasses: () => showView("classes"),
   showSessions: () => showView("sessions"),
   showAnalysis: () => showView("analysis"),
+  showSettings: () => showView("settings"),
 };
 
 if (window.datalinkNative) {
@@ -885,6 +887,9 @@ function renderAnalysis(report) {
   renderStudentScores(report);
   renderAnalysisReview(report);
   renderAnswerKey(report);
+  $("#uploadSuccess").classList.add("hidden");
+  $("#uploadError").classList.add("hidden");
+  renderUploadPicker();
   showAnalysisPane(analysisPane);
 }
 
@@ -1168,6 +1173,183 @@ $("#saveKeyButton").addEventListener("click", async () => {
   }
 });
 
+
+/* ----------------------------------------------------------- T-TESS upload */
+
+let destinations = [];
+let connected = false;
+
+function renderConnection(state) {
+  connected = Boolean(state.connected);
+  destinations = state.destinations || [];
+  $("#apiUrlLabel").textContent = state.api_url || "";
+  $("#connectForm").classList.toggle("hidden", connected);
+  $("#connectedPanel").classList.toggle("hidden", !connected);
+  $("#disconnectTtessButton").classList.toggle("hidden", !connected);
+
+  if (!connected) {
+    $("#connectionStatus").textContent =
+      "Not connected. Paste a connection token from T-TESS → Reteaching → Connect DataLink.";
+  } else {
+    const courses = new Set(destinations.map(item => item.course_title));
+    $("#connectionStatus").textContent = state.error
+      ? state.error
+      : `Connected · ${destinations.length} test${destinations.length === 1 ? "" : "s"} across ${courses.size} course${courses.size === 1 ? "" : "s"}`;
+    $("#destinationSummary").textContent = destinations.length
+      ? [...courses].join(" · ")
+      : "No tests are available to this account yet.";
+  }
+  renderUploadPicker();
+}
+
+async function loadConnection() {
+  try { renderConnection(await request("/api/connection")); }
+  catch (error) { $("#connectionStatus").textContent = error.message; }
+}
+
+$("#connectTtessButton").addEventListener("click", async () => {
+  const field = $("#tokenInput");
+  const banner = $("#connectError");
+  banner.classList.add("hidden");
+  $("#connectTtessButton").disabled = true;
+  try {
+    const state = await post("/api/connection/connect", {token: field.value});
+    field.value = "";                       // do not leave it sitting in the DOM
+    renderConnection({connected: true, destinations: state.destinations, api_url: $("#apiUrlLabel").textContent});
+    toast("Connected to T-TESS");
+  } catch (error) {
+    banner.textContent = error.message;
+    banner.classList.remove("hidden");
+  } finally {
+    $("#connectTtessButton").disabled = false;
+  }
+});
+
+$("#disconnectTtessButton").addEventListener("click", async () => {
+  if (!confirm("Disconnect from T-TESS? The connection token is removed from this Mac's Keychain.")) return;
+  renderConnection(await post("/api/connection/disconnect", {}));
+  toast("Disconnected");
+});
+
+$("#refreshDestinationsButton").addEventListener("click", async () => {
+  try {
+    const state = await request("/api/destinations");
+    destinations = state.destinations || [];
+    renderConnection({connected: true, destinations, api_url: $("#apiUrlLabel").textContent});
+    toast(`${destinations.length} test(s) available`);
+  } catch (error) { toast(error.message); }
+});
+
+/* Course → Section → Unit → Test, each narrowing the next. */
+
+function fillSelect(select, values, keep) {
+  select.innerHTML = values.map(([value, label]) =>
+    `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("");
+  if (keep && values.some(([value]) => value === keep)) select.value = keep;
+}
+
+function uniqueBy(rows, key, label) {
+  const seen = new Map();
+  for (const row of rows) if (!seen.has(row[key])) seen.set(row[key], row[label]);
+  return [...seen.entries()];
+}
+
+function renderUploadPicker() {
+  const hasReport = Boolean(analysisReport);
+  $("#uploadNotConnected").classList.toggle("hidden", connected);
+  $("#uploadPicker").classList.toggle("hidden", !connected);
+  if (!connected) {
+    $("#uploadButton").disabled = true;
+    return;
+  }
+
+  const courses = uniqueBy(destinations, "course_id", "course_title");
+  fillSelect($("#uploadCourse"), courses, $("#uploadCourse").value);
+  const course = $("#uploadCourse").value;
+
+  const inCourse = destinations.filter(item => item.course_id === course);
+  const sections = [];
+  const seenSection = new Set();
+  for (const item of inCourse) {
+    for (const section of item.sections || []) {
+      if (seenSection.has(section.section_id)) continue;
+      seenSection.add(section.section_id);
+      sections.push([section.section_id, section.section_name]);
+    }
+  }
+  fillSelect($("#uploadSection"), sections, $("#uploadSection").value);
+  const section = $("#uploadSection").value;
+
+  const inSection = inCourse.filter(item =>
+    (item.sections || []).some(entry => entry.section_id === section));
+  const units = uniqueBy(inSection, "unit_id", "unit_title");
+  fillSelect($("#uploadUnit"), units, $("#uploadUnit").value);
+  const unit = $("#uploadUnit").value;
+
+  const tests = inSection
+    .filter(item => item.unit_id === unit)
+    .map(item => [item.exam_id, `${item.exam_title} (${item.test_code})`]);
+  fillSelect($("#uploadTest"), tests, $("#uploadTest").value);
+
+  const chosen = selectedDestination();
+  $("#uploadDetail").textContent = chosen
+    ? `Uploads to ${chosen.course_title} · ${chosen.unit_title} · ${chosen.exam_title} · code ${chosen.test_code}` +
+      (chosen.grade_cap ? ` · grade cap ${chosen.grade_cap}` : "")
+    : "No test matches this combination.";
+  $("#uploadButton").disabled = !chosen || !hasReport;
+}
+
+function selectedDestination() {
+  return destinations.find(item => item.exam_id === $("#uploadTest").value) || null;
+}
+
+for (const id of ["uploadCourse", "uploadSection", "uploadUnit", "uploadTest"]) {
+  $(`#${id}`).addEventListener("change", () => {
+    // Clear the narrower choices so a stale pick cannot survive.
+    if (id === "uploadCourse") { $("#uploadSection").value = ""; $("#uploadUnit").value = ""; $("#uploadTest").value = ""; }
+    if (id === "uploadSection") { $("#uploadUnit").value = ""; $("#uploadTest").value = ""; }
+    if (id === "uploadUnit") { $("#uploadTest").value = ""; }
+    renderUploadPicker();
+  });
+}
+
+$("#uploadButton").addEventListener("click", async () => {
+  const destination = selectedDestination();
+  const sessionId = $("#analysisSession").value;
+  if (!destination || !sessionId) return;
+  const error = $("#uploadError");
+  const success = $("#uploadSuccess");
+  error.textContent = "";
+  error.classList.add("hidden");
+  success.classList.add("hidden");
+  $("#uploadButton").disabled = true;
+  $("#uploadButton").textContent = "Uploading…";
+  try {
+    const result = await post("/api/sessions/upload", {
+      session_id: Number(sessionId),
+      exam_id: destination.exam_id,
+    });
+    $("#uploadRunId").textContent = result.run_id || "—";
+    $("#uploadReviewLink").href = result.review_url;
+    success.classList.remove("hidden");
+    toast("Uploaded to T-TESS");
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.classList.remove("hidden");
+    // An invalid token is cleared server side; reflect that here.
+    if (/reconnect/i.test(failure.message)) loadConnection();
+  } finally {
+    $("#uploadButton").disabled = false;
+    $("#uploadButton").textContent = "Upload to T-TESS";
+  }
+});
+
+$("#uploadReviewLink").addEventListener("click", event => {
+  if (!window.datalinkNative) return;   // the shell opens external links itself
+  event.preventDefault();
+  window.open($("#uploadReviewLink").href, "_blank");
+});
+
 /* --------------------------------------------------------------- start-up */
 
 async function migrateBrowserStorage() {
@@ -1202,6 +1384,7 @@ async function start() {
   updateExportName();
   await refresh();
   refreshTimer = setInterval(refresh, 750);
+  loadConnection().catch(() => {});
 }
 
 start();

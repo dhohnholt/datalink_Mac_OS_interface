@@ -25,6 +25,7 @@
       <button type="button" data-view="classes">Classes</button>
       <button type="button" data-view="sessions">Sessions</button>
       <button type="button" data-view="analysis">Analysis</button>
+      <button type="button" data-view="settings">Settings</button>
     </nav>
 
     <main id="view-scan">
@@ -266,6 +267,7 @@
           <button type="button" data-pane="students">Student scores</button>
           <button type="button" data-pane="review">Review<span id="reviewBadge" class="badge-count hidden">0</span></button>
           <button type="button" data-pane="key">Answer key</button>
+          <button type="button" data-pane="upload">Send to T-TESS</button>
         </nav>
 
         <section class="card" data-pane="items">
@@ -355,6 +357,35 @@
           </div>
         </section>
 
+        <section class="card" data-pane="upload" hidden>
+          <div class="section-title row">
+            <div>
+              <h2>Send to T-TESS</h2>
+              <p>Uploads this scored run to the Reteach Center. It does not finalize results — you review and finalize on the website.</p>
+            </div>
+            <button id="uploadButton" class="primary" disabled>Upload to T-TESS</button>
+          </div>
+          <p id="uploadNotConnected" class="callout hidden">
+            DataLink is not connected to T-TESS yet. Open <strong>Settings</strong> and paste a connection token.
+          </p>
+          <div id="uploadPicker" class="hidden">
+            <div class="controls upload-controls">
+              <label><span class="label-text">Course</span><select id="uploadCourse"></select></label>
+              <label><span class="label-text">Section</span><select id="uploadSection"></select></label>
+              <label><span class="label-text">Unit</span><select id="uploadUnit"></select></label>
+              <label><span class="label-text">Test</span><select id="uploadTest"></select></label>
+            </div>
+            <p id="uploadDetail" class="safety"></p>
+          </div>
+          <p id="uploadError" class="safety danger hidden"></p>
+          <div id="uploadSuccess" class="success-panel hidden">
+            <strong>Upload completed</strong>
+            <p>Imported run ID <code id="uploadRunId"></code></p>
+            <p class="dialog-note">This does not finalize student results. Review the warnings, student-ID matches, blank answers and multiple marks on the website, then finalize there.</p>
+            <a id="uploadReviewLink" class="button primary" href="#" target="_blank" rel="noopener">Open teacher review</a>
+          </div>
+        </section>
+
         <section class="card" data-pane="key" hidden>
           <div class="section-title row">
             <div>
@@ -370,6 +401,56 @@
           <div id="keyGrid" class="key-grid"></div>
         </section>
       </div>
+    </main>
+
+    <main id="view-settings" hidden>
+      <section class="card">
+        <div class="section-title row">
+          <div>
+            <h2>T-TESS connection</h2>
+            <p id="connectionStatus">Checking…</p>
+          </div>
+          <button id="disconnectTtessButton" class="ghost danger hidden">Disconnect</button>
+        </div>
+        <div id="connectForm">
+          <p class="dialog-copy">
+            On the T-TESS website go to <strong>Reteaching → Connect DataLink</strong>,
+            generate a connection token, and paste it here. It is stored in this Mac's
+            Keychain and never written to the app's files or logs.
+          </p>
+          <div class="controls connect-controls">
+            <label>
+              <span class="label-text">Connection token</span>
+              <input id="tokenInput" type="password" autocomplete="off" spellcheck="false" placeholder="dlk_live_…">
+            </label>
+            <label>
+              <span class="label-text">&nbsp;</span>
+              <button id="connectTtessButton" class="primary">Connect</button>
+            </label>
+          </div>
+          <p id="connectError" class="safety danger hidden"></p>
+        </div>
+        <div id="connectedPanel" class="hidden">
+          <p class="safety" id="destinationSummary"></p>
+          <button id="refreshDestinationsButton" class="secondary">Refresh tests</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>What is sent</h2>
+            <p>Only the scored report for the session you choose.</p>
+          </div>
+        </div>
+        <ul class="plain-list">
+          <li>Student IDs, names, per-question responses and scores for that test.</li>
+          <li>Per-question statistics and the class summary.</li>
+          <li>Sent over HTTPS to <code id="apiUrlLabel"></code>.</li>
+          <li>Your token travels only as an authorization header, never in the report body, and is never logged.</li>
+          <li>No password, email, or other account credential is requested or transmitted.</li>
+        </ul>
+      </section>
     </main>
   </div>
 

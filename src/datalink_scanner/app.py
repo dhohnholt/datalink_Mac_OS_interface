@@ -327,6 +327,7 @@ class DataLinkAppDelegate(NSObject):
         view_menu.addItem_(_item("Classes", "showClasses:", "2", target=self))
         view_menu.addItem_(_item("Sessions", "showSessions:", "3", target=self))
         view_menu.addItem_(_item("Analysis", "showAnalysis:", "4", target=self))
+        view_menu.addItem_(_item("Settings", "showSettings:", "5", target=self))
         view_menu.addItem_(_separator())
         view_menu.addItem_(
             _item("Show Protocol Details", "toggleProtocol:", target=self)
@@ -391,6 +392,9 @@ class DataLinkAppDelegate(NSObject):
 
     def showAnalysis_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.showAnalysis()")
+
+    def showSettings_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.showSettings()")
 
     def newClass_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.newClass()")

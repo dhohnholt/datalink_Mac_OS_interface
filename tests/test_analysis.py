@@ -264,3 +264,69 @@ class AnalysisPageTests(unittest.TestCase):
             self.assertIn(f'data-pane="{pane}"', self.html)
         self.assertIn("applyReviewButton", self.html)
         self.assertIn("saveKeyButton", self.html)
+
+
+class RunIdStabilityTests(unittest.TestCase):
+    """A retry must land on the same audit record; a corrected re-score must
+    become a new one."""
+
+    def setUp(self):
+        import tempfile
+        from datalink_scanner.store import Store
+
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.store = Store(Path(self.directory.name) / "library.sqlite3")
+        self.addCleanup(self.store.close)
+        self.session_id = self.store.create_session("Unit 4", "P4", 5)
+        self.store.add_scan(self.session_id, {
+            "number": 1, "role": "key", "received_at": "2026-09-16T18:00:00+00:00",
+            "answered_count": 5, "responses": ["A", "B", "C", "D", "E"]})
+        self.store.add_scan(self.session_id, {
+            "number": 2, "role": "student", "student_id": "900011",
+            "received_at": "2026-09-16T18:00:00+00:00",
+            "answered_count": 5, "responses": ["A", "B", "C", "D", "E"]})
+
+    def score(self):
+        from datalink_scanner.server import scored_session
+
+        return scored_session(self.store, self.session_id)[1]
+
+    def test_rescoring_unchanged_scans_keeps_the_run_id(self):
+        self.assertEqual(self.score()["run_id"], self.score()["run_id"])
+
+    def test_correcting_a_student_id_produces_a_new_run_id(self):
+        first = self.score()["run_id"]
+        self.store.update_scan(self.session_id, 2, student_id="900222")
+        self.assertNotEqual(self.score()["run_id"], first)
+
+    def test_changing_the_answer_key_produces_a_new_run_id(self):
+        first = self.score()["run_id"]
+        self.store.update_scan(self.session_id, 1, responses=["B", "B", "C", "D", "E"])
+        self.assertNotEqual(self.score()["run_id"], first)
+
+    def test_changing_a_student_response_produces_a_new_run_id(self):
+        first = self.score()["run_id"]
+        self.store.update_scan(self.session_id, 2, responses=["E", "B", "C", "D", "E"])
+        self.assertNotEqual(self.score()["run_id"], first)
+
+    def test_reverting_a_correction_returns_to_a_stable_id_not_the_old_one(self):
+        # Going back to the original marks is still a fresh scoring run.
+        first = self.score()["run_id"]
+        self.store.update_scan(self.session_id, 2, student_id="900222")
+        second = self.score()["run_id"]
+        self.store.update_scan(self.session_id, 2, student_id="900011")
+        third = self.score()["run_id"]
+        self.assertNotEqual(second, first)
+        self.assertEqual(third, self.score()["run_id"])
+
+    def test_the_fingerprint_covers_what_the_score_depends_on(self):
+        from datalink_scanner.analysis import scan_fingerprint
+
+        session = self.store.session(self.session_id)
+        scans = self.store.session_scans(self.session_id)
+        before = scan_fingerprint(session, scans)
+        self.assertEqual(before, scan_fingerprint(session, list(reversed(scans))))
+        self.store.update_scan(self.session_id, 2, student_name="Renamed")
+        after = scan_fingerprint(session, self.store.session_scans(self.session_id))
+        self.assertNotEqual(before, after)

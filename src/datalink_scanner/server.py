@@ -22,10 +22,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import paths
+from . import ttess
 from .analysis import (
     AnalysisError,
     analysis_filename,
     build_session_analysis,
+    scan_fingerprint,
 )
 from .store import Store
 from .interface import (
@@ -50,6 +52,29 @@ def safe_export_filename(test_name: str) -> str:
     ).strip(" .")
     cleaned = cleaned or "datalink-session"
     return cleaned if cleaned.lower().endswith(".csv") else f"{cleaned}.csv"
+
+
+DESTINATIONS = ttess.DestinationCache()
+
+
+def scored_session(store: Store, session_id: int) -> tuple[dict, dict]:
+    """Score a session, reusing the run_id while its inputs are unchanged.
+
+    A retry has to land on the same audit record; a re-score after a corrected
+    ID or answer key has to be a new one.
+    """
+    session = store.session(session_id)
+    if session is None:
+        raise AnalysisError("No such session")
+    scans = store.session_scans(session_id)
+    fingerprint = scan_fingerprint(session, scans)
+    run_id = session.get("analysis_run_id")
+    if not run_id or session.get("analysis_fingerprint") != fingerprint:
+        run_id = None
+    report = build_session_analysis(session, scans, run_id=run_id)
+    if run_id != report["run_id"]:
+        store.remember_run_id(session_id, report["run_id"], fingerprint)
+    return session, report
 
 
 def records_to_csv(
@@ -492,6 +517,30 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/sessions":
             self._send_json({"sessions": self.store.list_sessions()})
             return
+        if path == "/api/connection":
+            bearer = ttess.token()
+            payload = {
+                "connected": bool(bearer),
+                "api_url": ttess.API_URL,
+                "destinations": [],
+                "error": None,
+            }
+            if bearer:
+                try:
+                    payload["destinations"] = DESTINATIONS.get(bearer)
+                except ttess.UploadError as exc:
+                    payload["error"] = str(exc)
+                    payload["connected"] = bool(ttess.token())
+            self._send_json(payload)
+            return
+        if path == "/api/destinations":
+            try:
+                self._send_json(
+                    {"destinations": DESTINATIONS.get(force=True), "error": None}
+                )
+            except ttess.UploadError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if path == "/api/storage":
             self._send_json(self.store.storage_report())
             return
@@ -504,9 +553,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                 return
             try:
-                self._send_json(
-                    build_session_analysis(session, self.store.session_scans(session_id))
-                )
+                self._send_json(scored_session(self.store, session_id)[1])
             except AnalysisError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
@@ -517,9 +564,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                 return
             try:
-                report = build_session_analysis(
-                    session, self.store.session_scans(session_id)
-                )
+                report = scored_session(self.store, session_id)[1]
             except AnalysisError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
@@ -687,6 +732,76 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     payload["analysis"] = None
                     payload["analysis_error"] = str(exc)
                 self._send_json(payload)
+                return
+            elif path == "/api/connection/connect":
+                # The token itself is never echoed back, logged or stored
+                # anywhere but the Keychain.
+                try:
+                    ttess.save_token(str(body.get("token", "")))
+                    destinations = DESTINATIONS.refresh()
+                except ttess.UploadError as exc:
+                    if exc.code != "invalid_token":
+                        ttess.forget_token()
+                    self._send_json(
+                        {"error": str(exc), "code": exc.code}, HTTPStatus.BAD_REQUEST
+                    )
+                    return
+                self._send_json({"connected": True, "destinations": destinations})
+                return
+            elif path == "/api/connection/disconnect":
+                ttess.forget_token()
+                DESTINATIONS.destinations = []
+                DESTINATIONS.fetched_at = 0.0
+                self._send_json({"connected": False, "destinations": []})
+                return
+            elif path == "/api/sessions/upload":
+                session_id = int(body.get("session_id", 0))
+                try:
+                    session, report = scored_session(self.store, session_id)
+                except AnalysisError as exc:
+                    self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                    return
+                exam_id = str(body.get("exam_id", ""))
+                destination = next(
+                    (
+                        item
+                        for item in DESTINATIONS.get()
+                        if item.get("exam_id") == exam_id
+                    ),
+                    None,
+                )
+                if destination is None:
+                    # Stale pick, or the teacher lost access to that test.
+                    destination = next(
+                        (
+                            item
+                            for item in DESTINATIONS.get(force=True)
+                            if item.get("exam_id") == exam_id
+                        ),
+                        None,
+                    )
+                if destination is None:
+                    self._send_json(
+                        {
+                            "error": "That test is no longer available. Choose "
+                            "another destination.",
+                            "code": "exam_forbidden",
+                        },
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                try:
+                    result = ttess.upload(
+                        exam_id, report, str(destination.get("test_code", ""))
+                    )
+                except ttess.UploadError as exc:
+                    self._send_json(
+                        {"error": str(exc), "code": exc.code}, HTTPStatus.BAD_REQUEST
+                    )
+                    return
+                result["exam_title"] = destination.get("exam_title")
+                result["local_run_id"] = report["run_id"]
+                self._send_json(result)
                 return
             elif path == "/api/sessions/delete":
                 self.controller.remove_sessions([int(body.get("id", 0))])

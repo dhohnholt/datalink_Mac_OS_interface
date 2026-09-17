@@ -167,6 +167,31 @@ an answer key can simply be bubbled wrong.
 **Download JSON** on that page — or **Export item analysis** (⇧⌘E) from a
 session — writes the full report for upload.
 
+### Sending to T-TESS
+
+The **Send to T-TESS** section uploads a scored run straight to the Reteach
+Center, so there is no file to export and re-upload by hand.
+
+Connect once, under **Settings** (⌘5): on the T-TESS website go to
+**Reteaching → Connect DataLink**, generate a connection token, and paste it
+in. The token is held in this Mac's **Keychain** and nowhere else — not in the
+app database, not in a preferences file, not in any log. It travels only as an
+`Authorization: Bearer` header. No password, email, or other account
+credential is ever requested; the server works out the teacher from the token.
+
+Then pick **Course → Section → Unit → Test** and upload. The list of available
+tests is refreshed when you connect, when the app opens, and before an upload
+once it is more than fifteen minutes old.
+
+**Uploading does not finalize anything.** It creates a run for review; you
+check the warnings, student-ID matches, blanks and multiple marks on the
+website and finalize there. The success panel links straight to that review.
+
+Each upload is an audit record. Re-uploading the same scored run is refused by
+the server as a duplicate, and a retry after a network failure reuses the same
+run so it cannot become a second record. Correcting a student ID, a response
+or the answer key re-scores the session and produces a genuinely new run.
+
 The scoring is not reimplemented here. `src/datalink_scanner/vendor/` holds
 verbatim copies of `analysis_core.py` and `result_schema.py` from the
 **omr_final** project, which scores the same sheets when they are read on a

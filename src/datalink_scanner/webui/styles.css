@@ -57,8 +57,10 @@ select, .controls input { display: block; width: 100%; margin-top: 7px; padding:
 input { color: var(--ink); }
 button, .button { cursor: pointer; padding: 0 16px; font-weight: 750; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 button:disabled { cursor: not-allowed; opacity: .45; }
-.primary { background: var(--green); border-color: var(--green); color: white; }
-.primary:hover { background: var(--green-dark); }
+/* Deeper at rest, lighter under the pointer: the button reads as the strong
+   thing on the card, and lifts rather than darkens when you reach for it. */
+.primary { background: var(--green-dark); border-color: var(--green-dark); color: white; }
+.primary:hover { background: var(--green); border-color: var(--green); }
 .secondary { background: #fff; color: var(--ink); }
 .secondary:hover, .ghost:hover { background: #f1f5f2; }
 .ghost { background: transparent; border-color: transparent; color: var(--muted); }

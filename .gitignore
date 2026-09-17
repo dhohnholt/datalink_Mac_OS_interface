@@ -34,6 +34,7 @@ windows_capture_kit.zip
 __pycache__/
 *.py[cod]
 .venv/
+.venv-dmg/
 venv/
 .pytest_cache/
 

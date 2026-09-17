@@ -97,6 +97,9 @@ and drag the app to Applications. That build bundles its own Python and is
 ad-hoc signed rather than Apple notarized, so the first launch needs a
 Control-click → **Open**. Updates are manual.
 
+It is built for Apple Silicon and runs on **macOS 11 or later**. An Intel Mac
+needs the Homebrew install, which builds for whatever Mac it is on.
+
 Or install from source:
 
 ```bash

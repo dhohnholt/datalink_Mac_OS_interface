@@ -99,6 +99,32 @@ the app without rebuilding it, and the `/Applications` symlink created by
 brew update-python-resources datalink-scanner
 ```
 
+## The DMG and which macOS it runs on
+
+Whatever Python builds the disk image is bundled into it, and a framework
+carries the oldest macOS it will load on. Homebrew's Python is stamped for the
+macOS it was bottled for — 26.0 on Tahoe — so a `.dmg` built with it refuses to
+launch on anything older, with no useful error. A python.org framework build
+targets macOS 11.
+
+So the build prefers `.venv-dmg`, made once from a python.org install:
+
+```bash
+/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 -m venv .venv-dmg
+.venv-dmg/bin/pip install . pyinstaller
+```
+
+`packaging/build_macos.sh` uses it automatically when it exists, and refuses to
+build a bundle that needs anything newer than macOS 12 — naming the version it
+found, because the failure is otherwise invisible until someone on an older Mac
+tries to open it. `DATALINK_MIN_MACOS` raises that floor deliberately.
+
+Check a finished build with:
+
+```bash
+otool -l "dist/DataLink Scanner.app/Contents/Frameworks/Python.framework/Versions/*/Python" | grep minos
+```
+
 ## The DMG
 
 `packaging/build_macos.sh` builds the standalone, Python-bundling `.app` and

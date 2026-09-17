@@ -9,6 +9,12 @@ bubbled student ID and every response — matching each one to a student as it
 goes. Sessions are saved locally and can be reviewed and exported to CSV
 whenever you need them.
 
+Because every answer is captured per question and not just a total score, that
+export drops straight into an item analysis: which questions the class missed,
+and which distractors pulled them away. That is the part worth having — it
+turns a stack of graded sheets into a short list of concepts to reteach, backed
+by where the learning gaps actually are.
+
 ## Why this exists
 
 The DataLink 1200 is still a perfectly good scanner. What it lost was its
@@ -208,8 +214,9 @@ scanner attached.
 | 6 | Item analysis | ⬜ per-question stats across a class |
 | 7 | Native macOS app | ✅ Cocoa window and menu bar, no browser or terminal |
 
-Scoring and item analysis are not built yet — export the CSV and score
-elsewhere for now.
+Scoring and item analysis are not built into the app yet. The CSV export holds
+every response for every student, which is everything an item analysis needs —
+run it in a spreadsheet for now. Doing it in-app is phases 5 and 6.
 
 An early SwiftUI model layer is parked on the
 [`swiftui-frontend`](https://github.com/dhohnholt/datalink_Mac_OS_interface/tree/swiftui-frontend)

@@ -239,3 +239,37 @@ class HintTests(unittest.TestCase):
         self.assertNotIn(".controls button { width: 100%; }", self.css)
         self.assertIn(".controls button:not(.hint)", self.css)
         self.assertIn("aspect-ratio: 1", self.css)
+
+
+class SignalHandlingTests(unittest.TestCase):
+    """A `kill` must go through the same shutdown as Cmd-Q, or the database is
+    left with an unmerged write-ahead log."""
+
+    def setUp(self):
+        root = Path(__file__).resolve().parents[1] / "src" / "datalink_scanner"
+        self.app_source = (root / "app.py").read_text()
+        self.server_source = (root / "server.py").read_text()
+
+    def test_the_app_waits_on_signals_in_a_thread(self):
+        # The main thread sits inside NSApplication.run(), so Python would not
+        # get to run an ordinary handler.
+        self.assertIn("pthread_sigmask", self.app_source)
+        self.assertIn("sigwait", self.app_source)
+        self.assertIn("SIGTERM", self.app_source)
+
+    def test_the_app_terminates_through_appkit(self):
+        # Going through terminate: keeps applicationShouldTerminate_ in play,
+        # which is what closes the store.
+        self.assertIn("performSelectorOnMainThread", self.app_source)
+        self.assertIn('"terminate:"', self.app_source)
+
+    def test_browser_mode_handles_sigterm_too(self):
+        self.assertIn("signal.signal", self.server_source)
+        self.assertIn("SIGTERM", self.server_source)
+
+    def test_signals_are_blocked_before_threads_start(self):
+        # Threads inherit the mask, so this has to happen first.
+        install = self.app_source.index("def install_signal_handlers")
+        run = self.app_source.index("def run(")
+        self.assertLess(install, run)
+        self.assertIn("install_signal_handlers()", self.app_source)

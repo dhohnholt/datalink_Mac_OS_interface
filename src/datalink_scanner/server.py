@@ -11,6 +11,7 @@ import csv
 import errno
 import io
 import json
+import signal
 import threading
 import time
 import webbrowser
@@ -676,6 +677,19 @@ def serve(
         daemon=True,
     )
     watcher.start()
+
+    # serve_forever() is pure Python, so an ordinary handler runs promptly.
+    # Without this a `kill` skips the finally block below and the database is
+    # left with an unmerged write-ahead log.
+    for name in ("SIGTERM", "SIGHUP"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        try:
+            signal.signal(number, lambda *_: shutdown_requested.set())
+        except ValueError:
+            # Not the main thread; the caller owns signal handling.
+            pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:

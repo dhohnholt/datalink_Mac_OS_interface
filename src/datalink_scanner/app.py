@@ -11,6 +11,7 @@ process needs to find it, so there is no fixed port to collide over.
 
 from __future__ import annotations
 
+import signal
 import sys
 import threading
 import webbrowser
@@ -538,9 +539,47 @@ class DataLinkAppDelegate(NSObject):
         return NSTerminateNow
 
 
+def install_signal_handlers() -> None:
+    """Quit cleanly on SIGTERM, the way Cmd-Q does.
+
+    Python only runs signal handlers between bytecodes, and the main thread
+    spends its life inside NSApplication.run(), so an ordinary handler would
+    not fire until something else happened to wake the interpreter. Block the
+    signals instead and have a dedicated thread wait on them, then ask AppKit
+    to terminate on the main thread so applicationShouldTerminate_ still runs
+    and the database is checkpointed.
+    """
+    wanted = [
+        number
+        for number in (
+            getattr(signal, name, None) for name in ("SIGTERM", "SIGHUP", "SIGINT")
+        )
+        if number is not None
+    ]
+    if not wanted or not hasattr(signal, "pthread_sigmask"):
+        return
+    try:
+        # Must happen before any other thread starts, so they inherit the mask.
+        signal.pthread_sigmask(signal.SIG_BLOCK, wanted)
+    except (OSError, ValueError):
+        return
+
+    def wait_for_signal() -> None:
+        try:
+            signal.sigwait(wanted)
+        except (OSError, ValueError):
+            return
+        NSApplication.sharedApplication().performSelectorOnMainThread_withObject_waitUntilDone_(
+            "terminate:", None, False
+        )
+
+    threading.Thread(target=wait_for_signal, daemon=True).start()
+
+
 def run(capture_dir: str | None = None) -> int:
     """Start the Cocoa application. Blocks until the user quits."""
     claim_bundle_name()
+    install_signal_handlers()
     application = NSApplication.sharedApplication()
     application.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 

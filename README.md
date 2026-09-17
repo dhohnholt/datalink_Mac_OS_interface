@@ -125,8 +125,9 @@ Open **DataLink Scanner** from the Dock, Spotlight or Applications — or run
 `datalink-scanner`. It opens its own window with a normal macOS menu bar. No
 browser window, no terminal window.
 
-The window has four pages, on the tab bar and under the **View** menu:
-**Scan** (⌘1), **Classes** (⌘2), **Sessions** (⌘3) and **Analysis** (⌘4).
+The window has six pages, on the tab bar and under the **View** menu:
+**Scan** (⌘1), **Paper** (⌘2), **Classes** (⌘3), **Sessions** (⌘4),
+**Analysis** (⌘5) and **Settings** (⌘6).
 
 1. Enter a **test name** — it becomes the exported CSV's filename.
 2. Pick the **class** from the same row, and type the **questions per form**
@@ -154,7 +155,7 @@ as a plain-text belt-and-braces log. Both live in
 
 ### Paper batches, without the DataLink
 
-If the scanner is not to hand, scan the sheets on any document scanner — a
+If the scanner is not available, scan the sheets on any document scanner — a
 ScanSnap, a copier — and read the PDF on the **Paper** page (⌘2). Choose the
 file, say which page holds the marked answer key, and the sheets are read and
 filed as an ordinary session. From there nothing knows the difference:

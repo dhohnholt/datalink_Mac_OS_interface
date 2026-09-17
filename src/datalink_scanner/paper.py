@@ -1,4 +1,4 @@
-"""Reading answer sheets from a PDF, for when the DataLink is not to hand.
+"""Reading answer sheets from a PDF, for when the DataLink is not available.
 
 A batch scanned on an ordinary document scanner — a ScanSnap, a copier — goes
 through the same pipeline the omr_final project uses, and the answers it reads

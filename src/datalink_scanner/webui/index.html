@@ -41,9 +41,12 @@
           <label>Serial port
             <select id="portSelect"><option value="">Auto-detect scanner</option></select>
           </label>
-          <label>Questions per form
-            <input id="questionCount" type="number" inputmode="numeric" min="1" max="100" step="1" value="50">
-            <small>1–100. Set the real form length so unanswered questions at the end are kept as blanks.</small>
+          <label>
+            <span class="hint-wrap">Questions per form
+              <button type="button" class="hint" aria-controls="questionCountHint" aria-expanded="false" aria-label="About questions per form">i</button>
+              <span id="questionCountHint" class="hint-bubble" role="tooltip">1–100. Set the real form length so unanswered questions at the end are kept as blanks.</span>
+            </span>
+            <input id="questionCount" type="number" inputmode="numeric" min="1" max="100" step="1" value="50" aria-describedby="questionCountHint">
           </label>
           <button id="connectButton" class="primary">Connect and enter Data Collection</button>
           <button id="disconnectButton" class="secondary" disabled>Disconnect</button>

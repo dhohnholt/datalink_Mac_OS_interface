@@ -180,3 +180,37 @@ class BundleIdentityTests(unittest.TestCase):
 
     def test_a_fallback_exists_for_non_framework_pythons(self):
         self.assertIn('exec "$CLI" app', self.script)
+
+
+class HintTests(unittest.TestCase):
+    """Inline help is a button revealing a bubble, not static text under the
+    field."""
+
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+        self.css = (WEBUI / "styles.css").read_text()
+
+    def test_the_form_length_hint_is_a_bubble_not_body_text(self):
+        self.assertIn("hint-bubble", self.html)
+        self.assertIn("unanswered questions at the end are kept as blanks", self.html)
+        self.assertNotIn("<small>", self.html)
+
+    def test_every_hint_button_controls_a_real_bubble(self):
+        buttons = re.findall(r'<button[^>]*class="hint"[^>]*>', self.html)
+        self.assertTrue(buttons)
+        for button in buttons:
+            target = re.search(r'aria-controls="([^"]+)"', button)
+            self.assertIsNotNone(target, button)
+            self.assertIn(f'id="{target.group(1)}"', self.html)
+
+    def test_the_field_points_at_its_own_hint(self):
+        self.assertIn('aria-describedby="questionCountHint"', self.html)
+
+    def test_hint_opens_on_focus_as_well_as_hover(self):
+        # Hover alone would leave the hint unreachable from the keyboard.
+        self.assertIn(".hint:focus-visible + .hint-bubble", self.css)
+        self.assertIn(".hint-bubble.open", self.css)
+
+    def test_hint_can_be_dismissed(self):
+        self.assertIn("closeHints", APP_JS)
+        self.assertIn('event.key === "Escape"', APP_JS)

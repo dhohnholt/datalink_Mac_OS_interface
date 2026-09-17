@@ -367,6 +367,31 @@ questionCount.addEventListener("change", () => {
   refresh();
 });
 
+function closeHints(except) {
+  for (const bubble of document.querySelectorAll(".hint-bubble.open")) {
+    if (bubble === except) continue;
+    bubble.classList.remove("open");
+    bubble.parentElement.querySelector(".hint")?.setAttribute("aria-expanded", "false");
+  }
+}
+
+for (const button of document.querySelectorAll("button.hint")) {
+  const bubble = document.getElementById(button.getAttribute("aria-controls"));
+  if (!bubble) continue;
+  button.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const open = bubble.classList.toggle("open");
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    closeHints(open ? bubble : null);
+  });
+}
+
+document.addEventListener("click", () => closeHints(null));
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeHints(null);
+});
+
 function updatePorts(ports) {
   const signature = JSON.stringify(ports);
   if (signature === lastPortSignature) return;

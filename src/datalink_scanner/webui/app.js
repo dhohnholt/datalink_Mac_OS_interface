@@ -21,9 +21,26 @@ let classes = [];
 let selectedClassName = "";
 let roster = [];
 let rosterIndex = 0;
+let studentMatching = "id";
+
+function sameStudentId(left, right) {
+  // The scanner writes the ID field as it was bubbled, which can carry leading
+  // zeros a roster typed by hand does not. Comparing the two as plain strings
+  // quietly failed to match, and the sheet fell back to roster order.
+  const tidy = value => String(value ?? "").trim().replace(/^0+(?=\d)/, "");
+  return Boolean(tidy(left)) && tidy(left) === tidy(right);
+}
+
+function rosterIndexForId(id) {
+  return roster.findIndex(student => sameStudentId(student.id, id));
+}
 let editingClassName = "";
 let currentView = "scan";
 let openSessionId = null;
+// The loaded session, kept because correcting one answer means sending the
+// whole row back: the server checks the response count against the form.
+let openSessionDetail = null;
+let editingCell = null;
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, character => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"})[character]);
@@ -341,6 +358,7 @@ function renderSessions(sessions) {
 async function openSession(id) {
   const session = await request(`/api/sessions/${id}`);
   openSessionId = id;
+  openSessionDetail = session;
   $("#sessionDetailCard").classList.remove("hidden");
   $("#sessionDetailTitle").textContent = session.name || "Untitled session";
   const parts = [
@@ -373,8 +391,13 @@ async function openSession(id) {
     const student = scan.student_name
       ? `${escapeHtml(scan.student_name)}<br><small>${escapeHtml(scan.student_id || "")}</small>`
       : escapeHtml(scan.student_id || "—");
-    const cells = scan.responses.map(value =>
-      `<td class="${!value ? "blank" : value.length > 1 ? "multiple" : ""}">${escapeHtml(value || "—")}</td>`
+    // Every response is clickable: the scanner is accurate but not perfect,
+    // and a mark read as blank that was not needs to be fixable where it is
+    // seen rather than by re-feeding the sheet.
+    const cells = scan.responses.map((value, index) =>
+      `<td class="response ${!value ? "blank" : value.length > 1 ? "multiple" : ""}"` +
+      ` data-scan="${scan.number}" data-question="${index + 1}"` +
+      ` title="Click to correct question ${index + 1}">${escapeHtml(value || "—")}</td>`
     ).join("");
     return `<tr><td>${label}${scan.demo ? " · demo" : ""}</td><td>${student}</td>` +
       `<td>${formatTimestamp(scan.received_at)}</td><td>${scan.answered_count}</td>${cells}</tr>`;
@@ -382,8 +405,64 @@ async function openSession(id) {
   $("#sessionDetailCard").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
+$("#sessionDetailRows").addEventListener("click", event => {
+  const cell = event.target.closest("td.response");
+  if (!cell || !openSessionDetail) return;
+  const number = Number(cell.dataset.scan);
+  const question = Number(cell.dataset.question);
+  const scan = openSessionDetail.scans.find(item => item.number === number);
+  if (!scan) return;
+  editingCell = {number, question};
+  const current = scan.responses[question - 1] || "";
+  const who = scan.role === "key" ? "Answer key" : scan.student_name || scan.student_id || `Student ${number - 1}`;
+  $("#answerTitle").textContent = `Question ${question}`;
+  $("#answerIntro").textContent = current
+    ? `${who} · read as ${current}. Choose what the sheet actually shows.`
+    : `${who} · read as blank. Choose what the sheet actually shows, or confirm the blank.`;
+  $("#answerChoices").innerHTML = ["A", "B", "C", "D", "E"].map(letter =>
+    `<label class="review-choice"><input type="radio" name="answer" value="${letter}"` +
+    `${letter === current ? " checked" : ""}><span>${letter}</span></label>`
+  ).join("") +
+    `<label class="review-choice"><input type="radio" name="answer" value=""` +
+    `${current ? "" : " checked"}><span>Blank</span></label>`;
+  $("#answerDialog").showModal();
+});
+
+$("#answerCancel").addEventListener("click", () => {
+  editingCell = null;
+  $("#answerDialog").close();
+});
+
+$("#answerForm").addEventListener("submit", async () => {
+  if (!editingCell || !openSessionDetail) return;
+  const {number, question} = editingCell;
+  editingCell = null;
+  const chosen = $("#answerChoices").querySelector("input:checked");
+  const scan = openSessionDetail.scans.find(item => item.number === number);
+  if (!chosen || !scan) return;
+  const responses = scan.responses.slice();
+  if (responses[question - 1] === chosen.value) {
+    toast("That is already what is recorded");
+    return;
+  }
+  responses[question - 1] = chosen.value;
+  try {
+    const result = await post("/api/sessions/correct", {
+      session_id: openSessionId,
+      corrections: [{number, responses}],
+    });
+    toast(result.applied
+      ? `Question ${question} saved as ${chosen.value || "blank"}`
+      : "No change was made");
+    await openSession(openSessionId);
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
 function closeSession() {
   openSessionId = null;
+  openSessionDetail = null;
   $("#sessionDetailCard").classList.add("hidden");
 }
 
@@ -559,10 +638,13 @@ function renderReview(review) {
     if (dialog.open) dialog.close();
     return;
   }
-  const detectedRosterIndex = review.scanner_id
-    ? roster.findIndex(student => student.id === review.scanner_id)
-    : -1;
-  const canAutoSave = review.student_id_required && review.scanner_id && review.ambiguities.length === 0
+  // "By bubbled ID" is what lets sheets be fed in any order: the ID decides who
+  // the sheet belongs to and the name is filled in afterwards. Roster order
+  // ignores the ID area entirely, for sheets where it was left blank.
+  const useScannerId = studentMatching === "id" && Boolean(review.scanner_id);
+  const detectedRosterIndex = useScannerId ? rosterIndexForId(review.scanner_id) : -1;
+  const canAutoSave = studentMatching === "id"
+    && review.student_id_required && review.scanner_id && review.ambiguities.length === 0
     && (!roster.length || detectedRosterIndex >= 0);
   if (canAutoSave) {
     if (autoResolvingReviewId !== review.id) {
@@ -574,25 +656,23 @@ function renderReview(review) {
   if (activeReviewId === review.id && dialog.open) return;
   activeReviewId = review.id;
   const label = review.role === "key" ? "answer key" : `student sheet ${review.number - 1}`;
-  activeRosterMatchIndex = review.scanner_id
-    ? roster.findIndex(student => student.id === review.scanner_id)
-    : rosterIndex;
-  const next = review.student_id_required
-    ? review.scanner_id
+  activeRosterMatchIndex = useScannerId ? rosterIndexForId(review.scanner_id) : rosterIndex;
+  const next = !review.student_id_required || studentMatching === "manual"
+    ? null
+    : useScannerId
       ? roster[activeRosterMatchIndex] || null
-      : currentStudent()
-    : null;
+      : currentStudent();
   const hasAmbiguities = review.ambiguities.length > 0;
   $("#reviewDialog h2").textContent = next ? `Confirm ${next.name}` : hasAmbiguities ? "Check the scan" : "Enter the student ID";
   $("#reviewIntro").textContent = hasAmbiguities
     ? `The scanner found more than one mark on the ${label}. Please resolve each item before continuing.`
-    : review.scanner_id
+    : useScannerId
       ? roster.length && activeRosterMatchIndex < 0
         ? `ID ${review.scanner_id} is not in ${selectedClassName}. Check the sheet or save it as an unlisted student.`
         : `The scanner read ID ${review.scanner_id}. Confirm the student before continuing.`
       : `The ${label} was captured. Enter the ID bubbled on the sheet before scanning the next student.`;
   $("#studentIdField").classList.toggle("hidden", !review.student_id_required);
-  $("#studentIdInput").value = review.scanner_id || (next ? next.id : "");
+  $("#studentIdInput").value = (useScannerId && review.scanner_id) || (next ? next.id : "");
   $("#studentNameInput").value = next ? next.name : "";
   $("#studentIdInput").required = review.student_id_required;
   $("#reviewNote").classList.toggle("hidden", !hasAmbiguities);
@@ -607,7 +687,7 @@ function renderReview(review) {
 }
 
 async function saveDetectedStudent(review) {
-  const matchIndex = roster.findIndex(student => student.id === review.scanner_id);
+  const matchIndex = rosterIndexForId(review.scanner_id);
   const match = roster[matchIndex] || null;
   try {
     const state = await post("/api/resolve-review", {
@@ -1617,6 +1697,17 @@ function renderUpdateSettings(settings) {
     : `${version} · not checked yet`;
 }
 
+$("#studentMatching").addEventListener("change", async event => {
+  studentMatching = event.target.value;
+  await post("/api/settings", {student_matching: studentMatching}).catch(() => {});
+  toast({
+    id: "Sheets can be fed in any order",
+    roster: "Sheets are taken in roster order",
+    manual: "Every sheet will ask",
+  }[studentMatching]);
+  refresh();
+});
+
 $("#autoUpdateCheck").addEventListener("change", async event => {
   const wanted = event.target.checked;
   try {
@@ -1633,6 +1724,8 @@ async function start() {
   await migrateBrowserStorage();
   const settings = await request("/api/settings");
   renderUpdateSettings(settings);
+  studentMatching = settings.student_matching || "id";
+  $("#studentMatching").value = studentMatching;
   testName.value = settings.test_name || "";
   if (settings.question_count) questionCount.value = settings.question_count;
   selectedClassName = settings.selected_class || "";

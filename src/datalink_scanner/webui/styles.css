@@ -335,3 +335,8 @@ body.native .shell { padding-top: 18px; }
 .meter span { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--green); transition: width .3s ease; }
 .callout.success { background: #eef7f1; border-color: #bfe0cb; color: var(--ink); }
 .callout.warn { background: #fdeceb; border-color: #f2c0bb; color: #7a1c14; }
+
+/* A recorded answer can be corrected where it is read, so the cells that can
+   be changed say so rather than hiding it behind a menu. */
+td.response { cursor: pointer; }
+td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }

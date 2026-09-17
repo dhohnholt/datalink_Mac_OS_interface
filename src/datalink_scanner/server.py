@@ -569,6 +569,9 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     "test_name": self.store.get_setting("test_name"),
                     "selected_class": self.store.get_setting("selected_class"),
                     "question_count": self.store.get_setting("question_count"),
+                    "student_matching": self.store.get_setting(
+                        "student_matching", "id"
+                    ),
                     "auto_update_check": updates.auto_check_enabled(self.store),
                     "last_update_check": (
                         datetime.fromtimestamp(checked).isoformat() if checked else None
@@ -754,7 +757,10 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 )
                 return
             elif path == "/api/settings":
-                for key in ("test_name", "selected_class", "question_count"):
+                for key in (
+                    "test_name", "selected_class", "question_count",
+                    "student_matching",
+                ):
                     if key in body:
                         self.store.set_setting(key, str(body[key]))
                 if "auto_update_check" in body:

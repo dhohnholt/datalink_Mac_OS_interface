@@ -54,6 +54,17 @@
             <select id="classSelect"><option value="">No roster</option></select>
           </label>
           <label>
+            <span class="label-text hint-wrap">Student matching
+              <button type="button" class="hint" aria-controls="matchingHint" aria-expanded="false" aria-label="About student matching">i</button>
+              <span id="matchingHint" class="hint-bubble" role="tooltip">By ID reads the bubbled ID and finds the student, so sheets can be fed in any order. Roster order ignores the ID area and takes the class list in turn.</span>
+            </span>
+            <select id="studentMatching" aria-describedby="matchingHint">
+              <option value="id">By bubbled ID — any order</option>
+              <option value="roster">In roster order — ignore ID area</option>
+              <option value="manual">Ask for every sheet</option>
+            </select>
+          </label>
+          <label>
             <span class="label-text">Serial port</span>
             <select id="portSelect"><option value="">Auto-detect scanner</option></select>
           </label>
@@ -570,6 +581,19 @@
       </section>
     </main>
   </div>
+
+  <dialog id="answerDialog">
+    <form id="answerForm" method="dialog">
+      <p class="eyebrow">CORRECT A RECORDED ANSWER</p>
+      <h2 id="answerTitle">Question</h2>
+      <p id="answerIntro" class="dialog-copy"></p>
+      <div id="answerChoices" class="review-choices"></div>
+      <div class="dialog-actions">
+        <button type="button" id="answerCancel" class="secondary">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="reviewDialog">
     <form id="reviewForm" method="dialog">

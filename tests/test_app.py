@@ -195,8 +195,10 @@ class HintTests(unittest.TestCase):
     def test_the_form_length_hint_is_a_bubble_not_body_text(self):
         hint = "unanswered questions at the end are kept as blanks"
         self.assertIn(hint, self.html)
-        # It belongs in the bubble, not as standing text under the field.
-        bubble = self.html[self.html.index('class="hint-bubble"') :]
+        # It belongs in its own bubble, not as standing text under the field.
+        # Found by id rather than by being first, so adding another hint to the
+        # row does not silently point this at the wrong one.
+        bubble = self.html[self.html.index('id="questionCountHint"') :]
         self.assertIn(hint, bubble[: bubble.index("</span>")])
         controls = self.html[self.html.index('class="controls"') :]
         self.assertNotIn("<small>", controls[: controls.index("</section>")])
@@ -401,7 +403,8 @@ class ConnectCardLayoutTests(unittest.TestCase):
         # rest, which is what knocked the row out of alignment.
         controls = self.html[self.html.index('class="controls"') :]
         controls = controls[: controls.index("</div>")]
-        self.assertEqual(controls.count("label-text"), 4)
+        # Test name, class, student matching, serial port, questions per form.
+        self.assertEqual(controls.count("label-text"), 5)
 
     def test_controls_are_given_one_height_after_the_rule_that_offsets_them(self):
         # Both selectors have the same specificity, so source order decides.
@@ -604,3 +607,75 @@ class BrandingTests(unittest.TestCase):
         opening = readme[: readme.index("## ")]
         self.assertIn("independent", opening.lower())
         self.assertIn("not affiliated", opening.lower())
+
+
+class StudentMatchingTests(unittest.TestCase):
+    """Sheets can be fed in any order when the ID area is bubbled."""
+
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+
+    def test_the_scan_page_offers_the_three_ways_of_matching(self):
+        picker = self.html[self.html.index('id="studentMatching"') :]
+        picker = picker[: picker.index("</select>")]
+        for mode in ('value="id"', 'value="roster"', 'value="manual"'):
+            self.assertIn(mode, picker)
+
+    def test_ids_are_compared_without_their_leading_zeros(self):
+        # The scanner writes the ID as bubbled, which can be zero-padded; a
+        # roster typed by hand is not. Comparing them raw quietly fell back to
+        # roster order, which is what looked like being forced into an order.
+        self.assertIn("function sameStudentId", APP_JS)
+        self.assertIn("replace(/^0+(?=\\d)/", APP_JS)
+
+    def test_no_raw_string_comparison_of_ids_is_left(self):
+        self.assertNotIn("student.id === review.scanner_id", APP_JS)
+
+    def test_roster_order_ignores_what_the_scanner_read(self):
+        # The point of that mode: sheets whose ID area was left blank.
+        self.assertIn('studentMatching === "id" && Boolean(review.scanner_id)', APP_JS)
+
+    def test_the_mode_is_remembered_between_launches(self):
+        self.assertIn("student_matching", APP_JS)
+        server = (
+            Path(__file__).resolve().parents[1]
+            / "src" / "datalink_scanner" / "server.py"
+        ).read_text()
+        self.assertIn('"student_matching"', server)
+
+
+class AnswerCorrectionTests(unittest.TestCase):
+    """A mark read as blank that was not has to be fixable after the fact."""
+
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+
+    def test_the_session_table_offers_a_picker(self):
+        self.assertIn('id="answerDialog"', self.html)
+        choices = self.html[self.html.index('id="answerDialog"') :]
+        choices = choices[: choices.index("</dialog>")]
+        self.assertIn('id="answerChoices"', choices)
+
+    def test_every_response_cell_is_clickable(self):
+        self.assertIn('data-scan="${scan.number}"', APP_JS)
+        self.assertIn('data-question="${index + 1}"', APP_JS)
+
+    def test_confirming_a_blank_is_one_of_the_choices(self):
+        picker = APP_JS[APP_JS.index('#answerChoices").innerHTML') :]
+        picker = picker[: picker.index("showModal")]
+        self.assertIn("Blank", picker)
+
+    def test_the_whole_row_is_sent_back_not_just_the_one_answer(self):
+        # The server checks the response count against the form length, so a
+        # single answer on its own would be rejected.
+        handler = APP_JS[APP_JS.index('$("#answerForm").addEventListener') :]
+        self.assertIn("scan.responses.slice()", handler[: handler.index("});")])
+
+    def test_an_unchanged_answer_is_not_sent(self):
+        handler = APP_JS[APP_JS.index('$("#answerForm").addEventListener') :]
+        self.assertIn("already what is recorded", handler[: handler.index("});")])
+
+    def test_asking_every_sheet_does_not_guess_from_the_roster(self):
+        # Otherwise it behaves exactly like roster order and the third mode
+        # means nothing.
+        self.assertIn('studentMatching === "manual"', APP_JS)

@@ -144,11 +144,41 @@ The window has six pages, on the tab bar and under the **View** menu:
    Set the real form length: the count decides how many answer slots are read,
    so questions a student left blank at the end stay blank instead of being
    trimmed away.
-3. Select **Connect and enter Data Collection**, and wait for *Ready to scan*.
-4. Feed the **answer key first**, then the student sheets, one at a time.
-5. **Export CSV** when you're done — it opens a normal Save panel. ⌘Q quits.
+3. Choose how sheets are matched to students (see below).
+4. Select **Connect and enter Data Collection**, and wait for *Ready to scan*.
+5. Feed the **answer key first**, then the student sheets, one at a time.
+6. **Export CSV** when you're done — it opens a normal Save panel. ⌘Q quits.
 
-The test name, class and form length are remembered between launches.
+The test name, class, form length and matching mode are remembered between
+launches.
+
+### Matching sheets to students
+
+**Student matching** decides who a sheet belongs to:
+
+* **By bubbled ID — any order.** The scanner reads the ID bubbled on the sheet
+  and the name is filled in from the roster afterwards, so sheets can be fed
+  in whatever order they come off the pile. A sheet whose ID is not on the
+  roster stops and asks rather than guessing.
+* **In roster order — ignore ID area.** For sheets where the ID grid was left
+  blank. Students are taken in the order the class list is in, confirming each
+  one, with **Skip absent** for anyone who is not there.
+* **Ask for every sheet.** Types the ID by hand each time, for a class with no
+  roster saved.
+
+IDs are compared without leading zeros, because the scanner reports the grid
+exactly as it was bubbled and a roster typed by hand usually is not padded.
+
+### Correcting a recorded answer
+
+The scanner is accurate but a sheet can still be smudged, and a mark read as
+blank might not be. On the **Sessions** page, open a session and click any
+response in the table — pick the letter the sheet actually shows, or confirm
+the blank. The row is saved and everything computed from it, including the
+item analysis and anything sent to T-TESS, follows from the corrected answer.
+
+The answer key can be corrected the same way, or on the **Answer key** tab of
+the Analysis page, which rescores every sheet against it.
 
 ### Sessions
 

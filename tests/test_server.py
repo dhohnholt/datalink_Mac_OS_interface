@@ -1,0 +1,157 @@
+"""Tests for the local workspace server that need no scanner and no browser."""
+
+import csv
+import io
+import json
+import tempfile
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+
+from datalink_scanner import paths
+from datalink_scanner.interface import DataLinkError
+from datalink_scanner.server import (
+    DataLinkRequestHandler,
+    ScannerController,
+    safe_export_filename,
+)
+
+
+class ExportFilenameTests(unittest.TestCase):
+    def test_keeps_readable_names(self):
+        self.assertEqual(safe_export_filename("Unit 1 Exam"), "Unit 1 Exam.csv")
+
+    def test_does_not_double_the_extension(self):
+        self.assertEqual(safe_export_filename("Unit 1.csv"), "Unit 1.csv")
+
+    def test_falls_back_when_empty(self):
+        self.assertEqual(safe_export_filename("   "), "datalink-session.csv")
+
+    def test_strips_path_separators_and_quotes(self):
+        # The name lands in a Content-Disposition header and in a filename,
+        # so neither a traversal nor a header break may survive it.
+        name = safe_export_filename('../../etc/passwd"')
+        self.assertNotIn("/", name)
+        self.assertNotIn('"', name)
+
+    def test_replaces_non_ascii(self):
+        self.assertEqual(safe_export_filename("Exam — 4º"), "Exam _ 4_.csv")
+
+
+class ExportCsvTests(unittest.TestCase):
+    def setUp(self):
+        self._directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self._directory.cleanup)
+        self.controller = ScannerController(Path(self._directory.name))
+
+    def test_header_covers_the_longest_record(self):
+        self.controller.add_demo_record(30)
+        rows = list(csv.reader(io.StringIO(self.controller.export_csv("P4").decode())))
+        self.assertEqual(rows[0][-1], "Q30")
+        self.assertEqual(rows[1][2], "P4")
+
+    def test_empty_session_still_produces_a_header(self):
+        rows = list(csv.reader(io.StringIO(self.controller.export_csv().decode())))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "Scan")
+
+    def test_rejects_unsupported_question_count(self):
+        with self.assertRaises(DataLinkError):
+            self.controller.add_demo_record(42)
+
+    def test_first_sheet_is_the_answer_key(self):
+        self.controller.add_demo_record(30)
+        self.controller.add_demo_record(30)
+        rows = list(csv.reader(io.StringIO(self.controller.export_csv().decode())))
+        self.assertEqual([row[1] for row in rows[1:]], ["key", "student"])
+
+    def test_clear_empties_the_session(self):
+        self.controller.add_demo_record(30)
+        self.controller.clear()
+        self.assertEqual(self.controller.snapshot()["record_count"], 0)
+
+
+class CaptureRootTests(unittest.TestCase):
+    def test_explicit_directory_wins_over_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            resolved = paths.capture_root(directory)
+            self.assertEqual(resolved, Path(directory).resolve())
+
+    def test_environment_override(self):
+        import os
+
+        with tempfile.TemporaryDirectory() as directory:
+            previous = os.environ.get("DATALINK_CAPTURE_DIR")
+            os.environ["DATALINK_CAPTURE_DIR"] = directory
+            try:
+                self.assertEqual(paths.capture_root(), Path(directory).resolve())
+            finally:
+                if previous is None:
+                    del os.environ["DATALINK_CAPTURE_DIR"]
+                else:
+                    os.environ["DATALINK_CAPTURE_DIR"] = previous
+
+    def test_web_assets_are_installed_with_the_package(self):
+        root = paths.web_root()
+        for asset in ("index.html", "app.js", "styles.css"):
+            self.assertTrue((root / asset).is_file(), f"missing {asset}")
+
+
+class HttpApiTests(unittest.TestCase):
+    """Drives the real handler over a real socket on an ephemeral port."""
+
+    def setUp(self):
+        self._directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self._directory.cleanup)
+        DataLinkRequestHandler.controller = ScannerController(Path(self._directory.name))
+        DataLinkRequestHandler.shutdown_requested = threading.Event()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), DataLinkRequestHandler)
+        self.addCleanup(self.server.server_close)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.shutdown)
+        self.base = "http://127.0.0.1:%d" % self.server.server_address[1]
+
+    def post(self, path, payload):
+        request = urllib.request.Request(
+            self.base + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.loads(response.read())
+
+    def test_status_reports_a_disconnected_scanner(self):
+        with urllib.request.urlopen(self.base + "/api/status", timeout=5) as response:
+            snapshot = json.loads(response.read())
+        self.assertEqual(snapshot["state"], "disconnected")
+        self.assertEqual(snapshot["supported_question_counts"], [30, 33, 50, 75])
+
+    def test_connect_requires_write_acknowledgement(self):
+        # Connecting drives the scanner's mode; it must never happen implicitly.
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/connect", {"port": "/dev/null", "question_count": 50})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertIn("acknowledgement", json.loads(caught.exception.read())["error"])
+
+    def test_index_is_served(self):
+        with urllib.request.urlopen(self.base + "/", timeout=5) as response:
+            body = response.read().decode()
+        self.assertIn("Scanner workspace", body)
+
+    def test_quit_signals_shutdown(self):
+        self.assertTrue(self.post("/api/quit", {})["stopping"])
+        self.assertTrue(DataLinkRequestHandler.shutdown_requested.wait(timeout=2))
+
+    def test_unknown_api_path_is_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/nope", {})
+        self.assertEqual(caught.exception.code, 404)
+
+
+if __name__ == "__main__":
+    unittest.main()

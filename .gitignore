@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Student data — never commit
+# ---------------------------------------------------------------------------
+# Raw scanner captures contain real student IDs and responses.
+captures/*
+!captures/.gitkeep
+
+# Windows-side collection runs: DataLink Connect session files (.APXT) hold
+# real roster data, and capture_info.json records the host machine name.
+Capture Results/
+DataLinkCapture_*/
+
+# ---------------------------------------------------------------------------
+# Apperson's proprietary software — redistributing it is not ours to do
+# ---------------------------------------------------------------------------
+DataLinkConnect*Setup.exe
+installer_analysis/
+datalink_windows_capture_bundle.zip
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+# PyInstaller regenerates the spec with absolute paths on every build.
+packaging/*.spec
+packaging/*.iconset/
+windows_capture_kit.zip
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ---------------------------------------------------------------------------
+# Swift / Xcode
+# ---------------------------------------------------------------------------
+.build/
+*.xcodeproj/xcuserdata/
+DerivedData/
+
+# ---------------------------------------------------------------------------
+# macOS
+# ---------------------------------------------------------------------------
+.DS_Store

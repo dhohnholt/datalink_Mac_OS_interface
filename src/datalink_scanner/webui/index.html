@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DataLink Scanner</title>
+  <link rel="stylesheet" href="/styles.css?v=1.0.0">
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">APPERSON DATALINK 1200</p>
+        <h1>Scanner workspace</h1>
+        <p class="subtitle">Capture complete answer records directly from the USB scanner.</p>
+      </div>
+      <div class="header-actions">
+        <div id="connectionBadge" class="badge disconnected"><span></span>Disconnected</div>
+        <button id="quitButton" class="ghost" title="Disconnect the scanner and stop the DataLink Scanner server">Quit</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="card connect-card">
+        <div class="section-title">
+          <div>
+            <h2>Scanner connection</h2>
+            <p id="connectionDetail">Connect the scanner by USB, then select its serial port.</p>
+          </div>
+        </div>
+        <div class="controls">
+          <label>Test name
+            <input id="testName" type="text" autocomplete="off" placeholder="Unit 1 Exam — 4th Period">
+          </label>
+          <label>Serial port
+            <select id="portSelect"><option value="">Auto-detect scanner</option></select>
+          </label>
+          <label>Questions per form
+            <select id="questionCount">
+              <option value="30">30 questions</option>
+              <option value="33">33 questions</option>
+              <option value="50" selected>50 questions</option>
+              <option value="75">75 questions</option>
+            </select>
+          </label>
+          <button id="connectButton" class="primary">Connect and enter Data Collection</button>
+          <button id="disconnectButton" class="secondary" disabled>Disconnect</button>
+        </div>
+        <p class="safety">Connecting sends the command sequence recovered from DataLink Connect. Keep sheets out of the feeder until the status says Ready to scan.</p>
+      </section>
+
+      <section class="metrics">
+        <article><span>Sheets captured</span><strong id="scanCount">0</strong></article>
+        <article><span>Latest response count</span><strong id="answerCount">—</strong></article>
+        <article><span>Session file</span><strong id="sessionFile">Not started</strong></article>
+      </section>
+
+      <section id="workflowCard" class="workflow-card key-needed">
+        <div class="step-number">1</div>
+        <div>
+          <strong id="workflowTitle">Scan the answer key first</strong>
+          <p id="workflowDetail">After the scanner says Ready to scan, feed the marked answer key before any student sheets.</p>
+        </div>
+        <button id="skipStudentButton" class="secondary hidden">Skip absent</button>
+      </section>
+
+      <section class="card roster-card">
+        <div class="section-title row">
+          <div>
+            <h2>Class roster</h2>
+            <p id="rosterSummary">No saved roster. Student IDs will be entered manually.</p>
+          </div>
+          <div class="button-row">
+            <label class="class-picker">Selected class
+              <select id="classSelect"><option value="">No roster</option></select>
+            </label>
+            <button id="resetRosterButton" class="ghost hidden">Start at first student</button>
+            <button id="newClassButton" class="secondary">New class</button>
+            <button id="editRosterButton" class="secondary">Edit selected class</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card records-card">
+        <div class="section-title row">
+          <div>
+            <h2>Live scans</h2>
+            <p>Each row contains all responses transmitted for the selected form length.</p>
+          </div>
+          <div class="button-row">
+            <button id="demoButton" class="secondary">Add demo scan</button>
+            <a id="exportButton" class="button secondary" href="/api/export.csv" download>Export CSV</a>
+            <button id="clearButton" class="ghost">Clear view</button>
+          </div>
+        </div>
+        <div id="emptyState" class="empty-state">
+          <div class="sheet-icon">50</div>
+          <h3>No sheets captured yet</h3>
+          <p>Use “Add demo scan” to preview the table, or connect the scanner and feed a sheet.</p>
+        </div>
+        <div id="tableWrap" class="table-wrap hidden">
+          <table>
+            <thead><tr id="tableHead"></tr></thead>
+            <tbody id="recordRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card activity-card">
+        <div class="section-title row">
+          <div><h2>Activity</h2><p>Connection, protocol, and scan events.</p></div>
+          <button id="toggleProtocol" class="ghost">Show protocol details</button>
+        </div>
+        <ol id="activityList"><li class="muted">Waiting for activity.</li></ol>
+      </section>
+    </main>
+  </div>
+  <dialog id="reviewDialog">
+    <form id="reviewForm" method="dialog">
+      <p class="eyebrow">MARK NEEDS REVIEW</p>
+      <h2>Check the erased answer</h2>
+      <p id="reviewIntro" class="dialog-copy"></p>
+      <label id="studentIdField" class="student-id-field">Student ID
+        <input id="studentIdInput" type="text" inputmode="numeric" pattern="[0-9]+" autocomplete="off" placeholder="Enter the bubbled ID">
+      </label>
+      <input id="studentNameInput" type="hidden">
+      <div id="reviewQuestions"></div>
+      <p id="reviewNote" class="dialog-note">Choose the answer the student intended, leave it blank, or keep both marks exactly as read.</p>
+      <div class="dialog-actions">
+        <button id="saveReviewButton" class="primary" type="submit">Save correction</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="rosterDialog">
+    <form id="rosterForm" method="dialog">
+      <p class="eyebrow">REUSABLE CLASS LIST</p>
+      <h2 id="rosterDialogTitle">Set up a class</h2>
+      <p class="dialog-copy">Name the class, then enter one student per line as <strong>student ID, name</strong>. Class lists stay saved on this computer.</p>
+      <label class="dialog-field">Class name
+        <input id="classNameInput" type="text" autocomplete="off" required placeholder="Government — Period 4">
+      </label>
+      <textarea id="rosterInput" rows="12" placeholder="101, Ada Lovelace&#10;102, Katherine Johnson&#10;103, Alan Turing"></textarea>
+      <div class="dialog-actions split-actions">
+        <button id="deleteClassButton" class="ghost danger" type="button">Delete class</button>
+        <div>
+          <button id="cancelRosterButton" class="secondary" type="button">Cancel</button>
+          <button class="primary" type="submit">Save roster</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+  <div id="toast" role="status"></div>
+  <script src="/app.js?v=1.0.0"></script>
+</body>
+</html>

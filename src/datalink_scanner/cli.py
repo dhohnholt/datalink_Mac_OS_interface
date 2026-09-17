@@ -1,0 +1,243 @@
+"""The ``datalink-scanner`` command."""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import os
+import sys
+from pathlib import Path
+from typing import Iterable
+
+from . import __version__, paths
+from .interface import (
+    BAUD_RATE,
+    DEFAULT_ANSWER_COUNT,
+    SUPPORTED_ANSWER_COUNTS,
+    DataLinkError,
+    DataLinkStreamParser,
+    DirectDataLinkScanner,
+    append_jsonl,
+    discover_port,
+)
+
+APP_BUNDLE_NAME = "DataLink Scanner.app"
+
+
+def _print_transcript(title: str, transcript: Iterable[tuple[str, str]]) -> None:
+    print(title)
+    for command, reply in transcript:
+        print(f"  {command} -> {reply}")
+
+
+def command_serve(args: argparse.Namespace) -> int:
+    from .server import serve
+
+    return serve(
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+        capture_dir=args.capture_dir,
+    )
+
+
+def command_ports(args: argparse.Namespace) -> int:
+    candidates = sorted(
+        set(glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/tty.usbserial*"))
+    )
+    if not candidates:
+        print("No USB serial ports found.")
+        print(
+            "Connect the DataLink 1200 by USB. If nothing appears, install the "
+            "Silicon Labs CP210x VCP driver and reconnect."
+        )
+        return 1
+    for path in candidates:
+        print(path)
+    return 0
+
+
+def command_scan(args: argparse.Namespace) -> int:
+    """Headless capture: the browser workspace without the browser."""
+    if not args.acknowledge_writes:
+        raise DataLinkError(
+            "Scanning sends captured commands to the scanner. Re-run with "
+            "--acknowledge-writes after confirming the scanner is connected."
+        )
+    output = args.output or paths.capture_root(args.capture_dir) / "live_scans.jsonl"
+    port = args.port or discover_port()
+    scanner = DirectDataLinkScanner(
+        port,
+        response_timeout=args.command_timeout,
+        question_count=args.questions,
+    )
+    print(f"Opening {port} at {BAUD_RATE} 8N1")
+    scanner.open()
+    try:
+        _print_transcript("Initialization:", scanner.initialize())
+        _print_transcript("Data Collection transition:", scanner.enter_data_collection())
+        print(f"Ready. Feed sheets one at a time; press Ctrl+C to stop.")
+        print(f"Writing to {output}")
+        while True:
+            records, messages = scanner.read_available()
+            for message in messages:
+                print(f"Scanner message: {message}")
+            for record in records:
+                append_jsonl(output, record, args.include_raw_fields)
+                answered = sum(bool(value) for value in record.responses)
+                print(
+                    f"Captured form {record.received_at}: "
+                    f"{answered}/{len(record.responses)} answered"
+                )
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        scanner.close()
+    return 0
+
+
+def command_replay(args: argparse.Namespace) -> int:
+    """Parse a saved raw byte stream — the offline path, no hardware needed."""
+    output = args.output or paths.capture_root(args.capture_dir) / "replay.jsonl"
+    parser = DataLinkStreamParser(args.questions)
+    count = 0
+    with args.source.open("rb") as stream:
+        while chunk := stream.read(4096):
+            records, messages = parser.feed(chunk)
+            for message in messages:
+                print(f"Scanner message: {message}")
+            for record in records:
+                count += 1
+                append_jsonl(output, record, args.include_raw_fields)
+    if parser.pending_bytes:
+        raise DataLinkError(
+            f"Replay ended with {len(parser.pending_bytes)} incomplete bytes"
+        )
+    print(f"Parsed {count} form record(s) into {output}")
+    return 0
+
+
+def find_app_bundle() -> Path | None:
+    """Locate the .app that ships beside an installed copy of this package.
+
+    Homebrew lays the virtualenv out as ``<prefix>/libexec`` with the bundle at
+    ``<prefix>/DataLink Scanner.app``, so walk a couple of levels up from
+    ``sys.prefix``.
+    """
+    override = os.environ.get("DATALINK_APP_BUNDLE")
+    if override:
+        candidate = Path(override).expanduser()
+        return candidate if candidate.is_dir() else None
+    start = Path(sys.prefix).resolve()
+    for directory in (start, *start.parents[:2]):
+        candidate = directory / APP_BUNDLE_NAME
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def command_install_app(args: argparse.Namespace) -> int:
+    """Symlink the bundle into /Applications so `brew upgrade` updates it too."""
+    bundle = find_app_bundle()
+    if bundle is None:
+        raise DataLinkError(
+            f"No {APP_BUNDLE_NAME} was found next to this installation. "
+            "It ships with the Homebrew formula; set DATALINK_APP_BUNDLE to "
+            "point at one built by packaging/make_app_bundle.sh."
+        )
+    destination = Path(args.applications).expanduser() / APP_BUNDLE_NAME
+    if destination.is_symlink() or destination.exists():
+        if not destination.is_symlink() and not args.force:
+            raise DataLinkError(
+                f"{destination} already exists and is not a symlink. "
+                "Move it aside, or re-run with --force to replace it."
+            )
+        if destination.is_symlink():
+            destination.unlink()
+        else:
+            import shutil
+
+            shutil.rmtree(destination)
+    destination.symlink_to(bundle)
+    print(f"Linked {destination} → {bundle}")
+    print("`brew upgrade datalink-scanner` now updates the app in place.")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="datalink-scanner",
+        description="Interface for the Apperson DataLink 1200 optical mark scanner.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command")
+
+    def add_capture_dir(target: argparse.ArgumentParser) -> None:
+        target.add_argument(
+            "--capture-dir",
+            help="Directory for saved sessions (default: %s)" % paths.capture_root(),
+        )
+
+    serve_parser = sub.add_parser(
+        "serve", help="Open the browser workspace (default when no command is given)"
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8765)
+    serve_parser.add_argument(
+        "--no-browser", action="store_true", help="Start the server without opening a browser"
+    )
+    add_capture_dir(serve_parser)
+    serve_parser.set_defaults(func=command_serve)
+
+    ports_parser = sub.add_parser("ports", help="List USB serial ports macOS can see")
+    ports_parser.set_defaults(func=command_ports)
+
+    scan_parser = sub.add_parser("scan", help="Capture sheets from a Terminal, no browser")
+    scan_parser.add_argument("--port", help="Serial device; auto-detected when omitted")
+    scan_parser.add_argument("--output", type=Path)
+    scan_parser.add_argument("--command-timeout", type=float, default=1.0)
+    scan_parser.add_argument(
+        "--questions", type=int, choices=SUPPORTED_ANSWER_COUNTS, default=DEFAULT_ANSWER_COUNT
+    )
+    scan_parser.add_argument("--include-raw-fields", action="store_true")
+    scan_parser.add_argument("--acknowledge-writes", action="store_true")
+    add_capture_dir(scan_parser)
+    scan_parser.set_defaults(func=command_scan)
+
+    replay_parser = sub.add_parser("replay", help="Parse a saved raw serial byte stream")
+    replay_parser.add_argument("source", type=Path)
+    replay_parser.add_argument("--output", type=Path)
+    replay_parser.add_argument(
+        "--questions", type=int, choices=SUPPORTED_ANSWER_COUNTS, default=DEFAULT_ANSWER_COUNT
+    )
+    replay_parser.add_argument("--include-raw-fields", action="store_true")
+    add_capture_dir(replay_parser)
+    replay_parser.set_defaults(func=command_replay)
+
+    install_parser = sub.add_parser(
+        "install-app", help="Symlink DataLink Scanner.app into /Applications"
+    )
+    install_parser.add_argument("--applications", default="/Applications")
+    install_parser.add_argument(
+        "--force", action="store_true", help="Replace a real app already installed there"
+    )
+    install_parser.set_defaults(func=command_install_app)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if getattr(args, "func", None) is None:
+        # Bare `datalink-scanner` is the app's double-click entry point.
+        args = parser.parse_args(["serve", *(argv or [])])
+    try:
+        return args.func(args)
+    except DataLinkError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

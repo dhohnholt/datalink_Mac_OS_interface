@@ -156,6 +156,11 @@ done
 echo "    sha256 $SHA"
 
 echo "==> Updating the formula"
+# Drop any bottle block first. It belongs to the version being replaced, and
+# leaving it would advertise a bottle that does not exist at the new version's
+# URL. build_bottle puts the right one back a minute later; until then the
+# formula simply has none and users build from source.
+/usr/bin/sed -i '' '/^  bottle do$/,/^  end$/d' packaging/homebrew/datalink-scanner.rb
 /usr/bin/sed -i '' -E \
   -e "s|^  url \"https://github.com/$REPO/archive.*|  url \"$TARBALL\"|" \
   -e "s|^  sha256 \".*\"|  sha256 \"$SHA\"|" \

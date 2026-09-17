@@ -96,6 +96,22 @@ class HelperLocationTests(unittest.TestCase):
         self.assertEqual([call.kwargs for call in ensure.call_args_list],
                          [{"rebuild": False}, {"rebuild": True}])
 
+    def test_the_copy_does_not_depend_on_a_version_that_will_move(self):
+        helper = keychain.ensure_helper()
+        if helper is None:
+            self.skipTest("no interpreter to copy in this build")
+        listed = subprocess.run(
+            ["/usr/bin/otool", "-L", str(helper)], capture_output=True, text=True
+        )
+        # A Cellar path carries the Python version in it, so the next patch
+        # release deletes it and the helper dies with "Library missing" — after
+        # which every call falls back to a password prompt.
+        linked = [
+            line.strip() for line in listed.stdout.splitlines()
+            if "/Cellar/" in line
+        ]
+        self.assertEqual(linked, [], f"helper still pinned to {linked}")
+
     def test_the_copy_carries_its_own_signature(self):
         helper = keychain.ensure_helper()
         if helper is None:

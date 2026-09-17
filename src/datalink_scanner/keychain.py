@@ -234,12 +234,55 @@ def ensure_helper(rebuild: bool = False) -> Path | None:
         staged = destination.with_suffix(".new")
         shutil.copy2(source, staged)
         staged.chmod(0o755)
+        # Order matters: rewriting the load command invalidates any signature,
+        # so it happens before signing, not after.
+        _pin_to_stable_framework(staged)
         _resign(staged)
         staged.replace(destination)
         stamp.write_text(digest)
         return destination
     except OSError:
         return None
+
+
+def _pin_to_stable_framework(binary: Path) -> None:
+    """Point the copy at Homebrew's opt path instead of a Cellar version.
+
+    The interpreter links against its framework by absolute path, and for a
+    Homebrew Python that path carries the version:
+
+        /opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/.../Python
+
+    So the next Python patch release deletes it and the helper dies at launch
+    with "Library missing" — after which every call quietly falls back to
+    asking in-process, which is a password prompt each time. The opt path is
+    the same file through a symlink Homebrew repoints on upgrade, which is the
+    whole reason the app bundle uses it too.
+    """
+    try:
+        listed = subprocess.run(
+            ["/usr/bin/otool", "-L", str(binary)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    for line in (listed.stdout or "").splitlines():
+        linked = line.strip().split(" (")[0]
+        if "/Cellar/" not in linked or not linked.endswith("/Python"):
+            continue
+        parts = Path(linked).parts
+        index = parts.index("Cellar")
+        # .../Cellar/<formula>/<version>/rest → .../opt/<formula>/rest
+        stable = Path(*parts[:index], "opt", parts[index + 1], *parts[index + 3:])
+        if not stable.is_file():
+            continue
+        try:
+            subprocess.run(
+                ["/usr/bin/install_name_tool", "-change", linked, str(stable), str(binary)],
+                capture_output=True, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
 
 
 def _resign(binary: Path) -> None:

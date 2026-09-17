@@ -231,6 +231,17 @@ app database, not in a preferences file, not in any log. It travels only as an
 `Authorization: Bearer` header. No password, email, or other account
 credential is ever requested; the server works out the teacher from the token.
 
+macOS decides which application may read a Keychain item, and for an app that
+is not signed with a paid developer certificate it decides that **by file
+path**. Homebrew installs each version under `Cellar/datalink-scanner/<version>`,
+so every upgrade used to look like a stranger and ask for the login password.
+The Keychain is therefore read and written through a small copy of the
+interpreter kept at a path that upgrades do not touch —
+`~/Library/Application Support/DataLink Scanner/runtime/keychain-helper` — with
+the token passed to it down a pipe, never as a command-line argument. Approve
+once with **Always Allow** and updates stop asking. Upgrading the Python it was
+copied from rebuilds it, which costs one more approval.
+
 Then pick **Course → Section → Unit → Test** and upload. The list of available
 tests is refreshed when you connect, when the app opens, and before an upload
 once it is more than fifteen minutes old.

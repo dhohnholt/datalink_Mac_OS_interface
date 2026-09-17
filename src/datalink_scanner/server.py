@@ -430,6 +430,24 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
 
+def build_server(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    capture_dir: str | None = None,
+) -> tuple[ThreadingHTTPServer, ScannerController, threading.Event]:
+    """Wire up a server without running it.
+
+    Port 0 asks the OS for a free port, which is what the native app uses:
+    it never has to coordinate with another instance over a fixed port.
+    """
+    controller = ScannerController(paths.capture_root(capture_dir))
+    shutdown_requested = threading.Event()
+    DataLinkRequestHandler.controller = controller
+    DataLinkRequestHandler.shutdown_requested = shutdown_requested
+    server = ThreadingHTTPServer((host, port), DataLinkRequestHandler)
+    return server, controller, shutdown_requested
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = 8765,
@@ -441,14 +459,10 @@ def serve(
     If the port is already taken, a scanner workspace is assumed to be running
     already: point the browser at it instead of failing with a stack trace.
     """
-    controller = ScannerController(paths.capture_root(capture_dir))
-    shutdown_requested = threading.Event()
-    DataLinkRequestHandler.controller = controller
-    DataLinkRequestHandler.shutdown_requested = shutdown_requested
     url = f"http://{host}:{port}"
 
     try:
-        server = ThreadingHTTPServer((host, port), DataLinkRequestHandler)
+        server, controller, shutdown_requested = build_server(host, port, capture_dir)
     except OSError as exc:
         if exc.errno != errno.EADDRINUSE:
             raise

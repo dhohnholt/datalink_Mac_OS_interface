@@ -8,7 +8,7 @@
    count, and select **Connect and enter Data Collection**.
 5. Scan the answer key first, then the student sheets.
 
-The app opens its workspace in the default browser and keeps all scan data on
+The app opens its own window with a normal menu bar, and keeps all scan data on
 the Mac. Saved sessions are stored in:
 
 `~/Library/Application Support/DataLink Scanner/captures`
@@ -20,5 +20,8 @@ notarized. If macOS blocks the first launch, Control-click the app, choose
 If no USB serial port appears after connecting the scanner, install the
 Silicon Labs CP210x VCP driver for that Mac and reconnect the scanner.
 
-If another DataLink Scanner instance is already running, launching the app
-opens that existing browser workspace instead of starting a duplicate server.
+Installing with Homebrew instead avoids the Gatekeeper prompt entirely and
+updates with `brew upgrade`:
+
+    brew install dhohnholt/datalink/datalink-scanner
+    datalink-scanner install-app

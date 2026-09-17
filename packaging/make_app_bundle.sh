@@ -1,6 +1,8 @@
 #!/bin/sh
 # Build "DataLink Scanner.app" — a thin launcher around an already-installed
-# datalink-scanner command.
+# datalink-scanner command. The app itself is a real Cocoa application with
+# its own window and menu bar; this bundle only gives it a Dock presence and
+# somewhere for Finder and Spotlight to point.
 #
 # The bundle holds no Python of its own. That is the point: `brew upgrade`
 # replaces the command the launcher execs, so the app updates with it and
@@ -15,7 +17,7 @@ set -eu
 CLI=""
 OUTPUT=""
 VERSION="0.0.0"
-ICON="$(cd "$(dirname "$0")" && pwd)/DataLinkScanner.icns"
+ICON="$(cd "$(dirname "$0")/.." && pwd)/src/datalink_scanner/resources/DataLinkScanner.icns"
 BUNDLE_ID="org.davidhohnholt.datalink-scanner"
 
 while [ $# -gt 0 ]; do
@@ -63,7 +65,7 @@ if [ ! -x "$CLI" ]; then
   /usr/bin/osascript -e 'display alert "DataLink Scanner is not installed" message "The datalink-scanner command is missing. Reinstall with: brew reinstall datalink-scanner" as critical'
   exit 1
 fi
-exec "$CLI" serve "\$@"
+exec "$CLI" app "\$@"
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/DataLink Scanner"
 

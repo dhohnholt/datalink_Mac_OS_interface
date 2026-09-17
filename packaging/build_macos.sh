@@ -9,7 +9,7 @@ set -euo pipefail
 PROJECT_DIR=${0:A:h:h}
 PYTHON_BIN="${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python}"
 PACKAGING_DIR="$PROJECT_DIR/packaging"
-ICON_FILE="$PACKAGING_DIR/DataLinkScanner.icns"
+ICON_FILE="$PROJECT_DIR/src/datalink_scanner/resources/DataLinkScanner.icns"
 DIST_DIR="$PROJECT_DIR/dist"
 DMG_ROOT="$PROJECT_DIR/build/dmg"
 export PYINSTALLER_CONFIG_DIR="$PROJECT_DIR/build/pyinstaller-config"
@@ -43,8 +43,10 @@ mkdir -p "$DIST_DIR" "$DMG_ROOT"
   --icon "$ICON_FILE" \
   --osx-bundle-identifier "org.davidhohnholt.datalink-scanner" \
   --add-data "$PROJECT_DIR/src/datalink_scanner/webui:web" \
+  --add-data "$PROJECT_DIR/src/datalink_scanner/resources:datalink_scanner/resources" \
   --paths "$PROJECT_DIR/src" \
   --hidden-import serial \
+  --hidden-import WebKit \
   --distpath "$DIST_DIR" \
   --workpath "$PROJECT_DIR/build/pyinstaller" \
   --specpath "$PACKAGING_DIR" \

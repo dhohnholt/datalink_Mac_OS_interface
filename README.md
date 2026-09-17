@@ -67,8 +67,9 @@ the scanner.
 
 ## Use
 
-Open **DataLink Scanner** (or run `datalink-scanner`). It starts a local server
-and opens the workspace at `http://127.0.0.1:8765`.
+Open **DataLink Scanner** from the Dock, Spotlight or Applications — or run
+`datalink-scanner`. It opens its own window with a normal macOS menu bar. No
+browser window, no terminal window.
 
 1. Enter a **test name** — it becomes the exported CSV's filename.
 2. Pick the **class** (see below) and the **questions per form**. Choose the
@@ -76,7 +77,7 @@ and opens the workspace at `http://127.0.0.1:8765`.
    a sheet, which auto-trimming would silently discard.
 3. Select **Connect and enter Data Collection**, and wait for *Ready to scan*.
 4. Feed the **answer key first**, then the student sheets, one at a time.
-5. **Export CSV** when you're done. **Quit** stops the server.
+5. **Export CSV** when you're done — it opens a normal Save panel. Cmd-Q quits.
 
 Each session is also appended live to a timestamped
 `browser_session_*.jsonl` file in
@@ -98,12 +99,16 @@ pick the intended answer, mark it blank, or keep both marks.
 ### Command line
 
 ```bash
-datalink-scanner                 # open the browser workspace (same as `serve`)
+datalink-scanner                 # open the app window (same as `app`)
+datalink-scanner serve           # serve the same workspace to a web browser
 datalink-scanner ports           # list USB serial ports
-datalink-scanner scan --acknowledge-writes   # capture to JSONL, no browser
+datalink-scanner scan --acknowledge-writes   # capture to JSONL, no window
 datalink-scanner replay raw.bin  # parse a saved byte stream offline
 datalink-scanner install-app     # symlink the app into /Applications
 ```
+
+`serve` is the fallback: same workspace, opened in your browser. Useful if the
+window misbehaves, or over SSH.
 
 `scan` and `serve` both send commands that change the scanner's mode, so
 `scan` requires `--acknowledge-writes` to confirm a scanner is actually
@@ -123,8 +128,15 @@ DataLinkFormRecord      one 211-field ASCII CSV record per sheet
         ↓
 ScannerController       session state, review queue, JSONL + CSV output
         ↓
-browser workspace       local-only HTTP + static UI
+local HTTP workspace    loopback only; the UI and its API
+        ↓
+Cocoa shell             NSWindow + menu bar + WKWebView  (or a browser tab)
 ```
+
+The Cocoa shell in `app.py` owns the window, the menu bar, the Save panel and
+the alert panels; it hosts the same server in-process on an OS-assigned port.
+Menu items drive the very same controls the UI exposes, so there is one code
+path per action rather than two.
 
 The scanner emits one CRLF-terminated, 211-field CSV record per sheet. Field 0
 is the bubbled student ID; fields 10 onward are the responses. Everything above
@@ -141,7 +153,7 @@ scanner attached.
 | 4 | Direct interface | ✅ working against real hardware |
 | 5 | Test scoring | ⬜ answer key + per-student scoring |
 | 6 | Item analysis | ⬜ per-question stats across a class |
-| 7 | Native macOS app | 🔨 in progress |
+| 7 | Native macOS app | ✅ Cocoa window and menu bar, no browser or terminal |
 
 Scoring and item analysis are not built yet — export the CSV and score
 elsewhere for now.
@@ -153,7 +165,8 @@ branch. It predates the protocol discovery and is not part of the build.
 ## Repository layout
 
 ```
-src/datalink_scanner/   the application: transport, parser, server, CLI, web UI
+src/datalink_scanner/   the application: transport, parser, server, Cocoa
+                        shell, CLI and web UI
 tests/                  offline tests; no scanner needed
 scripts/                phase 1–3 discovery tools (see below)
 packaging/              app bundle builder, DMG build, Homebrew formula

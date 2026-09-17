@@ -30,6 +30,19 @@ def _print_transcript(title: str, transcript: Iterable[tuple[str, str]]) -> None
         print(f"  {command} -> {reply}")
 
 
+def command_app(args: argparse.Namespace) -> int:
+    """Run the native Cocoa app — the default, and what the .app launches."""
+    try:
+        from .app import run
+    except ImportError as exc:
+        print(f"The native app needs PyObjC, which is not available: {exc}")
+        print("Falling back to the browser workspace.")
+        from .server import serve
+
+        return serve(capture_dir=args.capture_dir)
+    return run(capture_dir=args.capture_dir)
+
+
 def command_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
@@ -196,8 +209,14 @@ def build_parser() -> argparse.ArgumentParser:
             help="Directory for saved sessions (default: %s)" % paths.capture_root(),
         )
 
+    app_parser = sub.add_parser(
+        "app", help="Open the native app window (default when no command is given)"
+    )
+    add_capture_dir(app_parser)
+    app_parser.set_defaults(func=command_app)
+
     serve_parser = sub.add_parser(
-        "serve", help="Open the browser workspace (default when no command is given)"
+        "serve", help="Serve the workspace to a web browser instead"
     )
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8765)
@@ -249,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "func", None) is None:
         # Bare `datalink-scanner` is the app's double-click entry point.
-        args = parser.parse_args(["serve", *(argv or [])])
+        args = parser.parse_args(["app", *(argv or [])])
     try:
         return args.func(args)
     except DataLinkError as exc:

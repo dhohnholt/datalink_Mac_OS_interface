@@ -115,3 +115,7 @@ dialog legend { padding: 0 7px; }
   .controls, .metrics { grid-template-columns: 1fr; }
   .controls button { width: 100%; }
 }
+
+/* The native shell supplies the window chrome, so the page does not need
+   its own top padding or an app title bar. */
+body.native .shell { padding-top: 18px; }

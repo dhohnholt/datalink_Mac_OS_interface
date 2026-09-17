@@ -277,7 +277,7 @@ disconnectButton.addEventListener("click", async () => {
 });
 $("#demoButton").addEventListener("click", async () => render(await request("/api/demo", {method: "POST", body: JSON.stringify({question_count: Number(questionCount.value)})})));
 $("#clearButton").addEventListener("click", async () => {
-  if (confirm("Clear the scans shown in this browser session? Saved JSONL data will not be deleted.")) {
+  if (confirm("Clear the scans shown here? The saved session file on disk is not deleted.")) {
     render(await request("/api/clear", {method: "POST", body: "{}"}));
   }
 });
@@ -421,6 +421,40 @@ $("#rosterForm").addEventListener("submit", event => {
   toast(`Saved ${className} with ${parsed.length} students`);
   refresh();
 });
+
+// Bridge for the native menu bar. Each entry drives the same code path as
+// the on-screen control, so menu and button behave identically.
+window.datalinkMenu = {
+  connect: () => connectButton.disabled || connectButton.click(),
+  disconnect: () => disconnectButton.disabled || disconnectButton.click(),
+  addDemo: () => $("#demoButton").click(),
+  clearView: () => $("#clearButton").click(),
+  exportCsv: () => $("#exportButton").click(),
+  newClass: () => $("#newClassButton").click(),
+  editClass: () => $("#editRosterButton").click(),
+  skipStudent: () => $("#skipStudentButton").click(),
+  startAtFirst: () => $("#resetRosterButton").click(),
+  toggleProtocol: () => $("#toggleProtocol").click(),
+};
+
+if (window.datalinkNative) {
+  // Cmd-Q quits properly in the native shell, so the in-page button is both
+  // redundant and misleading: it would stop the server and leave a live window
+  // showing a dead page.
+  $("#quitButton").remove();
+  document.body.classList.add("native");
+  // The export control is an <a download>, which a WKWebView will not save on
+  // its own. Hand the request to the app so the user gets a real Save panel.
+  $("#exportButton").addEventListener("click", event => {
+    event.preventDefault();
+    const link = $("#exportButton");
+    window.webkit.messageHandlers.datalink.postMessage({
+      action: "export",
+      query: new URL(link.href, location.origin).search.replace(/^\?/, ""),
+      filename: link.download || "datalink-session.csv",
+    });
+  });
+}
 
 refresh();
 refreshTimer = setInterval(refresh, 750);

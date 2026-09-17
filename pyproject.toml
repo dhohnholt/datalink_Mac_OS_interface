@@ -19,7 +19,11 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Education :: Testing",
 ]
-dependencies = ["pyserial>=3.5"]
+dependencies = [
+  "pyserial>=3.5",
+  "pyobjc-framework-Cocoa>=10.0",
+  "pyobjc-framework-WebKit>=10.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/dhohnholt/datalink_Mac_OS_interface"
@@ -33,4 +37,4 @@ datalink-scanner = "datalink_scanner.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-datalink_scanner = ["webui/*"]
+datalink_scanner = ["webui/*", "resources/*"]

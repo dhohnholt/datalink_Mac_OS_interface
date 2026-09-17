@@ -64,6 +64,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .secondary { background: #fff; color: var(--ink); }
 .secondary:hover, .ghost:hover { background: #f1f5f2; }
 .ghost { background: transparent; border-color: transparent; color: var(--muted); }
+/* Pressed. A click should register in the button itself and not only in what
+   happens next — but a scan is a two-handed job, so it stays at one pixel and
+   one shade rather than anything that draws the eye. */
+button:active:not(:disabled), .button:active:not(.disabled) { transform: translateY(1px); }
+.primary:active:not(:disabled) { background: var(--green-dark); border-color: var(--green-dark); }
+.secondary:active:not(:disabled), .ghost:active:not(:disabled) { background: #e4ebe7; }
 .danger { color: var(--red); }
 .safety { color: var(--muted); font-size: 13px; margin: 15px 0 0; }
 .metrics { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 16px; min-width: 0; }

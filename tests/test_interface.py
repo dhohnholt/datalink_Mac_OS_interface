@@ -57,9 +57,40 @@ class FormRecordTests(unittest.TestCase):
         with self.assertRaises(DataLinkError):
             DataLinkFormRecord.from_line(line)
 
-    def test_rejects_unsupported_question_count(self):
+    def test_rejects_out_of_range_question_counts(self):
+        for count in (0, -1, 101, 211):
+            with self.assertRaises(DataLinkError, msg=count):
+                DataLinkFormRecord.from_line(build_line(["A"] * 50), question_count=count)
+
+    def test_rejects_a_non_numeric_question_count(self):
         with self.assertRaises(DataLinkError):
-            DataLinkFormRecord.from_line(build_line(["A"] * 50), question_count=42)
+            DataLinkFormRecord.from_line(build_line(["A"] * 50), question_count="many")
+
+    def test_any_count_in_range_is_accepted(self):
+        for count in (1, 29, 33, 50, 64, 99, 100):
+            record = DataLinkFormRecord.from_line(
+                build_line(["A"] * 100), question_count=count
+            )
+            self.assertEqual(len(record.responses), count, count)
+
+    def test_trailing_blanks_are_preserved_at_any_length(self):
+        """The whole point of setting a form length: a student who leaves the
+        last questions blank must produce blanks, not a shorter record."""
+        for count in (10, 30, 45, 75, 100):
+            answered = count // 2
+            responses = ["B"] * answered + [""] * (count - answered)
+            record = DataLinkFormRecord.from_line(
+                build_line(responses), question_count=count
+            )
+            self.assertEqual(len(record.responses), count, count)
+            self.assertEqual(record.responses[answered:], [""] * (count - answered))
+            self.assertEqual(record.public_dict()["answered_count"], answered, count)
+
+    def test_a_short_count_does_not_pull_in_neighbouring_fields(self):
+        # Answers sit in a fixed window; asking for fewer must simply stop
+        # early rather than shift into protocol metadata.
+        record = DataLinkFormRecord.from_line(build_line(["C"] * 100), question_count=5)
+        self.assertEqual(record.responses, ["C"] * 5)
 
     def test_question_count_selects_the_window_length(self):
         record = DataLinkFormRecord.from_line(build_line(["A"] * 75), question_count=30)

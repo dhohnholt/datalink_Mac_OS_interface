@@ -13,15 +13,25 @@ from . import __version__, paths
 from .interface import (
     BAUD_RATE,
     DEFAULT_ANSWER_COUNT,
-    SUPPORTED_ANSWER_COUNTS,
+    MAX_ANSWER_COUNT,
+    MIN_ANSWER_COUNT,
     DataLinkError,
     DataLinkStreamParser,
     DirectDataLinkScanner,
     append_jsonl,
     discover_port,
+    validate_question_count,
 )
 
 APP_BUNDLE_NAME = "DataLink Scanner.app"
+
+
+def question_count(value: str) -> int:
+    """argparse type: any whole number the app will accept."""
+    try:
+        return validate_question_count(value)
+    except DataLinkError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _print_transcript(title: str, transcript: Iterable[tuple[str, str]]) -> None:
@@ -234,7 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument("--output", type=Path)
     scan_parser.add_argument("--command-timeout", type=float, default=1.0)
     scan_parser.add_argument(
-        "--questions", type=int, choices=SUPPORTED_ANSWER_COUNTS, default=DEFAULT_ANSWER_COUNT
+        "--questions",
+        type=question_count,
+        default=DEFAULT_ANSWER_COUNT,
+        metavar=f"{MIN_ANSWER_COUNT}-{MAX_ANSWER_COUNT}",
+        help="Questions on each form (default: %(default)s)",
     )
     scan_parser.add_argument("--include-raw-fields", action="store_true")
     scan_parser.add_argument("--acknowledge-writes", action="store_true")
@@ -245,7 +259,11 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("source", type=Path)
     replay_parser.add_argument("--output", type=Path)
     replay_parser.add_argument(
-        "--questions", type=int, choices=SUPPORTED_ANSWER_COUNTS, default=DEFAULT_ANSWER_COUNT
+        "--questions",
+        type=question_count,
+        default=DEFAULT_ANSWER_COUNT,
+        metavar=f"{MIN_ANSWER_COUNT}-{MAX_ANSWER_COUNT}",
+        help="Questions on each form (default: %(default)s)",
     )
     replay_parser.add_argument("--include-raw-fields", action="store_true")
     add_capture_dir(replay_parser)

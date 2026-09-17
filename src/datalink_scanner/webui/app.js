@@ -6,86 +6,28 @@ const testName = $("#testName");
 const connectButton = $("#connectButton");
 const disconnectButton = $("#disconnectButton");
 const activityList = $("#activityList");
+
 let showProtocol = false;
 let refreshTimer = null;
 let lastPortSignature = "";
 let activeReviewId = null;
 let activeRosterMatchIndex = -1;
 let autoResolvingReviewId = null;
-let classes = JSON.parse(localStorage.getItem("datalinkClasses") || "[]");
-const legacyRoster = JSON.parse(localStorage.getItem("datalinkRoster") || "[]");
-if (!classes.length && legacyRoster.length) {
-  classes = [{name: "My Class", students: legacyRoster}];
-  localStorage.setItem("datalinkClasses", JSON.stringify(classes));
-  localStorage.removeItem("datalinkRoster");
-}
-let selectedClassName = localStorage.getItem("datalinkSelectedClass") || (classes[0]?.name || "");
-if (!classes.some(item => item.name === selectedClassName)) selectedClassName = classes[0]?.name || "";
+
+// Classes, the selected class and the test name live in the app's database,
+// not in browser storage: the window's origin changes on every launch, so
+// anything kept in localStorage would be gone by the next one.
+let classes = [];
+let selectedClassName = "";
 let roster = [];
 let rosterIndex = 0;
 let editingClassName = "";
-testName.value = localStorage.getItem("datalinkTestName") || "";
-
-function selectedClass() {
-  return classes.find(item => item.name === selectedClassName) || null;
-}
-
-function rosterProgress() {
-  return JSON.parse(sessionStorage.getItem("datalinkRosterProgress") || "{}");
-}
-
-function loadSelectedClass() {
-  roster = selectedClass()?.students || [];
-  rosterIndex = Number(rosterProgress()[selectedClassName] || 0);
-  localStorage.setItem("datalinkSelectedClass", selectedClassName);
-}
-
-function saveClasses() {
-  localStorage.setItem("datalinkClasses", JSON.stringify(classes));
-}
-
-function updateClassSelector() {
-  const select = $("#classSelect");
-  select.innerHTML = '<option value="">No roster</option>' + classes.map(item =>
-    `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`
-  ).join("");
-  select.value = selectedClassName;
-}
-
-function updateExportName() {
-  const name = testName.value.trim();
-  localStorage.setItem("datalinkTestName", name);
-  const className = selectedClassName.trim();
-  const filename = [className, name].filter(Boolean).join(" - ") || "datalink-session";
-  const query = new URLSearchParams({name: filename, class: className});
-  $("#exportButton").href = `/api/export.csv?${query}`;
-  $("#exportButton").download = `${filename}.csv`;
-}
-
-testName.addEventListener("input", updateExportName);
-updateExportName();
-
-function currentStudent() {
-  return roster[rosterIndex] || null;
-}
-
-function saveRosterPosition() {
-  const progress = rosterProgress();
-  if (selectedClassName) progress[selectedClassName] = rosterIndex;
-  sessionStorage.setItem("datalinkRosterProgress", JSON.stringify(progress));
-}
-
-function advanceRoster() {
-  if (rosterIndex < roster.length) rosterIndex += 1;
-  saveRosterPosition();
-}
+let currentView = "scan";
+let openSessionId = null;
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, character => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"})[character]);
 }
-
-loadSelectedClass();
-updateClassSelector();
 
 function toast(message) {
   const node = $("#toast");
@@ -103,6 +45,327 @@ async function request(path, options = {}) {
   if (!response.ok) throw new Error(data.error || "Request failed");
   return data;
 }
+
+function post(path, body) {
+  return request(path, {method: "POST", body: JSON.stringify(body)});
+}
+
+/* ------------------------------------------------------------------ views */
+
+function showView(name) {
+  currentView = name;
+  for (const button of document.querySelectorAll("#viewTabs button")) {
+    button.classList.toggle("active", button.dataset.view === name);
+  }
+  for (const view of ["scan", "classes", "sessions"]) {
+    $(`#view-${view}`).hidden = view !== name;
+  }
+  if (name === "classes") loadClasses();
+  if (name === "sessions") loadSessions();
+}
+
+for (const button of document.querySelectorAll("#viewTabs button")) {
+  button.addEventListener("click", () => showView(button.dataset.view));
+}
+
+/* ---------------------------------------------------------------- classes */
+
+function selectedClass() {
+  return classes.find(item => item.name === selectedClassName) || null;
+}
+
+function rosterProgress() {
+  return JSON.parse(sessionStorage.getItem("datalinkRosterProgress") || "{}");
+}
+
+function saveRosterPosition() {
+  const progress = rosterProgress();
+  if (selectedClassName) progress[selectedClassName] = rosterIndex;
+  sessionStorage.setItem("datalinkRosterProgress", JSON.stringify(progress));
+}
+
+function loadSelectedClass() {
+  roster = selectedClass()?.students || [];
+  rosterIndex = Number(rosterProgress()[selectedClassName] || 0);
+}
+
+function currentStudent() {
+  return roster[rosterIndex] || null;
+}
+
+function advanceRoster() {
+  if (rosterIndex < roster.length) rosterIndex += 1;
+  saveRosterPosition();
+}
+
+function updateClassSelector() {
+  const select = $("#classSelect");
+  select.innerHTML = '<option value="">No roster</option>' + classes.map(item =>
+    `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`
+  ).join("");
+  select.value = selectedClassName;
+}
+
+function renderClassList() {
+  $("#classEmptyState").classList.toggle("hidden", classes.length > 0);
+  $("#classListWrap").classList.toggle("hidden", classes.length === 0);
+  $("#classRows").innerHTML = classes.map(item => `
+    <tr>
+      <td><strong>${escapeHtml(item.name)}</strong></td>
+      <td>${item.students.length}</td>
+      <td>${item.name === selectedClassName ? "✓" : ""}</td>
+      <td class="row-actions">
+        <button class="ghost" data-select="${escapeHtml(item.name)}">Use for scanning</button>
+        <button class="secondary" data-edit="${escapeHtml(item.name)}">Edit</button>
+      </td>
+    </tr>`).join("");
+
+  for (const button of $("#classRows").querySelectorAll("[data-edit]")) {
+    button.addEventListener("click", () => openClassEditor(button.dataset.edit));
+  }
+  for (const button of $("#classRows").querySelectorAll("[data-select]")) {
+    button.addEventListener("click", () => selectClass(button.dataset.select));
+  }
+}
+
+async function loadClasses() {
+  const data = await request("/api/classes");
+  classes = data.classes;
+  if (!classes.some(item => item.name === selectedClassName)) selectedClassName = "";
+  loadSelectedClass();
+  updateClassSelector();
+  renderClassList();
+}
+
+async function selectClass(name) {
+  selectedClassName = name;
+  await post("/api/settings", {selected_class: name});
+  loadSelectedClass();
+  updateClassSelector();
+  renderClassList();
+  updateExportName();
+  toast(name ? `Scanning against ${name}` : "Roster turned off");
+  refresh();
+}
+
+function openClassEditor(name) {
+  const item = classes.find(entry => entry.name === name) || null;
+  editingClassName = item ? item.name : "";
+  $("#classEditorTitle").textContent = item ? "Edit class" : "Add a class";
+  $("#classNameInput").value = item ? item.name : "";
+  $("#rosterInput").value = item
+    ? item.students.map(student => `${student.id}, ${student.name}`).join("\n")
+    : "";
+  $("#deleteClassButton").classList.toggle("hidden", !item);
+  $("#classEditorCard").classList.remove("hidden");
+  $("#classNameInput").focus();
+}
+
+function closeClassEditor() {
+  $("#classEditorCard").classList.add("hidden");
+  editingClassName = "";
+}
+
+function parseRoster(text) {
+  const students = [];
+  for (const line of text.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)) {
+    const comma = line.indexOf(",");
+    const id = (comma >= 0 ? line.slice(0, comma) : "").trim();
+    const name = (comma >= 0 ? line.slice(comma + 1) : "").trim();
+    if (!/^\d+$/.test(id) || !name) throw new Error(`Fix roster line: ${line}`);
+    students.push({id, name});
+  }
+  return students;
+}
+
+$("#newClassButton").addEventListener("click", () => openClassEditor(null));
+$("#cancelClassButton").addEventListener("click", closeClassEditor);
+$("#manageClassesButton").addEventListener("click", () => showView("classes"));
+
+$("#classForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    const students = parseRoster($("#rosterInput").value);
+    const name = $("#classNameInput").value.trim();
+    const data = await post("/api/classes/save", {
+      name,
+      students,
+      original_name: editingClassName || null,
+    });
+    classes = data.classes;
+    if (selectedClassName === editingClassName) selectedClassName = name;
+    if (!selectedClassName) selectedClassName = name;
+    await post("/api/settings", {selected_class: selectedClassName});
+    loadSelectedClass();
+    rosterIndex = 0;
+    saveRosterPosition();
+    updateClassSelector();
+    renderClassList();
+    updateExportName();
+    closeClassEditor();
+    toast(`Saved ${name} with ${students.length} students`);
+    refresh();
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$("#deleteClassButton").addEventListener("click", async () => {
+  if (!editingClassName || !confirm(`Delete the saved class “${editingClassName}”? Saved sessions are not affected.`)) return;
+  const data = await post("/api/classes/delete", {name: editingClassName});
+  classes = data.classes;
+  if (selectedClassName === editingClassName) selectedClassName = "";
+  loadSelectedClass();
+  updateClassSelector();
+  renderClassList();
+  updateExportName();
+  closeClassEditor();
+  refresh();
+});
+
+$("#classSelect").addEventListener("change", event => selectClass(event.target.value));
+
+/* --------------------------------------------------------------- sessions */
+
+function formatTimestamp(value) {
+  if (!value) return "—";
+  const when = new Date(value);
+  return when.toLocaleDateString([], {month: "short", day: "numeric"}) + " " +
+    when.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+}
+
+async function loadSessions() {
+  const data = await request("/api/sessions");
+  renderSessions(data.sessions);
+}
+
+function renderSessions(sessions) {
+  $("#sessionEmptyState").classList.toggle("hidden", sessions.length > 0);
+  $("#sessionListWrap").classList.toggle("hidden", sessions.length === 0);
+  $("#sessionRows").innerHTML = sessions.map(item => `
+    <tr>
+      <td>${formatTimestamp(item.started_at)}</td>
+      <td><strong>${escapeHtml(item.name || "Untitled")}</strong></td>
+      <td>${escapeHtml(item.class_name || "—")}</td>
+      <td>${item.scan_count}</td>
+      <td class="row-actions">
+        <button class="secondary" data-open="${item.id}">View</button>
+        <button class="ghost" data-rename="${item.id}">Rename</button>
+        <button class="ghost danger" data-delete="${item.id}">Delete</button>
+      </td>
+    </tr>`).join("");
+
+  const rows = $("#sessionRows");
+  for (const button of rows.querySelectorAll("[data-open]")) {
+    button.addEventListener("click", () => openSession(Number(button.dataset.open)));
+  }
+  for (const button of rows.querySelectorAll("[data-rename]")) {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.rename);
+      const existing = sessions.find(item => item.id === id);
+      const name = prompt("Name this session", existing?.name || "");
+      if (name === null) return;
+      renderSessions((await post("/api/sessions/rename", {id, name})).sessions);
+      if (openSessionId === id) openSession(id);
+    });
+  }
+  for (const button of rows.querySelectorAll("[data-delete]")) {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.delete);
+      if (!confirm("Delete this saved session and all of its scans? This cannot be undone.")) return;
+      renderSessions((await post("/api/sessions/delete", {id})).sessions);
+      if (openSessionId === id) closeSession();
+      toast("Session deleted");
+    });
+  }
+}
+
+async function openSession(id) {
+  const session = await request(`/api/sessions/${id}`);
+  openSessionId = id;
+  $("#sessionDetailCard").classList.remove("hidden");
+  $("#sessionDetailTitle").textContent = session.name || "Untitled session";
+  const parts = [
+    formatTimestamp(session.started_at),
+    session.class_name || "no class",
+    `${session.scans.length} sheets`,
+    `${session.question_count} questions per form`,
+  ];
+  $("#sessionDetailSummary").textContent = parts.join(" · ");
+  const link = $("#sessionExportButton");
+  link.href = `/api/sessions/${id}/export.csv`;
+  link.download = `${session.name || "datalink-session"}.csv`;
+
+  const columns = Math.max(session.question_count, ...session.scans.map(scan => scan.responses.length), 0);
+  $("#sessionDetailHead").innerHTML =
+    `<th>Scan</th><th>Student</th><th>Time</th><th>Answered</th>` +
+    Array.from({length: columns}, (_, index) => `<th>Q${index + 1}</th>`).join("");
+  $("#sessionDetailRows").innerHTML = session.scans.map(scan => {
+    const label = scan.role === "key" ? "Key" : `Student ${scan.number - 1}`;
+    const student = scan.student_name
+      ? `${escapeHtml(scan.student_name)}<br><small>${escapeHtml(scan.student_id || "")}</small>`
+      : escapeHtml(scan.student_id || "—");
+    const cells = scan.responses.map(value =>
+      `<td class="${!value ? "blank" : value.length > 1 ? "multiple" : ""}">${escapeHtml(value || "—")}</td>`
+    ).join("");
+    return `<tr><td>${label}${scan.demo ? " · demo" : ""}</td><td>${student}</td>` +
+      `<td>${formatTimestamp(scan.received_at)}</td><td>${scan.answered_count}</td>${cells}</tr>`;
+  }).join("");
+  $("#sessionDetailCard").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+function closeSession() {
+  openSessionId = null;
+  $("#sessionDetailCard").classList.add("hidden");
+}
+
+$("#closeSessionButton").addEventListener("click", closeSession);
+$("#refreshSessionsButton").addEventListener("click", () => {
+  loadSessions();
+  toast("Sessions refreshed");
+});
+
+/* ------------------------------------------------------------- scan view */
+
+function updateExportName() {
+  const name = testName.value.trim();
+  const className = selectedClassName.trim();
+  const filename = [className, name].filter(Boolean).join(" - ") || "datalink-session";
+  const query = new URLSearchParams({name: filename, class: className});
+  $("#exportButton").href = `/api/export.csv?${query}`;
+  $("#exportButton").download = `${filename}.csv`;
+}
+
+let testNameTimer = null;
+testName.addEventListener("input", () => {
+  updateExportName();
+  clearTimeout(testNameTimer);
+  testNameTimer = setTimeout(
+    () => post("/api/settings", {test_name: testName.value.trim()}).catch(() => {}),
+    400,
+  );
+});
+
+const MIN_QUESTIONS = 1;
+const MAX_QUESTIONS = 100;
+
+function currentQuestionCount() {
+  const value = Number.parseInt(questionCount.value, 10);
+  if (!Number.isFinite(value)) return 50;
+  return Math.min(Math.max(value, MIN_QUESTIONS), MAX_QUESTIONS);
+}
+
+// Clamp on the way out of the field rather than on every keystroke, so typing
+// "100" does not fight the user after the first digit.
+questionCount.addEventListener("change", () => {
+  const clamped = currentQuestionCount();
+  if (String(clamped) !== questionCount.value) {
+    questionCount.value = clamped;
+    toast(`Questions per form must be between ${MIN_QUESTIONS} and ${MAX_QUESTIONS}`);
+  }
+  post("/api/settings", {question_count: String(clamped)}).catch(() => {});
+  refresh();
+});
 
 function updatePorts(ports) {
   const signature = JSON.stringify(ports);
@@ -217,14 +480,11 @@ async function saveDetectedStudent(review) {
   const matchIndex = roster.findIndex(student => student.id === review.scanner_id);
   const match = roster[matchIndex] || null;
   try {
-    const state = await request("/api/resolve-review", {
-      method: "POST",
-      body: JSON.stringify({
-        id: review.id,
-        resolutions: {},
-        student_id: review.scanner_id,
-        student_name: match ? match.name : "",
-      }),
+    const state = await post("/api/resolve-review", {
+      id: review.id,
+      resolutions: {},
+      student_id: review.scanner_id,
+      student_name: match ? match.name : "",
     });
     if (matchIndex >= 0) {
       rosterIndex = matchIndex + 1;
@@ -242,7 +502,7 @@ function renderRecords(records) {
   $("#emptyState").classList.toggle("hidden", records.length > 0);
   $("#tableWrap").classList.toggle("hidden", records.length === 0);
   const head = $("#tableHead");
-  const columns = Math.max(Number(questionCount.value), ...records.map(record => record.responses.length));
+  const columns = Math.max(currentQuestionCount(), ...records.map(record => record.responses.length));
   head.innerHTML = `<th>Scan</th><th>Student ID</th><th>Time</th>${Array.from({length: columns}, (_, i) => `<th>Q${i + 1}</th>`).join("")}`;
   $("#recordRows").innerHTML = records.slice().reverse().map(record => {
     const time = new Date(record.received_at).toLocaleTimeString([], {hour: "numeric", minute: "2-digit", second: "2-digit"});
@@ -256,7 +516,7 @@ function renderRecords(records) {
 function renderActivity(activity) {
   const visible = activity.filter(item => showProtocol || item.kind !== "protocol");
   activityList.innerHTML = visible.length ? visible.map(item =>
-    `<li><time>${item.time}</time><span class="${item.kind}">${item.message}</span></li>`
+    `<li><time>${item.time}</time><span class="${item.kind}">${escapeHtml(item.message)}</span></li>`
   ).join("") : '<li class="muted">Waiting for activity.</li>';
 }
 
@@ -268,33 +528,22 @@ async function refresh() {
 connectButton.addEventListener("click", async () => {
   connectButton.disabled = true;
   try {
-    render(await request("/api/connect", {method: "POST", body: JSON.stringify({port: portSelect.value, question_count: Number(questionCount.value), acknowledge_writes: true})}));
+    render(await post("/api/connect", {port: portSelect.value, question_count: currentQuestionCount(), acknowledge_writes: true}));
   } catch (error) { toast(error.message); await refresh(); }
 });
+
 disconnectButton.addEventListener("click", async () => {
-  try { render(await request("/api/disconnect", {method: "POST", body: "{}"})); }
+  try { render(await post("/api/disconnect", {})); }
   catch (error) { toast(error.message); }
 });
-$("#demoButton").addEventListener("click", async () => render(await request("/api/demo", {method: "POST", body: JSON.stringify({question_count: Number(questionCount.value)})})));
+
+$("#demoButton").addEventListener("click", async () =>
+  render(await post("/api/demo", {question_count: currentQuestionCount()})));
+
 $("#clearButton").addEventListener("click", async () => {
-  if (confirm("Clear the scans shown here? The saved session file on disk is not deleted.")) {
-    render(await request("/api/clear", {method: "POST", body: "{}"}));
+  if (confirm("Clear the scans shown here? The saved session is not deleted.")) {
+    render(await post("/api/clear", {}));
   }
-});
-$("#quitButton").addEventListener("click", async () => {
-  if (!confirm("Stop DataLink Scanner? The scanner will be disconnected and this page will stop updating. Saved sessions are not deleted.")) return;
-  $("#quitButton").disabled = true;
-  try {
-    await request("/api/quit", {method: "POST", body: "{}"});
-  } catch (error) {
-    // The server can close the connection before the response lands; that
-    // still means it is shutting down.
-  }
-  clearInterval(refreshTimer);
-  document.body.classList.add("stopped");
-  $("#connectionDetail").textContent = "DataLink Scanner has stopped. You can close this tab.";
-  badge.className = "badge disconnected";
-  badge.innerHTML = "<span></span>Stopped";
 });
 
 $("#toggleProtocol").addEventListener("click", () => {
@@ -302,6 +551,7 @@ $("#toggleProtocol").addEventListener("click", () => {
   $("#toggleProtocol").textContent = showProtocol ? "Hide protocol details" : "Show protocol details";
   refresh();
 });
+
 $("#reviewForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const resolutions = {};
@@ -312,7 +562,7 @@ $("#reviewForm").addEventListener("submit", async (event) => {
   $("#saveReviewButton").disabled = true;
   try {
     const wasStudent = !$("#studentIdField").classList.contains("hidden");
-    const state = await request("/api/resolve-review", {method: "POST", body: JSON.stringify({id: activeReviewId, resolutions, student_id: $("#studentIdInput").value, student_name: $("#studentNameInput").value})});
+    const state = await post("/api/resolve-review", {id: activeReviewId, resolutions, student_id: $("#studentIdInput").value, student_name: $("#studentNameInput").value});
     if (wasStudent && roster.length && activeRosterMatchIndex >= 0) {
       rosterIndex = activeRosterMatchIndex + 1;
       saveRosterPosition();
@@ -333,108 +583,45 @@ $("#skipStudentButton").addEventListener("click", () => {
   refresh();
 });
 
-$("#editRosterButton").addEventListener("click", () => {
-  if (!selectedClass()) {
-    $("#newClassButton").click();
-    return;
-  }
-  editingClassName = selectedClassName;
-  $("#rosterDialogTitle").textContent = "Edit class roster";
-  $("#classNameInput").value = selectedClassName;
-  $("#rosterInput").value = roster.map(student => `${student.id}, ${student.name}`).join("\n");
-  $("#deleteClassButton").classList.remove("hidden");
-  $("#rosterDialog").showModal();
-});
-$("#newClassButton").addEventListener("click", () => {
-  editingClassName = "";
-  $("#rosterDialogTitle").textContent = "Add a class";
-  $("#classNameInput").value = "";
-  $("#rosterInput").value = "";
-  $("#deleteClassButton").classList.add("hidden");
-  $("#rosterDialog").showModal();
-  setTimeout(() => $("#classNameInput").focus(), 50);
-});
-$("#cancelRosterButton").addEventListener("click", () => $("#rosterDialog").close());
-$("#deleteClassButton").addEventListener("click", () => {
-  if (!editingClassName || !confirm(`Delete the saved class “${editingClassName}”?`)) return;
-  classes = classes.filter(item => item.name !== editingClassName);
-  selectedClassName = classes[0]?.name || "";
-  saveClasses();
-  loadSelectedClass();
-  updateClassSelector();
-  updateExportName();
-  $("#rosterDialog").close();
-  refresh();
-});
-$("#classSelect").addEventListener("change", event => {
-  selectedClassName = event.target.value;
-  loadSelectedClass();
-  updateExportName();
-  refresh();
-});
 $("#resetRosterButton").addEventListener("click", () => {
   rosterIndex = 0;
   saveRosterPosition();
   refresh();
 });
-$("#rosterForm").addEventListener("submit", event => {
-  event.preventDefault();
-  const className = $("#classNameInput").value.trim();
-  if (!className) {
-    toast("Enter a class name");
-    return;
+
+$("#quitButton").addEventListener("click", async () => {
+  if (!confirm("Stop DataLink Scanner? The scanner will be disconnected and this page will stop updating. Saved sessions are not deleted.")) return;
+  $("#quitButton").disabled = true;
+  try {
+    await post("/api/quit", {});
+  } catch (error) {
+    // The server can close the connection before the response lands; that
+    // still means it is shutting down.
   }
-  if (classes.some(item => item.name.toLowerCase() === className.toLowerCase() && item.name !== editingClassName)) {
-    toast("A class with that name already exists");
-    return;
-  }
-  const lines = $("#rosterInput").value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const parsed = [];
-  const ids = new Set();
-  for (const line of lines) {
-    const comma = line.indexOf(",");
-    const id = (comma >= 0 ? line.slice(0, comma) : "").trim();
-    const name = (comma >= 0 ? line.slice(comma + 1) : "").trim();
-    if (!/^\d+$/.test(id) || !name) {
-      toast(`Fix roster line: ${line}`);
-      return;
-    }
-    if (ids.has(id)) {
-      toast(`Student ID ${id} appears more than once`);
-      return;
-    }
-    ids.add(id);
-    parsed.push({id, name});
-  }
-  const editedIndex = classes.findIndex(item => item.name === editingClassName);
-  const savedClass = {name: className, students: parsed};
-  if (editedIndex >= 0) classes[editedIndex] = savedClass;
-  else classes.push(savedClass);
-  selectedClassName = className;
-  saveClasses();
-  loadSelectedClass();
-  rosterIndex = 0;
-  saveRosterPosition();
-  updateClassSelector();
-  updateExportName();
-  $("#rosterDialog").close();
-  toast(`Saved ${className} with ${parsed.length} students`);
-  refresh();
+  clearInterval(refreshTimer);
+  document.body.classList.add("stopped");
+  $("#connectionDetail").textContent = "DataLink Scanner has stopped. You can close this tab.";
+  badge.className = "badge disconnected";
+  badge.innerHTML = "<span></span>Stopped";
 });
 
-// Bridge for the native menu bar. Each entry drives the same code path as
-// the on-screen control, so menu and button behave identically.
+/* ------------------------------------------------------- native menu bar */
+
 window.datalinkMenu = {
   connect: () => connectButton.disabled || connectButton.click(),
   disconnect: () => disconnectButton.disabled || disconnectButton.click(),
   addDemo: () => $("#demoButton").click(),
   clearView: () => $("#clearButton").click(),
-  exportCsv: () => $("#exportButton").click(),
-  newClass: () => $("#newClassButton").click(),
-  editClass: () => $("#editRosterButton").click(),
+  exportCsv: () => (currentView === "sessions" && openSessionId !== null
+    ? $("#sessionExportButton") : $("#exportButton")).click(),
+  newClass: () => { showView("classes"); openClassEditor(null); },
+  editClass: () => { showView("classes"); openClassEditor(selectedClassName); },
   skipStudent: () => $("#skipStudentButton").click(),
   startAtFirst: () => $("#resetRosterButton").click(),
   toggleProtocol: () => $("#toggleProtocol").click(),
+  showScan: () => showView("scan"),
+  showClasses: () => showView("classes"),
+  showSessions: () => showView("sessions"),
 };
 
 if (window.datalinkNative) {
@@ -443,18 +630,57 @@ if (window.datalinkNative) {
   // showing a dead page.
   $("#quitButton").remove();
   document.body.classList.add("native");
-  // The export control is an <a download>, which a WKWebView will not save on
-  // its own. Hand the request to the app so the user gets a real Save panel.
-  $("#exportButton").addEventListener("click", event => {
-    event.preventDefault();
-    const link = $("#exportButton");
-    window.webkit.messageHandlers.datalink.postMessage({
-      action: "export",
-      query: new URL(link.href, location.origin).search.replace(/^\?/, ""),
-      filename: link.download || "datalink-session.csv",
+  // A WKWebView will not act on <a download>, so hand exports to the app and
+  // let it put up a real Save panel.
+  for (const id of ["exportButton", "sessionExportButton"]) {
+    $(`#${id}`).addEventListener("click", event => {
+      event.preventDefault();
+      const link = $(`#${id}`);
+      const url = new URL(link.getAttribute("href"), location.origin);
+      window.webkit.messageHandlers.datalink.postMessage({
+        action: "export",
+        path: url.pathname,
+        query: url.search.replace(/^\?/, ""),
+        filename: link.download || "datalink-session.csv",
+      });
     });
-  });
+  }
 }
 
-refresh();
-refreshTimer = setInterval(refresh, 750);
+/* --------------------------------------------------------------- start-up */
+
+async function migrateBrowserStorage() {
+  // Rosters saved by earlier browser-only builds still sit in localStorage on
+  // the fixed port they used. Adopt them once, then stop reading them.
+  let stored;
+  try {
+    stored = JSON.parse(localStorage.getItem("datalinkClasses") || "[]");
+  } catch (error) {
+    return;
+  }
+  if (!Array.isArray(stored) || !stored.length) return;
+  try {
+    const data = await post("/api/classes/import", {classes: stored});
+    localStorage.removeItem("datalinkClasses");
+    localStorage.removeItem("datalinkRoster");
+    if (data.imported.length) {
+      toast(`Imported ${data.imported.length} saved class(es) from this browser`);
+    }
+  } catch (error) {
+    /* Leave localStorage untouched so the next launch can try again. */
+  }
+}
+
+async function start() {
+  await migrateBrowserStorage();
+  const settings = await request("/api/settings");
+  testName.value = settings.test_name || "";
+  if (settings.question_count) questionCount.value = settings.question_count;
+  selectedClassName = settings.selected_class || "";
+  await loadClasses();
+  updateExportName();
+  await refresh();
+  refreshTimer = setInterval(refresh, 750);
+}
+
+start();

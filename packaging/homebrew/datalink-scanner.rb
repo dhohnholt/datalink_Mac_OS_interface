@@ -42,8 +42,11 @@ class DatalinkScanner < Formula
     # A launcher bundle so the workspace can be opened from the Dock or
     # Spotlight. It execs bin/datalink-scanner through the stable opt path,
     # so `brew upgrade` updates the app without rebuilding the bundle.
+    # --python lets the bundle carry its own copy of the framework interpreter,
+    # without which macOS names the app "Python" in the Dock.
     system "packaging/make_app_bundle.sh",
            "--cli", opt_bin/"datalink-scanner",
+           "--python", libexec/"bin/python",
            "--output", prefix,
            "--version", version,
            "--icon", "src/datalink_scanner/resources/DataLinkScanner.icns"
@@ -81,6 +84,9 @@ class DatalinkScanner < Formula
     assert_match "No USB serial ports found", output
 
     assert_predicate prefix/"DataLink Scanner.app/Contents/MacOS/DataLink Scanner", :executable?
+
+    # Without the interpreter inside the bundle, macOS calls the app "Python".
+    assert_predicate prefix/"DataLink Scanner.app/Contents/MacOS/python-runtime", :executable?
 
     # The native app cannot run headless on a build machine, but the server
     # behind it can, and that is what would break on a packaging mistake.

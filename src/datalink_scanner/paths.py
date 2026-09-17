@@ -55,3 +55,9 @@ def capture_root(override: str | os.PathLike[str] | None = None) -> Path:
     if checkout is not None:
         return checkout / "captures"
     return APP_SUPPORT_DIR / "captures"
+
+
+def database_path(override: str | os.PathLike[str] | None = None) -> Path:
+    """The SQLite file, kept beside the saved sessions so that --capture-dir
+    isolates the whole data set."""
+    return capture_root(override) / "library.sqlite3"

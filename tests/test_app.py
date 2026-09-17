@@ -79,7 +79,9 @@ class ScriptMessageTests(unittest.TestCase):
                 return self._body
 
         saved = []
-        delegate.save_csv = lambda query, filename: saved.append((query, filename))
+        delegate.save_csv = lambda query, filename, path="/api/export.csv": saved.append(
+            (query, filename, path)
+        )
 
         for payload in (None, "nope", 42, {}, {"action": "unknown"}):
             delegate.userContentController_didReceiveScriptMessage_(None, Message(payload))
@@ -88,8 +90,93 @@ class ScriptMessageTests(unittest.TestCase):
         delegate.userContentController_didReceiveScriptMessage_(
             None, Message({"action": "export", "query": "name=Unit+1", "filename": "Unit 1.csv"})
         )
-        self.assertEqual(saved, [("name=Unit+1", "Unit 1.csv")])
+        self.assertEqual(saved, [("name=Unit+1", "Unit 1.csv", "/api/export.csv")])
+
+    def test_handler_exports_a_saved_session(self):
+        from datalink_scanner.app import DataLinkAppDelegate
+
+        delegate = DataLinkAppDelegate.alloc().initWithCaptureDir_(None)
+        saved = []
+        delegate.save_csv = lambda query, filename, path: saved.append(path)
+
+        class Message:
+            def __init__(self, body):
+                self._body = body
+
+            def body(self):
+                return self._body
+
+        delegate.userContentController_didReceiveScriptMessage_(
+            None,
+            Message({"action": "export", "filename": "s.csv", "path": "/api/sessions/7/export.csv"}),
+        )
+        self.assertEqual(saved, ["/api/sessions/7/export.csv"])
+
+    def test_handler_refuses_a_path_outside_the_api(self):
+        # The page should never be able to talk the app into fetching and
+        # writing out something that is not one of our own endpoints.
+        from datalink_scanner.app import DataLinkAppDelegate
+
+        delegate = DataLinkAppDelegate.alloc().initWithCaptureDir_(None)
+        saved = []
+        delegate.save_csv = lambda *args: saved.append(args)
+
+        class Message:
+            def __init__(self, body):
+                self._body = body
+
+            def body(self):
+                return self._body
+
+        for path in ("/etc/passwd", "http://example.com/x", "../secrets"):
+            delegate.userContentController_didReceiveScriptMessage_(
+                None, Message({"action": "export", "filename": "x.csv", "path": path})
+            )
+        self.assertEqual(saved, [])
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ViewSwitchingTests(unittest.TestCase):
+    """The three views are toggled with the `hidden` attribute, and `main` sets
+    an explicit display, so the stylesheet has to beat it or every view shows
+    at once."""
+
+    def test_stylesheet_forces_hidden_to_win(self):
+        css = (WEBUI / "styles.css").read_text()
+        self.assertIn("[hidden]", css)
+        self.assertIn("display: none !important", css)
+
+    def test_every_tab_has_a_matching_view(self):
+        html = (WEBUI / "index.html").read_text()
+        tabs = set(re.findall(r'data-view="(\w+)"', html))
+        self.assertEqual(tabs, {"scan", "classes", "sessions"})
+        for view in tabs:
+            self.assertIn(f'id="view-{view}"', html)
+
+
+class BundleIdentityTests(unittest.TestCase):
+    """macOS takes an app's name, Dock tile and icon from the bundle around the
+    running executable. Exec'ing an interpreter that lives outside the bundle
+    hands it Python's identity instead, so the bundle must carry its own."""
+
+    def setUp(self):
+        script = Path(__file__).resolve().parents[1] / "packaging" / "make_app_bundle.sh"
+        self.script = script.read_text()
+
+    def test_bundle_embeds_the_framework_interpreter(self):
+        self.assertIn("python-runtime", self.script)
+        # bin/python3.x is a stub that re-execs the inner binary, so copying it
+        # would put us right back outside the bundle.
+        self.assertIn("Python.app", self.script)
+        self.assertIn("base_prefix", self.script)
+
+    def test_launcher_uses_addsitedir_not_pythonpath(self):
+        # PYTHONPATH entries skip .pth processing, which editable and namespace
+        # installs depend on.
+        self.assertIn("site.addsitedir", self.script)
+
+    def test_a_fallback_exists_for_non_framework_pythons(self):
+        self.assertIn('exec "$CLI" app', self.script)

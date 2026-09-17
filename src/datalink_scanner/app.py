@@ -311,8 +311,13 @@ class DataLinkAppDelegate(NSObject):
         scanner_menu.addItem_(_separator())
         scanner_menu.addItem_(_item("Add Demo Scan", "addDemoScan:", "d", target=self))
         scanner_menu.addItem_(_item("Clear View", "clearView:", target=self))
-        scanner_menu.addItem_(_separator())
-        scanner_menu.addItem_(
+
+        view_menu = _submenu(menubar, "View")
+        view_menu.addItem_(_item("Scan", "showScan:", "1", target=self))
+        view_menu.addItem_(_item("Classes", "showClasses:", "2", target=self))
+        view_menu.addItem_(_item("Sessions", "showSessions:", "3", target=self))
+        view_menu.addItem_(_separator())
+        view_menu.addItem_(
             _item("Show Protocol Details", "toggleProtocol:", target=self)
         )
 
@@ -364,6 +369,15 @@ class DataLinkAppDelegate(NSObject):
     def toggleProtocol_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.toggleProtocol()")
 
+    def showScan_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.showScan()")
+
+    def showClasses_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.showClasses()")
+
+    def showSessions_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.showSessions()")
+
     def newClass_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.newClass()")
 
@@ -411,7 +425,7 @@ class DataLinkAppDelegate(NSObject):
 
     # ------------------------------------------------------------- CSV saving
 
-    def save_csv(self, query: str, suggested: str):
+    def save_csv(self, query: str, suggested: str, path: str = "/api/export.csv"):
         """Fetch the export from the local server and write it where the user
         chooses. Doing it here rather than through a web-view download gives a
         real Save panel and a real default filename."""
@@ -423,7 +437,7 @@ class DataLinkAppDelegate(NSObject):
         if panel.runModal() != NSModalResponseOK:
             return
         destination = panel.URL().path()
-        url = f"{self._url}/api/export.csv"
+        url = f"{self._url}{path}"
         if query:
             url = f"{url}?{query}"
         try:
@@ -444,7 +458,11 @@ class DataLinkAppDelegate(NSObject):
         if action == "export":
             query = body.get("query") or ""
             filename = body.get("filename") or "datalink-session.csv"
-            self.save_csv(str(query), str(filename))
+            path = body.get("path") or "/api/export.csv"
+            # Only ever fetch from our own API surface.
+            if not str(path).startswith("/api/"):
+                return
+            self.save_csv(str(query), str(filename), str(path))
 
     # --------------------------------------------------- WKNavigationDelegate
 

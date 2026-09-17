@@ -21,14 +21,17 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import paths
+from .store import Store
 from .interface import (
     DEFAULT_ANSWER_COUNT,
-    SUPPORTED_ANSWER_COUNTS,
+    MAX_ANSWER_COUNT,
+    MIN_ANSWER_COUNT,
     DataLinkError,
     DataLinkFormRecord,
     DirectDataLinkScanner,
     append_jsonl,
     discover_port,
+    validate_question_count,
 )
 
 
@@ -43,9 +46,40 @@ def safe_export_filename(test_name: str) -> str:
     return cleaned if cleaned.lower().endswith(".csv") else f"{cleaned}.csv"
 
 
+def records_to_csv(
+    records: list[dict[str, object]], class_name: str, fallback_columns: int
+) -> bytes:
+    """One CSV shape for both a live session and one replayed from history."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    maximum = max(
+        (len(record["responses"]) for record in records), default=fallback_columns
+    )
+    writer.writerow(
+        ["Scan", "Role", "Class", "Student ID", "Student Name", "Received At", "Answered"]
+        + [f"Q{index}" for index in range(1, maximum + 1)]
+    )
+    for record in records:
+        writer.writerow(
+            [
+                record["number"],
+                record.get("role", "student"),
+                class_name,
+                record.get("student_id") or "",
+                record.get("student_name") or "",
+                record["received_at"],
+                record["answered_count"],
+            ]
+            + list(record["responses"])
+        )
+    return output.getvalue().encode("utf-8")
+
+
 class ScannerController:
-    def __init__(self, capture_root: Path) -> None:
+    def __init__(self, capture_root: Path, store: Store) -> None:
         self.capture_root = capture_root
+        self.store = store
+        self._session_id: int | None = None
         self._lock = threading.RLock()
         self._scanner: DirectDataLinkScanner | None = None
         self._reader: threading.Thread | None = None
@@ -72,8 +106,10 @@ class ScannerController:
                 "activity": list(self._activity[:30]),
                 "output_path": str(self._output_path) if self._output_path else None,
                 "capture_root": str(self.capture_root),
+                "session_id": self._session_id,
                 "question_count": self._question_count,
-                "supported_question_counts": SUPPORTED_ANSWER_COUNTS,
+                "min_question_count": MIN_ANSWER_COUNT,
+                "max_question_count": MAX_ANSWER_COUNT,
             }
 
     def _log(self, message: str, kind: str = "info") -> None:
@@ -94,8 +130,7 @@ class ScannerController:
         return sorted(set(glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/tty.usbserial*")))
 
     def connect(self, requested_port: str | None, question_count: int) -> None:
-        if question_count not in SUPPORTED_ANSWER_COUNTS:
-            raise DataLinkError("Unsupported question count")
+        question_count = validate_question_count(question_count)
         with self._lock:
             if self._state in {"connecting", "connected"}:
                 raise DataLinkError("Scanner is already connected or connecting")
@@ -113,10 +148,16 @@ class ScannerController:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.capture_root.mkdir(parents=True, exist_ok=True)
             output_path = self.capture_root / f"browser_session_{stamp}.jsonl"
+            session_id = self.store.create_session(
+                self.store.get_setting("test_name"),
+                self.store.get_setting("selected_class"),
+                question_count,
+            )
             with self._lock:
                 self._scanner = scanner
                 self._port = port
                 self._output_path = output_path
+                self._session_id = session_id
                 self._question_count = question_count
                 self._state = "connected"
                 self._stop.clear()
@@ -201,6 +242,7 @@ class ScannerController:
                             include_raw_fields=False,
                             extra={"number": public["number"], "role": public["role"]},
                         )
+                    self._record_scan(public)
                     self._log(
                         (
                             f"Captured answer key with {public['answered_count']}/{len(record.responses)} answered."
@@ -280,20 +322,42 @@ class ScannerController:
                     "student_name": public["student_name"],
                 },
             )
+        self._record_scan(public)
         label = "answer key" if public["role"] == "key" else f"student sheet {int(public['number']) - 1}"
         self._log(f"Saved reviewed {label}.", "success")
+
+    def _record_scan(self, public: dict[str, object]) -> None:
+        with self._lock:
+            session_id = self._session_id
+        if session_id is None:
+            return
+        try:
+            self.store.add_scan(session_id, public)
+        except Exception as exc:
+            # A history write must never cost a sheet that is already in the
+            # JSONL log and on screen.
+            self._log(f"Could not save sheet {public.get('number')} to history: {exc}", "error")
 
     def disconnect(self) -> None:
         self._stop.set()
         with self._lock:
             scanner = self._scanner
+            session_id = self._session_id
             self._scanner = None
+            self._session_id = None
             self._state = "disconnected"
             self._port = None
             self._error = None
+        if session_id is not None:
+            self.store.update_session(session_id, finished=True)
+            self.store.prune_empty_sessions()
         if scanner is not None:
             scanner.close()
         self._log("Scanner disconnected.")
+
+    def current_session_id(self) -> int | None:
+        with self._lock:
+            return self._session_id
 
     def clear(self) -> None:
         with self._lock:
@@ -303,8 +367,7 @@ class ScannerController:
         self._log("The on-screen session was cleared.")
 
     def add_demo_record(self, question_count: int) -> None:
-        if question_count not in SUPPORTED_ANSWER_COUNTS:
-            raise DataLinkError("Unsupported question count")
+        question_count = validate_question_count(question_count)
         choices = ["A", "B", "C", "D", "E"]
         responses = [choices[index % 5] for index in range(question_count)]
         with self._lock:
@@ -327,16 +390,9 @@ class ScannerController:
     def export_csv(self, class_name: str = "") -> bytes:
         with self._lock:
             records = list(self._records)
-        output = io.StringIO()
-        writer = csv.writer(output)
-        maximum = max((len(record["responses"]) for record in records), default=self._question_count)
-        writer.writerow(["Scan", "Role", "Class", "Student ID", "Student Name", "Received At", "Answered"] + [f"Q{i}" for i in range(1, maximum + 1)])
-        for record in records:
-            writer.writerow(
-                [record["number"], record.get("role", "student"), class_name, record.get("student_id") or "", record.get("student_name") or "", record["received_at"], record["answered_count"]]
-                + list(record["responses"])
-            )
-        return output.getvalue().encode("utf-8")
+            fallback = self._question_count
+        return records_to_csv(records, class_name, fallback)
+
 
 
 class DataLinkRequestHandler(SimpleHTTPRequestHandler):
@@ -368,9 +424,69 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @property
+    def store(self) -> Store:
+        return self.controller.store
+
+    def _session_id_from(self, path: str, suffix: str = "") -> int | None:
+        prefix = "/api/sessions/"
+        if not path.startswith(prefix):
+            return None
+        remainder = path[len(prefix) :]
+        if suffix:
+            if not remainder.endswith(suffix):
+                return None
+            remainder = remainder[: -len(suffix)]
+        return int(remainder) if remainder.isdigit() else None
+
+    def _send_csv(self, body: bytes, filename: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/api/classes":
+            self._send_json({"classes": self.store.list_classes()})
+            return
+        if path == "/api/settings":
+            self._send_json(
+                {
+                    "test_name": self.store.get_setting("test_name"),
+                    "selected_class": self.store.get_setting("selected_class"),
+                    "question_count": self.store.get_setting("question_count"),
+                }
+            )
+            return
+        if path == "/api/sessions":
+            self._send_json({"sessions": self.store.list_sessions()})
+            return
+        session_id = self._session_id_from(path, "/export.csv")
+        if session_id is not None:
+            session = self.store.session(session_id)
+            if session is None:
+                self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                return
+            body = records_to_csv(
+                self.store.session_scans(session_id),
+                session["class_name"],
+                session["question_count"],
+            )
+            self._send_csv(body, safe_export_filename(session["name"]))
+            return
+        session_id = self._session_id_from(path)
+        if session_id is not None:
+            session = self.store.session(session_id)
+            if session is None:
+                self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                return
+            session["scans"] = self.store.session_scans(session_id)
+            self._send_json(session)
+            return
         if path == "/api/status":
             snapshot = self.controller.snapshot()
             snapshot["ports"] = self.controller.available_ports()
@@ -380,14 +496,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             query = parse_qs(parsed.query)
             class_name = query.get("class", [""])[0]
             body = self.controller.export_csv(class_name)
-            test_name = query.get("name", [""])[0]
-            filename = safe_export_filename(test_name)
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/csv; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_csv(body, safe_export_filename(query.get("name", [""])[0]))
             return
         super().do_GET()
 
@@ -400,7 +509,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     raise DataLinkError("Scanner command acknowledgement is required")
                 self.controller.connect(
                     body.get("port") or None,
-                    int(body.get("question_count", DEFAULT_ANSWER_COUNT)),
+                    body.get("question_count", DEFAULT_ANSWER_COUNT),
                 )
             elif path == "/api/disconnect":
                 self.controller.disconnect()
@@ -413,8 +522,55 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 return
             elif path == "/api/demo":
                 self.controller.add_demo_record(
-                    int(body.get("question_count", DEFAULT_ANSWER_COUNT))
+                    body.get("question_count", DEFAULT_ANSWER_COUNT)
                 )
+            elif path == "/api/classes/save":
+                self.store.save_class(
+                    str(body.get("name", "")),
+                    list(body.get("students", [])),
+                    body.get("original_name") or None,
+                )
+                self._send_json({"classes": self.store.list_classes()})
+                return
+            elif path == "/api/classes/delete":
+                name = str(body.get("name", ""))
+                self.store.delete_class(name)
+                if self.store.get_setting("selected_class") == name:
+                    self.store.set_setting("selected_class", "")
+                self._send_json({"classes": self.store.list_classes()})
+                return
+            elif path == "/api/classes/import":
+                imported = self.store.import_classes(list(body.get("classes", [])))
+                self._send_json(
+                    {"imported": imported, "classes": self.store.list_classes()}
+                )
+                return
+            elif path == "/api/settings":
+                for key in ("test_name", "selected_class", "question_count"):
+                    if key in body:
+                        self.store.set_setting(key, str(body[key]))
+                # Keep an open history row in step with a renamed test or class.
+                session_id = self.controller.current_session_id()
+                if session_id is not None:
+                    self.store.update_session(
+                        session_id,
+                        name=str(body["test_name"]) if "test_name" in body else None,
+                        class_name=(
+                            str(body["selected_class"]) if "selected_class" in body else None
+                        ),
+                    )
+                self._send_json({"ok": True})
+                return
+            elif path == "/api/sessions/delete":
+                self.store.delete_session(int(body.get("id", 0)))
+                self._send_json({"sessions": self.store.list_sessions()})
+                return
+            elif path == "/api/sessions/rename":
+                self.store.update_session(
+                    int(body.get("id", 0)), name=str(body.get("name", ""))
+                )
+                self._send_json({"sessions": self.store.list_sessions()})
+                return
             elif path == "/api/resolve-review":
                 self.controller.resolve_review(
                     int(body.get("id", 0)),
@@ -440,7 +596,8 @@ def build_server(
     Port 0 asks the OS for a free port, which is what the native app uses:
     it never has to coordinate with another instance over a fixed port.
     """
-    controller = ScannerController(paths.capture_root(capture_dir))
+    store = Store(paths.database_path(capture_dir))
+    controller = ScannerController(paths.capture_root(capture_dir), store)
     shutdown_requested = threading.Event()
     DataLinkRequestHandler.controller = controller
     DataLinkRequestHandler.shutdown_requested = shutdown_requested

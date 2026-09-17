@@ -15,6 +15,7 @@
 set -eu
 
 CLI=""
+PYTHON=""
 OUTPUT=""
 VERSION="0.0.0"
 ICON="$(cd "$(dirname "$0")/.." && pwd)/src/datalink_scanner/resources/DataLinkScanner.icns"
@@ -23,6 +24,7 @@ BUNDLE_ID="org.davidhohnholt.datalink-scanner"
 while [ $# -gt 0 ]; do
   case "$1" in
     --cli) CLI="$2"; shift 2 ;;
+    --python) PYTHON="$2"; shift 2 ;;
     --output) OUTPUT="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --icon) ICON="$2"; shift 2 ;;
@@ -57,16 +59,46 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-cat > "$APP/Contents/MacOS/DataLink Scanner" <<LAUNCHER
+# macOS decides an app's name, Dock tile and icon from the bundle enclosing the
+# running executable. Exec'ing the interpreter outside this bundle therefore
+# gets us Python's identity: the Dock reads "Python".
+#
+# A framework build's bin/python3.x is itself a stub that re-execs
+# Resources/Python.app/Contents/MacOS/Python, so copying that stub is not
+# enough — copy the inner binary, and run it from inside this bundle.
+RUNTIME=""
+SITE=""
+if [ -n "$PYTHON" ] && [ -x "$PYTHON" ]; then
+  RUNTIME=$("$PYTHON" -c 'import os,sys; p=os.path.join(sys.base_prefix,"Resources","Python.app","Contents","MacOS","Python"); print(p if os.path.exists(p) else "")')
+  SITE=$("$PYTHON" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+fi
+
+if [ -n "$RUNTIME" ]; then
+  cp "$RUNTIME" "$APP/Contents/MacOS/python-runtime"
+  chmod +x "$APP/Contents/MacOS/python-runtime"
+  cat > "$APP/Contents/MacOS/DataLink Scanner" <<LAUNCHER
 #!/bin/sh
-# Launcher only. The real program is the datalink-scanner command, so a
-# Homebrew upgrade takes effect here without rebuilding this bundle.
+DIR=\$(cd "\$(dirname "\$0")" && pwd)
+# Bypassing the virtualenv's own python means its site-packages is not set up
+# for us. addsitedir rather than PYTHONPATH, because only the former processes
+# the .pth files that editable and namespace installs rely on. The path goes
+# through the environment so no quoting in it can break this script.
+DATALINK_SITE="$SITE"
+export DATALINK_SITE
+exec "\$DIR/python-runtime" -c 'import os, site; site.addsitedir(os.environ["DATALINK_SITE"]); from datalink_scanner.cli import main; raise SystemExit(main(["app"]))'
+LAUNCHER
+else
+  # No framework build to borrow: fall back to the installed command. The app
+  # still works; it just shows up as Python.
+  cat > "$APP/Contents/MacOS/DataLink Scanner" <<LAUNCHER
+#!/bin/sh
 if [ ! -x "$CLI" ]; then
   /usr/bin/osascript -e 'display alert "DataLink Scanner is not installed" message "The datalink-scanner command is missing. Reinstall with: brew reinstall datalink-scanner" as critical'
   exit 1
 fi
 exec "$CLI" app "\$@"
 LAUNCHER
+fi
 chmod +x "$APP/Contents/MacOS/DataLink Scanner"
 
 if [ -f "$ICON" ]; then

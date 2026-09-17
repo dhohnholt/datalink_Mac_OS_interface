@@ -22,8 +22,13 @@ EXPECTED_FIELD_COUNT = 211
 ANSWER_START = 10
 STUDENT_ID_FIELD = 0
 DEFAULT_ANSWER_COUNT = 50
-SUPPORTED_ANSWER_COUNTS = (30, 33, 50, 75)
-MAX_ANSWER_COUNT = 200
+MIN_ANSWER_COUNT = 1
+# A record carries EXPECTED_FIELD_COUNT fields with answers starting at
+# ANSWER_START, so the wire format itself allows 201. Testing confirmed reads
+# well past 75, but forms in use are far shorter and a runaway count would
+# silently pull protocol metadata in as answers, so the app caps it here.
+MAX_ANSWER_COUNT = 100
+PROTOCOL_ANSWER_CEILING = EXPECTED_FIELD_COUNT - ANSWER_START
 
 # Exact host payloads observed during the initial DataLink Connect session.
 INITIALIZATION_COMMANDS = (
@@ -50,6 +55,20 @@ class DataLinkError(RuntimeError):
     pass
 
 
+def validate_question_count(value: object) -> int:
+    """Coerce and range-check a questions-per-form value."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        raise DataLinkError("Questions per form must be a whole number") from None
+    if not MIN_ANSWER_COUNT <= count <= MAX_ANSWER_COUNT:
+        raise DataLinkError(
+            f"Questions per form must be between {MIN_ANSWER_COUNT} and "
+            f"{MAX_ANSWER_COUNT}"
+        )
+    return count
+
+
 @dataclass(frozen=True)
 class DataLinkFormRecord:
     received_at: str
@@ -58,10 +77,7 @@ class DataLinkFormRecord:
 
     @classmethod
     def from_line(cls, line: bytes, question_count: int = DEFAULT_ANSWER_COUNT) -> "DataLinkFormRecord":
-        if question_count not in SUPPORTED_ANSWER_COUNTS:
-            raise DataLinkError(
-                f"Question count must be one of {', '.join(map(str, SUPPORTED_ANSWER_COUNTS))}"
-            )
+        question_count = validate_question_count(question_count)
         try:
             text = line.decode("ascii")
         except UnicodeDecodeError as exc:
@@ -106,11 +122,7 @@ class DataLinkStreamParser:
     """Incrementally separates control replies from complete form records."""
 
     def __init__(self, question_count: int = DEFAULT_ANSWER_COUNT) -> None:
-        if question_count not in SUPPORTED_ANSWER_COUNTS:
-            raise DataLinkError(
-                f"Question count must be one of {', '.join(map(str, SUPPORTED_ANSWER_COUNTS))}"
-            )
-        self.question_count = question_count
+        self.question_count = validate_question_count(question_count)
         self._buffer = bytearray()
 
     def feed(self, data: bytes) -> tuple[list[DataLinkFormRecord], list[str]]:

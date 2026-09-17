@@ -1,0 +1,211 @@
+"""Item analysis: the scoring is vendored, so these tests guard the seams.
+
+What can break here is not the maths — that is a verbatim copy of the omr_final
+modules — but the adapter feeding it, and the copies drifting from the
+originals.
+"""
+
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from datalink_scanner.analysis import (
+    AnalysisError,
+    analysis_filename,
+    build_session_analysis,
+    normalize_response,
+)
+
+OMR_FINAL = Path("/Users/davidhohnholt/school_projects/Datalink/omr_final")
+VENDOR = Path(__file__).resolve().parents[1] / "src" / "datalink_scanner" / "vendor"
+
+
+def session(question_count=5, name="Unit 1", log_path=None):
+    return {
+        "id": 1,
+        "name": name,
+        "class_name": "Period 4",
+        "question_count": question_count,
+        "started_at": "2026-09-16T18:00:00+00:00",
+        "ended_at": None,
+        "log_path": log_path,
+    }
+
+
+def scan(number, role, responses, student_id=None, student_name=None):
+    return {
+        "number": number,
+        "role": role,
+        "student_id": student_id,
+        "student_name": student_name,
+        "received_at": "2026-09-16T18:00:00+00:00",
+        "answered_count": sum(1 for value in responses if value),
+        "responses": responses,
+        "demo": False,
+    }
+
+
+class VendorTests(unittest.TestCase):
+    @unittest.skipUnless(OMR_FINAL.is_dir(), "omr_final is not on this machine")
+    def test_the_vendored_copies_match_the_originals(self):
+        """The whole point is one scoring implementation. If omr_final changes,
+        re-copy rather than editing the copy here."""
+        for name in ("analysis_core.py", "result_schema.py"):
+            self.assertEqual(
+                (VENDOR / name).read_bytes(),
+                (OMR_FINAL / name).read_bytes(),
+                f"{name} has drifted from omr_final; re-copy it",
+            )
+
+
+class NormalizeTests(unittest.TestCase):
+    def test_matches_the_csv_importers_rules(self):
+        self.assertEqual(normalize_response(""), "BLANK")
+        self.assertEqual(normalize_response(None), "BLANK")
+        self.assertEqual(normalize_response("  "), "BLANK")
+        self.assertEqual(normalize_response("c"), "C")
+        self.assertEqual(normalize_response("*"), "MULTIPLE")
+        self.assertEqual(normalize_response("AC"), "MULTIPLE")
+
+    def test_rejects_anything_else(self):
+        with self.assertRaises(AnalysisError):
+            normalize_response("Z")
+
+
+class BuildTests(unittest.TestCase):
+    def test_scores_a_small_session(self):
+        scans = [
+            scan(1, "key", ["A", "B", "C", "D", "E"]),
+            scan(2, "student", ["A", "B", "C", "D", "E"], "900011", "All right"),
+            scan(3, "student", ["A", "B", "C", "E", ""], "900012", "Two wrong"),
+        ]
+        report = build_session_analysis(session(), scans)
+        self.assertEqual(report["schema_version"], "1.0")
+        self.assertEqual(len(report["students"]), 2)
+        self.assertEqual(len(report["items"]), 5)
+        self.assertEqual(report["students"][0]["score"]["correct"], 5)
+        self.assertEqual(report["students"][1]["score"]["correct"], 3)
+        self.assertEqual(report["students"][1]["score"]["blank"], 1)
+        self.assertEqual(report["summary"]["student_count"], 2)
+
+    def test_trailing_blanks_count_as_blank_not_missing(self):
+        # The form length decides how many slots exist; a short row is padded.
+        scans = [
+            scan(1, "key", ["A"] * 5),
+            scan(2, "student", ["A", "A"], "900011"),
+        ]
+        report = build_session_analysis(session(), scans)
+        self.assertEqual(report["students"][0]["score"]["blank"], 3)
+        self.assertEqual(len(report["students"][0]["answers"]), 5)
+
+    def test_double_marks_become_review_items(self):
+        scans = [
+            scan(1, "key", ["A"] * 5),
+            scan(2, "student", ["A", "AC", "A", "A", "A"], "900011"),
+        ]
+        report = build_session_analysis(session(), scans)
+        self.assertEqual(report["students"][0]["score"]["multiple"], 1)
+        self.assertIn(
+            {"page": 2, "field": "answer", "question": 2, "value": "MULTIPLE"},
+            report["review_items"],
+        )
+
+    def test_a_missing_student_id_becomes_a_review_item(self):
+        scans = [scan(1, "key", ["A"] * 5), scan(2, "student", ["A"] * 5)]
+        report = build_session_analysis(session(), scans)
+        self.assertIn(
+            {"page": 2, "field": "student_id", "value": None}, report["review_items"]
+        )
+
+    def test_refuses_a_session_without_exactly_one_key(self):
+        with self.assertRaises(AnalysisError) as caught:
+            build_session_analysis(session(), [scan(1, "student", ["A"] * 5)])
+        self.assertIn("answer key", str(caught.exception))
+
+        with self.assertRaises(AnalysisError):
+            build_session_analysis(
+                session(), [scan(1, "key", ["A"] * 5), scan(2, "key", ["A"] * 5)]
+            )
+
+    def test_refuses_a_session_with_no_students(self):
+        with self.assertRaises(AnalysisError) as caught:
+            build_session_analysis(session(), [scan(1, "key", ["A"] * 5)])
+        self.assertIn("student sheets", str(caught.exception))
+
+    def test_refuses_an_unresolved_answer_key(self):
+        # A key with a double mark cannot score anything.
+        scans = [
+            scan(1, "key", ["A", "AB", "C", "D", "E"]),
+            scan(2, "student", ["A"] * 5, "900011"),
+        ]
+        with self.assertRaises(AnalysisError) as caught:
+            build_session_analysis(session(), scans)
+        self.assertIn("question(s) 2", str(caught.exception))
+
+    def test_filename_follows_the_session_name(self):
+        self.assertEqual(analysis_filename(session(name="Unit 3 Exam")), "Unit 3 Exam.json")
+        self.assertEqual(analysis_filename(session(name="")), "datalink-session.json")
+
+    def test_source_type_stays_what_the_website_already_accepts(self):
+        scans = [scan(1, "key", ["A"] * 5), scan(2, "student", ["A"] * 5, "900011")]
+        report = build_session_analysis(session(), scans)
+        self.assertEqual(report["exam"]["source_type"], "datalink_csv")
+
+
+class ParityTests(unittest.TestCase):
+    """The app's JSON and omr_final's JSON must agree for the same scans."""
+
+    @unittest.skipUnless(
+        (OMR_FINAL / "analyze_datalink_csv.py").is_file(),
+        "omr_final is not on this machine",
+    )
+    def test_direct_output_matches_the_csv_importer(self):
+        from datalink_scanner.server import records_to_csv
+
+        key = ["A", "B", "C", "D", "E"] * 4
+        rows = [scan(1, "key", key)]
+        for index in range(6):
+            responses = list(key)
+            responses[index] = "E" if key[index] != "E" else "A"
+            if index == 3:
+                responses[10] = ""
+            rows.append(
+                scan(index + 2, "student", responses, f"90001{index}", f"Student {index}")
+            )
+        current = session(question_count=20, name="Parity")
+
+        mine = build_session_analysis(current, rows)
+
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "export.csv").write_bytes(
+                records_to_csv(rows, current["class_name"], current["question_count"])
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    "analyze_datalink_csv.py",
+                    str(work / "export.csv"),
+                    "--exam-name",
+                    "Parity",
+                    "--out",
+                    str(work / "out"),
+                ],
+                cwd=OMR_FINAL,
+                check=True,
+                capture_output=True,
+            )
+            theirs = json.loads((work / "out" / "analysis_result.json").read_text())
+
+        for document in (mine, theirs):
+            document.pop("run_id")
+            document.pop("created_at")
+            document["exam"].pop("source_file")
+        self.assertEqual(mine, theirs)
+
+
+if __name__ == "__main__":
+    unittest.main()

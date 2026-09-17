@@ -273,3 +273,23 @@ class SignalHandlingTests(unittest.TestCase):
         run = self.app_source.index("def run(")
         self.assertLess(install, run)
         self.assertIn("install_signal_handlers()", self.app_source)
+
+
+class TimestampTests(unittest.TestCase):
+    def test_an_unparseable_timestamp_does_not_render_as_invalid_date(self):
+        self.assertIn("Number.isNaN(when.getTime())", APP_JS)
+
+
+class AnalysisButtonTests(unittest.TestCase):
+    def setUp(self):
+        self.html = (WEBUI / "index.html").read_text()
+
+    def test_the_session_view_offers_an_item_analysis_export(self):
+        self.assertIn('id="sessionAnalysisButton"', self.html)
+        self.assertIn("analysis.json", APP_JS)
+
+    def test_it_is_routed_through_the_native_save_panel(self):
+        self.assertIn('"sessionAnalysisButton"', APP_JS)
+
+    def test_a_disabled_export_does_not_navigate(self):
+        self.assertIn('classList.contains("disabled")', APP_JS)

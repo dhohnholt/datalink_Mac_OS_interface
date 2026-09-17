@@ -181,3 +181,5 @@ body.native .shell { padding-top: 18px; }
 @media (max-width: 850px) {
   .hint-bubble { max-width: min(250px, calc(100vw - 32px)); }
 }
+
+.button.disabled { opacity: .45; cursor: not-allowed; }

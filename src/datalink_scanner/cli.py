@@ -140,6 +140,45 @@ def command_replay(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_analyze(args: argparse.Namespace) -> int:
+    """Write the item analysis JSON for a saved session."""
+    import json
+
+    from .analysis import AnalysisError, analysis_filename, build_session_analysis
+    from .store import Store
+
+    store = Store(paths.database_path(args.capture_dir))
+    try:
+        if args.list:
+            for row in store.list_sessions():
+                print(
+                    f"{row['id']:>4}  {row['started_at'][:16].replace('T', ' ')}  "
+                    f"{row['scan_count']:>4} sheets  {row['name'] or '(untitled)'}"
+                )
+            return 0
+        if args.session is None:
+            raise DataLinkError("Pass a session id, or --list to see them")
+        session = store.session(args.session)
+        if session is None:
+            raise DataLinkError(f"No session with id {args.session}")
+        try:
+            report = build_session_analysis(
+                session, store.session_scans(args.session), exam_name=args.exam_name
+            )
+        except AnalysisError as exc:
+            raise DataLinkError(str(exc)) from None
+        output = args.output or Path(analysis_filename(session))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2))
+        print(
+            f"Scored {len(report['students'])} students over "
+            f"{len(report['items'])} questions into {output}"
+        )
+        return 0
+    finally:
+        store.close()
+
+
 def find_app_bundle() -> Path | None:
     """Locate the .app that ships beside an installed copy of this package.
 
@@ -268,6 +307,16 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--include-raw-fields", action="store_true")
     add_capture_dir(replay_parser)
     replay_parser.set_defaults(func=command_replay)
+
+    analyze_parser = sub.add_parser(
+        "analyze", help="Write the item analysis JSON for a saved session"
+    )
+    analyze_parser.add_argument("session", nargs="?", type=int, help="Session id")
+    analyze_parser.add_argument("--list", action="store_true", help="List saved sessions")
+    analyze_parser.add_argument("--output", type=Path)
+    analyze_parser.add_argument("--exam-name")
+    add_capture_dir(analyze_parser)
+    analyze_parser.set_defaults(func=command_analyze)
 
     install_parser = sub.add_parser(
         "install-app", help="Symlink DataLink Scanner.app into /Applications"

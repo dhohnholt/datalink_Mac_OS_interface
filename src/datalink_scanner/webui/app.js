@@ -230,6 +230,8 @@ $("#classSelect").addEventListener("change", event => selectClass(event.target.v
 function formatTimestamp(value) {
   if (!value) return "—";
   const when = new Date(value);
+  // An unparseable timestamp would otherwise render as "Invalid Date".
+  if (Number.isNaN(when.getTime())) return "—";
   return when.toLocaleDateString([], {month: "short", day: "numeric"}) + " " +
     when.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
 }
@@ -350,6 +352,16 @@ async function openSession(id) {
   link.href = `/api/sessions/${id}/export.csv`;
   link.download = `${session.name || "datalink-session"}.csv`;
 
+  // Item analysis needs one answer key and at least one student sheet, so it
+  // is not offered for a session that cannot produce it.
+  const analysis = $("#sessionAnalysisButton");
+  analysis.href = `/api/sessions/${id}/analysis.json`;
+  analysis.download = `${session.name || "datalink-session"}.json`;
+  analysis.classList.toggle("disabled", !session.analysis_available);
+  analysis.title = session.analysis_available
+    ? "Scores every sheet and writes the item analysis JSON for upload"
+    : session.analysis_error || "";
+
   const columns = Math.max(session.question_count, ...session.scans.map(scan => scan.responses.length), 0);
   $("#sessionDetailHead").innerHTML =
     `<th>Scan</th><th>Student</th><th>Time</th><th>Answered</th>` +
@@ -372,6 +384,13 @@ function closeSession() {
   openSessionId = null;
   $("#sessionDetailCard").classList.add("hidden");
 }
+
+$("#sessionAnalysisButton").addEventListener("click", event => {
+  if (event.currentTarget.classList.contains("disabled")) {
+    event.preventDefault();
+    toast(event.currentTarget.title || "Not available for this session");
+  }
+});
 
 $("#closeSessionButton").addEventListener("click", closeSession);
 $("#refreshSessionsButton").addEventListener("click", () => {
@@ -723,6 +742,13 @@ window.datalinkMenu = {
   clearView: () => $("#clearButton").click(),
   exportCsv: () => (currentView === "sessions" && openSessionId !== null
     ? $("#sessionExportButton") : $("#exportButton")).click(),
+  exportAnalysis: () => {
+    if (currentView !== "sessions" || openSessionId === null) {
+      toast("Open a saved session first, then export its item analysis");
+      return;
+    }
+    $("#sessionAnalysisButton").click();
+  },
   newClass: () => { showView("classes"); openClassEditor(null); },
   editClass: () => { showView("classes"); openClassEditor(selectedClassName); },
   skipStudent: () => $("#skipStudentButton").click(),
@@ -741,10 +767,14 @@ if (window.datalinkNative) {
   document.body.classList.add("native");
   // A WKWebView will not act on <a download>, so hand exports to the app and
   // let it put up a real Save panel.
-  for (const id of ["exportButton", "sessionExportButton"]) {
+  for (const id of ["exportButton", "sessionExportButton", "sessionAnalysisButton"]) {
     $(`#${id}`).addEventListener("click", event => {
       event.preventDefault();
       const link = $(`#${id}`);
+      if (link.classList.contains("disabled")) {
+        toast(link.title || "Not available for this session");
+        return;
+      }
       const url = new URL(link.getAttribute("href"), location.origin);
       window.webkit.messageHandlers.datalink.postMessage({
         action: "export",

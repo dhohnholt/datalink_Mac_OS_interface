@@ -22,6 +22,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import paths
+from .analysis import (
+    AnalysisError,
+    analysis_filename,
+    build_session_analysis,
+)
 from .store import Store
 from .interface import (
     DEFAULT_ANSWER_COUNT,
@@ -490,6 +495,30 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/storage":
             self._send_json(self.store.storage_report())
             return
+        session_id = self._session_id_from(path, "/analysis.json")
+        if session_id is not None:
+            session = self.store.session(session_id)
+            if session is None:
+                self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                report = build_session_analysis(
+                    session, self.store.session_scans(session_id)
+                )
+            except AnalysisError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            body = json.dumps(report, indent=2).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="{analysis_filename(session)}"',
+            )
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         session_id = self._session_id_from(path, "/export.csv")
         if session_id is not None:
             session = self.store.session(session_id)
@@ -509,7 +538,15 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             if session is None:
                 self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                 return
-            session["scans"] = self.store.session_scans(session_id)
+            scans = self.store.session_scans(session_id)
+            session["scans"] = scans
+            try:
+                build_session_analysis(session, scans)
+                session["analysis_available"] = True
+                session["analysis_error"] = None
+            except AnalysisError as exc:
+                session["analysis_available"] = False
+                session["analysis_error"] = str(exc)
             self._send_json(session)
             return
         if path == "/api/status":

@@ -272,6 +272,15 @@ class DataLinkAppDelegate(NSObject):
         )
         file_menu.addItem_(_separator())
         file_menu.addItem_(_item("Export CSV…", "exportCSV:", "e", target=self))
+        file_menu.addItem_(
+            _item(
+                "Export Item Analysis…",
+                "exportAnalysis:",
+                "e",
+                target=self,
+                modifiers=NSEventModifierFlagCommand | NSEventModifierFlagShift,
+            )
+        )
         file_menu.addItem_(_separator())
         file_menu.addItem_(_item("Close Window", "performClose:", "w"))
 
@@ -391,6 +400,9 @@ class DataLinkAppDelegate(NSObject):
 
     def exportCSV_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.exportCsv()")
+
+    def exportAnalysis_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.exportAnalysis()")
 
     def openInBrowser_(self, sender):
         if self._url:

@@ -9,11 +9,12 @@ bubbled student ID and every response — matching each one to a student as it
 goes. Sessions are saved locally and can be reviewed and exported to CSV
 whenever you need them.
 
-Because every answer is captured per question and not just a total score, that
-export drops straight into an item analysis: which questions the class missed,
-and which distractors pulled them away. That is the part worth having — it
-turns a stack of graded sheets into a short list of concepts to reteach, backed
-by where the learning gaps actually are.
+Because every answer is captured per question and not just a total score, the
+app can score the session and write a full **item analysis** — which questions
+the class missed, which distractors pulled them away, and how well each item
+discriminated. That is the part worth having: it turns a stack of graded sheets
+into a short list of concepts to reteach, backed by where the learning gaps
+actually are.
 
 ## Why this exists
 
@@ -124,6 +125,37 @@ Sheets are also appended live to a timestamped `browser_session_*.jsonl` file
 as a plain-text belt-and-braces log. Both live in
 `~/Library/Application Support/DataLink Scanner/captures`.
 
+### Item analysis
+
+Open a saved session and choose **Export item analysis** (⇧⌘E) to write a JSON
+report: per-student scores and missed questions, and per-question percent
+correct, difficulty, point-biserial, upper/lower discrimination, the full
+answer distribution, the most common wrong answer, and threshold flags — plus
+class statistics including mean, median, standard deviation and KR-20.
+
+The scoring is not reimplemented here. `src/datalink_scanner/vendor/` holds
+verbatim copies of `analysis_core.py` and `result_schema.py` from the
+**omr_final** project, which scores the same sheets when they are read on a
+document scanner instead. Feeding those same functions means a sheet read
+either way produces the same report against one schema, which is what the
+upload endpoint expects.
+
+Do not edit the vendored copies. Change them in omr_final and copy them across;
+`tests/test_analysis.py` fails if they drift, and separately scores a session
+both ways — directly, and by handing the exported CSV to omr_final — and
+asserts the two JSON documents are identical.
+
+From a terminal:
+
+```bash
+datalink-scanner analyze --list          # saved sessions and their ids
+datalink-scanner analyze 12              # writes "<session name>.json"
+```
+
+Scoring needs exactly one answer key and at least one student sheet, and the
+key itself must have no blank or double-marked questions. The export is greyed
+out with the reason when a session cannot be scored.
+
 ### Storage
 
 Everything is kept in that one folder. It is user data, not a cache, so macOS
@@ -210,13 +242,13 @@ scanner attached.
 | 2 | Communication method | ✅ 38400 8N1, DTR off / RTS on |
 | 3 | Protocol discovery | ✅ command sequence + record framing |
 | 4 | Direct interface | ✅ working against real hardware |
-| 5 | Test scoring | ⬜ answer key + per-student scoring |
-| 6 | Item analysis | ⬜ per-question stats across a class |
+| 5 | Test scoring | 🔨 scores in the exported report, not yet on screen |
+| 6 | Item analysis | ✅ JSON report, shared with omr_final |
 | 7 | Native macOS app | ✅ Cocoa window and menu bar, no browser or terminal |
 
-Scoring and item analysis are not built into the app yet. The CSV export holds
-every response for every student, which is everything an item analysis needs —
-run it in a spreadsheet for now. Doing it in-app is phases 5 and 6.
+Item analysis is done, sharing its implementation with the omr_final project.
+Per-student scoring inside the app's own UI is still to come; the JSON report
+already carries every student's score and missed questions.
 
 An early SwiftUI model layer is parked on the
 [`swiftui-frontend`](https://github.com/dhohnholt/datalink_Mac_OS_interface/tree/swiftui-frontend)
@@ -227,6 +259,7 @@ branch. It predates the protocol discovery and is not part of the build.
 ```
 src/datalink_scanner/   the application: transport, parser, store, server,
                         Cocoa shell, CLI and web UI
+  └── vendor/           verbatim scoring modules from omr_final — do not edit
 tests/                  offline tests; no scanner needed
 scripts/                phase 1–3 discovery tools (see below)
 packaging/              app bundle builder, DMG build, Homebrew formula

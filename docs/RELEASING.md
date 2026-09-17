@@ -11,11 +11,45 @@ packaging/release.sh 1.1.0
 In order it: bumps both version strings, runs the tests, commits, tags `v1.1.0`
 and pushes, downloads the GitHub tag tarball to compute its `sha256`, rewrites
 `packaging/homebrew/datalink-scanner.rb`, publishes that formula to the tap,
-builds the `.dmg`, and creates the GitHub release with the disk image attached.
+builds the `.dmg`, creates the GitHub release with the disk image attached, and
+finally builds and attaches the bottle.
 
 It refuses to start on a dirty working tree, and if the tests fail it stops
 before tagging, so nothing is published. Pass `--skip-dmg` to publish the
 release without spending the ~40 seconds on a fresh disk image.
+
+## Bottles
+
+Homebrew builds a formula's resources from source. For this one that means
+recompiling PyObjC on every install — about 47 of the 50 seconds an upgrade
+takes, even for a release that only changed some text. A **bottle** is a
+prebuilt keg: `brew upgrade` downloads it and unpacks it instead.
+
+The script builds one at the end of a release and attaches it to the GitHub
+release, then records it in the formula:
+
+```ruby
+bottle do
+  root_url "https://github.com/dhohnholt/datalink_Mac_OS_interface/releases/download/v1.1.0"
+  sha256 cellar: :any_skip_relocation, arm64_tahoe: "…"
+end
+```
+
+Three things about it are worth knowing:
+
+* **It reinstalls the formula.** `brew bottle` only accepts a keg installed
+  with `--build-bottle`, and `brew reinstall` has no such flag, so the old keg
+  is removed first. Quit the app before releasing, or expect to relaunch it.
+* **A bottle is tagged for one macOS and architecture.** Anyone whose Mac does
+  not match builds from source exactly as they do today — nothing becomes less
+  compatible, some installs simply become faster.
+* **It costs two formula commits per release**, because the bottle can only be
+  built once the tap already carries the new formula, and can only be uploaded
+  once the release exists.
+
+`--skip-bottle` publishes without one. `--bottle-only <version>` builds and
+attaches a bottle for a release that is already cut, which is also how to
+recover if the bottle step fails partway.
 
 Users then get the new version — command and app together — with:
 

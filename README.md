@@ -1,15 +1,36 @@
 # DataLink Scanner
 
-A macOS replacement for Apperson's "DataLink Connect," built for the
-**DataLink 1200** optical mark scanner. It puts the scanner into Data
-Collection mode, reads a complete record for every sheet — student ID and all
-responses — and keeps the whole session on your Mac.
+A native macOS application for the **Apperson DataLink 1200** optical mark
+scanner — the bubble-sheet reader sitting in a lot of school supply closets.
 
-The protocol was recovered by reverse engineering; see
-[docs/PROTOCOL.md](docs/PROTOCOL.md) for what is confirmed versus inferred.
+Plug the scanner in, pick your class, and feed sheets. The app puts the scanner
+into Data Collection mode and reads a complete record for every sheet — the
+bubbled student ID and every response — matching each one to a student as it
+goes. Sessions are saved locally and can be reviewed and exported to CSV
+whenever you need them.
+
+## Why this exists
+
+The DataLink 1200 is still a perfectly good scanner. What it lost was its
+software: Apperson's DataLink Connect download no longer offers a supported
+macOS build. So a working piece of classroom hardware became unusable on a Mac,
+with no way to get results off it short of keeping a Windows machine around for
+that one task.
+
+The scanner itself never stopped working. It presents as an ordinary USB serial
+device, and it still speaks its protocol perfectly well — there was simply
+nothing left on macOS to speak it to.
+
+So this project recovered the protocol from USBPcap captures of DataLink
+Connect driving the scanner on Windows, and reimplemented the useful half of it
+natively for macOS. No vendor software is used or redistributed; see
+[docs/PROTOCOL.md](docs/PROTOCOL.md) for what is confirmed on the wire versus
+still inferred, and [docs/TESTING.md](docs/TESTING.md) for the experiment log
+that got there.
 
 > **Privacy:** everything runs locally. No student ID, response, key, or score
-> is ever sent to a network service. The server binds to loopback only.
+> is ever sent to a network service. The server binds to loopback only, and the
+> data stays in a folder on your Mac that you control.
 
 ## Install
 

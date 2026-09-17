@@ -131,11 +131,13 @@ Make a prefix once:
 
 ```bash
 curl -sfL https://micro.mamba.pm/api/micromamba/osx-arm64/latest | tar -xj bin/micromamba
-bin/micromamba create -y -p /tmp/poppler-prefix -c conda-forge poppler
+bin/micromamba create -y -p .poppler-prefix -c conda-forge poppler
 ```
 
-Then build with `DATALINK_POPPLER_PREFIX=/tmp/poppler-prefix`. Without it the
-build falls back to Homebrew's copy and the deployment-target check stops it.
+`.poppler-prefix` in the project root is picked up automatically and is
+gitignored; `DATALINK_POPPLER_PREFIX` overrides it. Without either, the build
+falls back to Homebrew's copy and the deployment-target check stops it — after
+the release has already been tagged, so make the prefix first.
 
 Bundling the *same poppler version* matters: rendering the same batch with a
 different engine changed 2 of 450 responses. With conda-forge's build the disk

@@ -84,7 +84,12 @@ for key in CFBundleShortVersionString CFBundleVersion; do
 done
 
 # The paper pipeline shells out to pdftoppm and pdfinfo. A Mac that cannot
-# install Homebrew has neither, so they travel inside the bundle.
+# install Homebrew has neither, so they travel inside the bundle — and they
+# have to come from a build that runs on more than the newest macOS, which
+# Homebrew's does not. docs/RELEASING.md says how to make the prefix.
+if [[ -z "${DATALINK_POPPLER_PREFIX:-}" && -x "$PROJECT_DIR/.poppler-prefix/bin/pdftoppm" ]]; then
+  export DATALINK_POPPLER_PREFIX="$PROJECT_DIR/.poppler-prefix"
+fi
 "$PYTHON_BIN" "$PACKAGING_DIR/bundle_poppler.py" "$DIST_DIR/$APP_NAME.app"
 
 # Every Mach-O in the bundle says the oldest macOS it will load on, and the

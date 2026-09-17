@@ -35,6 +35,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .venv-dmg/
+.poppler-prefix/
 venv/
 .pytest_cache/
 

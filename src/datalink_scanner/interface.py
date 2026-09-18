@@ -50,6 +50,51 @@ INITIALIZATION_COMMANDS = (
 # M6 is the only command absent from the ordinary reinitialization sequence.
 DATA_COLLECTION_COMMANDS = (b"R1", b"R5", b"M6", b"N8", b"A8", b"M8", b"M0")
 
+# Anything the scanner says that is not a form record. `OK` is its reply to a
+# command and is ordinary; everything else means a sheet did not go through,
+# and the teacher has to see it in plain words rather than as two letters.
+#
+# The wording is Apperson's own. DataLink Connect's string table pairs each
+# message with a key that carries the scanner's code: `kD1InsertSide1` and
+# `kD2InsertSide2`. HYPOTHESIS per docs/PROTOCOL.md's convention — the codes
+# are read off those key names, not off a capture, because no side-2 event
+# occurs in shark.pcapng or shark2.pcapng. An unrecognised line is passed
+# through verbatim and still flagged, so a wrong guess here costs nothing.
+UNREADABLE_RECORD = "Unreadable form record skipped"
+
+SCANNER_MESSAGES = {
+    "D1": (
+        "The scanner is waiting for side 1 of a two-sided form. "
+        "It will not take another sheet until it has it — use Reset scanner "
+        "to take it back to a fresh sheet."
+    ),
+    "D2": (
+        "The scanner is waiting for side 2 of a two-sided form. "
+        "It will not take another sheet until it has it — feed the back of "
+        "that sheet, or use Reset scanner if the form is one-sided."
+    ),
+}
+
+
+def describe_message(text: str) -> tuple[str, str]:
+    """Classify one non-record line from the scanner.
+
+    Returns the activity kind and what to show. `OK` is the reply to a command
+    and belongs with the protocol chatter; anything else stops the feed and so
+    is a warning the teacher sees without turning protocol details on.
+    """
+    cleaned = text.strip()
+    if not cleaned or cleaned == "OK" or cleaned.endswith("OK"):
+        return "protocol", f"Scanner: {cleaned}"
+    if cleaned.startswith(UNREADABLE_RECORD):
+        # The parser's own note about a line it could not read, already in
+        # plain words. Wrapping it again would read as two errors.
+        return "error", cleaned
+    described = SCANNER_MESSAGES.get(cleaned.upper())
+    if described:
+        return "warning", described
+    return "warning", f"The scanner sent an unexpected message: {cleaned}"
+
 
 class DataLinkError(RuntimeError):
     pass
@@ -121,9 +166,17 @@ class DataLinkFormRecord:
 class DataLinkStreamParser:
     """Incrementally separates control replies from complete form records."""
 
+    # How long an unterminated line may sit in the buffer before it is given up
+    # on. The scanner ends everything it says with CRLF, so a fragment older
+    # than this is either a message it did not finish or line noise. Either way
+    # it must not stay: the next record would be appended to it and read as one
+    # long malformed line, costing a sheet that went through perfectly well.
+    STALE_FRAGMENT_SECONDS = 2.0
+
     def __init__(self, question_count: int = DEFAULT_ANSWER_COUNT) -> None:
         self.question_count = validate_question_count(question_count)
         self._buffer = bytearray()
+        self._fragment_since: float | None = None
 
     def feed(self, data: bytes) -> tuple[list[DataLinkFormRecord], list[str]]:
         self._buffer.extend(data)
@@ -139,11 +192,37 @@ class DataLinkStreamParser:
             if not line:
                 continue
             if line.count(b",") >= self.question_count:
-                records.append(DataLinkFormRecord.from_line(line, self.question_count))
+                # One unreadable line must not take the rest of the read with
+                # it. Raising here used to discard every record already parsed
+                # out of the same chunk, and those sheets were gone: the bytes
+                # had been consumed and the paper had already passed through.
+                try:
+                    records.append(
+                        DataLinkFormRecord.from_line(line, self.question_count)
+                    )
+                except DataLinkError as exc:
+                    messages.append(f"{UNREADABLE_RECORD}: {exc}")
             else:
                 messages.append(line.decode("ascii", errors="replace"))
 
+        self._fragment_since = (
+            None if not self._buffer
+            else self._fragment_since if self._fragment_since is not None
+            else time.monotonic()
+        )
         return records, messages
+
+    def take_stale_fragment(self, now: float | None = None) -> str | None:
+        """Give up on a line the scanner never terminated, and return it."""
+        if not self._buffer or self._fragment_since is None:
+            return None
+        now = time.monotonic() if now is None else now
+        if now - self._fragment_since < self.STALE_FRAGMENT_SECONDS:
+            return None
+        fragment = bytes(self._buffer).decode("ascii", errors="replace")
+        self._buffer.clear()
+        self._fragment_since = None
+        return fragment
 
     @property
     def pending_bytes(self) -> bytes:
@@ -255,6 +334,20 @@ class DirectDataLinkScanner:
             transcript.append((command.decode("ascii"), reply))
             time.sleep(0.06)
         return transcript
+
+    def resynchronize(self) -> list[tuple[str, str]]:
+        """Re-send the captured handshake on a port that is already open.
+
+        This is what the teacher does by hand when the scanner stops taking
+        sheets: take it out of Data Collection and put it back. The bytes are
+        the same ones the handshake already sends, so nothing new is written to
+        the device. Anything the scanner was part-way through saying is
+        dropped, which is the point — that half-finished prompt is the jam.
+        """
+        connection = self._require_open()
+        connection.reset_input_buffer()
+        self.parser = DataLinkStreamParser(self.parser.question_count)
+        return self.initialize() + self.enter_data_collection()
 
     def read_available(self) -> tuple[list[DataLinkFormRecord], list[str]]:
         connection = self._require_open()

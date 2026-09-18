@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from datalink_scanner.interface import (
     DataLinkFormRecord,
     DataLinkStreamParser,
     append_jsonl,
+    describe_message,
 )
 
 from support import build_line
@@ -150,6 +152,61 @@ class StreamParserTests(unittest.TestCase):
         records, messages = parser.feed(b"\r\n\r\nOK\r\n")
         self.assertEqual(records, [])
         self.assertEqual(messages, ["OK"])
+
+
+class BadLineTests(unittest.TestCase):
+    def test_one_unreadable_line_does_not_take_the_rest_of_the_read(self):
+        # The bytes are consumed either way and the paper has already gone
+        # through the machine, so raising here used to lose good sheets.
+        parser = DataLinkStreamParser(question_count=30)
+        broken = b",".join([b"x"] * 40)
+        stream = (
+            build_line(["A"] * 30) + b"\r\n"
+            + broken + b"\r\n"
+            + build_line(["C"] * 30) + b"\r\n"
+        )
+        records, messages = parser.feed(stream)
+        self.assertEqual([record.responses[0] for record in records], ["A", "C"])
+        self.assertTrue(any("Unreadable form record" in item for item in messages))
+
+    def test_a_line_the_scanner_never_finished_is_given_up_on(self):
+        parser = DataLinkStreamParser(question_count=30)
+        parser.feed(b"D2")
+        self.assertIsNone(parser.take_stale_fragment())
+        late = time.monotonic() + parser.STALE_FRAGMENT_SECONDS + 1
+        self.assertEqual(parser.take_stale_fragment(now=late), "D2")
+        self.assertEqual(parser.pending_bytes, b"")
+
+    def test_the_next_record_survives_a_fragment_that_was_dropped(self):
+        parser = DataLinkStreamParser(question_count=30)
+        parser.feed(b"D2")
+        parser.take_stale_fragment(now=time.monotonic() + 10)
+        records, _ = parser.feed(build_line(["B"] * 30) + b"\r\n")
+        self.assertEqual(len(records), 1)
+
+
+class DescribeMessageTests(unittest.TestCase):
+    def test_command_replies_stay_with_the_protocol_chatter(self):
+        self.assertEqual(describe_message("OK")[0], "protocol")
+        self.assertEqual(describe_message("ADV 1200OK")[0], "protocol")
+
+    def test_a_side_prompt_is_a_warning_in_plain_words(self):
+        kind, text = describe_message("D2")
+        self.assertEqual(kind, "warning")
+        self.assertIn("side 2", text)
+        self.assertIn("Reset scanner", text)
+
+    def test_a_skipped_record_is_not_described_twice(self):
+        kind, described = describe_message(
+            "Unreadable form record skipped: Expected 211 CSV fields; received 40"
+        )
+        self.assertEqual(kind, "error")
+        self.assertNotIn("unexpected message", described)
+
+    def test_an_unknown_line_is_still_flagged_and_passed_through(self):
+        kind, text = describe_message("ZZ9")
+        self.assertEqual(kind, "warning")
+        self.assertIn("ZZ9", text)
 
 
 class AppendJsonlTests(unittest.TestCase):

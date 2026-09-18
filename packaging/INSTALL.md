@@ -5,8 +5,10 @@
 3. To keep it in the Dock, Control-click its Dock icon and choose
    **Options → Keep in Dock**.
 4. Connect the DataLink 1200 by USB, enter a test name, choose the question
-   count, and select **Connect and enter Data Collection**.
+   count, and select **Connect and start session**.
 5. Scan the answer key first, then the student sheets.
+6. Select **End session** when the class is done. The scanner stays connected
+   for the next one.
 
 The app opens its own window with a normal menu bar, and keeps all scan data on
 the Mac. Saved sessions are stored in:

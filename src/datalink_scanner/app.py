@@ -361,17 +361,20 @@ class DataLinkAppDelegate(NSObject):
 
         scanner_menu = _submenu(menubar, "Scanner")
         scanner_menu.addItem_(
-            _item("Connect and Enter Data Collection", "connectScanner:", "k", target=self)
+            _item("Start Scanning Session", "connectScanner:", "k", target=self)
         )
         scanner_menu.addItem_(
             _item(
-                "Disconnect",
-                "disconnectScanner:",
+                "End Session",
+                "endSession:",
                 "k",
                 target=self,
                 modifiers=NSEventModifierFlagCommand | NSEventModifierFlagShift,
             )
         )
+        scanner_menu.addItem_(_separator())
+        scanner_menu.addItem_(_item("Reset Scanner", "resetScanner:", target=self))
+        scanner_menu.addItem_(_item("Disconnect", "disconnectScanner:", target=self))
         scanner_menu.addItem_(_separator())
         scanner_menu.addItem_(_item("Skip Absent Student", "skipStudent:", target=self))
         scanner_menu.addItem_(
@@ -422,6 +425,12 @@ class DataLinkAppDelegate(NSObject):
 
     def connectScanner_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.connect()")
+
+    def endSession_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.endSession()")
+
+    def resetScanner_(self, sender):
+        self._run_js("window.datalinkMenu && datalinkMenu.resetScanner()")
 
     def disconnectScanner_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.disconnect()")

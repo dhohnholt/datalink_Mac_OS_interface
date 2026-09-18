@@ -226,3 +226,44 @@ Determine whether a Key scan is a precondition. Try capturing with and without a
 Once a byte mapping is hypothesized, verify by prediction — don't just fit the known captures, predict what a new sheet's packet should look like before scanning it, then check.
 
 Until the above is done, all packet-content claims stay in the HYPOTHESIS category per docs/PROTOCOL.md's confirmed/hypothesis convention — nothing about byte meaning should be treated as settled.
+
+Scanner status messages — HYPOTHESIS 2026-09-18
+
+A live session stopped after the answer key: the scanner asked for the other
+side of the sheet and then refused to feed anything until it was taken out of
+Data Collection at the device. That prompt is Apperson's own. DataLink
+Connect's localized string table pairs each message with a key, and two of
+those keys carry a two-character code that no other key has:
+
+    StringsErrors.kD1InsertSide1   "Insert Side 1"
+    StringsErrors.kD2InsertSide2   "Insert Side 2"
+
+`D1` and `D2` are therefore the leading candidates for the codes the scanner
+sends on its serial line when it is waiting for a side of a two-sided form.
+This is a HYPOTHESIS: neither `shark.pcapng` nor `shark2.pcapng` contains a
+side-2 event, so the codes are inferred from the key names and not observed on
+the wire. `SCANNER_MESSAGES` in `interface.py` translates them, and any line
+that is neither a form record nor `OK` is surfaced verbatim as a warning, so a
+wrong guess costs nothing and the real code will show itself the next time a
+sheet jams.
+
+Confirming this needs one experiment: feed a two-sided form (or any sheet the
+scanner treats as one) with the workspace connected, and read the line the
+Activity list prints. Record it here either way.
+
+The same string table names two other conditions worth watching for, both
+consistent with what was observed:
+
+    kKeyReset       "The key on the scanner was reset.  You must either
+                     re-key the scanner ... or clear the session and begin
+                     scanning again."
+    kKeyRequired    "A key is required to scan this form."
+
+Recovery — CONFIRMED by construction
+
+Re-sending the captured handshake on an already-open port
+(`DirectDataLinkScanner.resynchronize`) is byte-identical to what connecting
+already sends: `INITIALIZATION_COMMANDS` followed by `DATA_COLLECTION_COMMANDS`.
+No new command is written to the device. It is the software equivalent of
+taking the scanner out of Data Collection and putting it back, which is what
+cleared the jam by hand.

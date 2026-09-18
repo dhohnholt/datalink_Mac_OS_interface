@@ -40,6 +40,7 @@ from .interface import (
     DataLinkFormRecord,
     DirectDataLinkScanner,
     append_jsonl,
+    describe_message,
     discover_port,
     validate_question_count,
 )
@@ -181,6 +182,12 @@ class ScannerController:
         self._error: str | None = None
         self._output_path: Path | None = None
         self._question_count = DEFAULT_ANSWER_COUNT
+        self._session_name = ""
+        # Held while the handshake is re-sent, so the reader thread and
+        # transact() are never reading the same port at the same time.
+        self._paused = threading.Event()
+        self._idle = threading.Event()
+        self._idle.set()
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
@@ -195,6 +202,8 @@ class ScannerController:
                 "output_path": str(self._output_path) if self._output_path else None,
                 "capture_root": str(self.capture_root),
                 "session_id": self._session_id,
+                "session_name": self._session_name,
+                "scanning": self._session_id is not None,
                 "question_count": self._question_count,
                 "min_question_count": MIN_ANSWER_COUNT,
                 "max_question_count": MAX_ANSWER_COUNT,
@@ -218,6 +227,13 @@ class ScannerController:
         return sorted(set(glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/tty.usbserial*")))
 
     def connect(self, requested_port: str | None, question_count: int) -> None:
+        """Open the port and run the handshake. This starts no session.
+
+        Connecting and scanning used to be the same act, which left no way to
+        finish one class's sheets and begin the next without unplugging. The
+        hardware is now brought up once and a session is started and ended on
+        top of it as often as the day needs.
+        """
         question_count = validate_question_count(question_count)
         with self._lock:
             if self._state in {"connecting", "connected"}:
@@ -233,26 +249,16 @@ class ScannerController:
             scanner.open()
             initialization = scanner.initialize()
             transition = scanner.enter_data_collection()
-            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.capture_root.mkdir(parents=True, exist_ok=True)
-            output_path = self.capture_root / f"browser_session_{stamp}.jsonl"
-            session_id = self.store.create_session(
-                self.store.get_setting("test_name"),
-                self.store.get_setting("selected_class"),
-                question_count,
-                log_path=str(output_path),
-            )
             with self._lock:
                 self._scanner = scanner
                 self._port = port
-                self._output_path = output_path
-                self._session_id = session_id
                 self._question_count = question_count
                 self._state = "connected"
                 self._stop.clear()
+                self._paused.clear()
             for command, reply in initialization + transition:
                 self._log(f"{command} → {reply}", "protocol")
-            self._log("Data Collection is active. Feed one sheet at a time.", "success")
+            self._log("Data Collection is active.", "success")
             self._reader = threading.Thread(target=self._read_loop, daemon=True)
             self._reader.start()
         except Exception as exc:
@@ -266,17 +272,143 @@ class ScannerController:
             self._log(str(exc), "error")
             raise
 
+    def start_session(self, question_count: int | None = None) -> int:
+        """Open a session: its own log file, its own numbering, its own key."""
+        with self._lock:
+            if self._session_id is not None:
+                raise DataLinkError(
+                    "A session is already running. End it before starting another."
+                )
+            if question_count is not None:
+                self._question_count = validate_question_count(question_count)
+            count = self._question_count
+
+        name = self.store.get_setting("test_name")
+        class_name = self.store.get_setting("selected_class")
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.capture_root.mkdir(parents=True, exist_ok=True)
+        output_path = self.capture_root / f"browser_session_{stamp}.jsonl"
+        session_id = self.store.create_session(
+            name, class_name, count, log_path=str(output_path)
+        )
+        with self._lock:
+            self._session_id = session_id
+            self._session_name = name
+            self._output_path = output_path
+            self._records.clear()
+            self._pending_reviews.clear()
+            self._pending_record_objects.clear()
+        label = f"“{name}”" if name else "an unnamed session"
+        self._log(f"Started {label}. Feed the answer key first.", "success")
+        return session_id
+
+    def end_session(self) -> dict[str, object]:
+        """Close the session and leave the scanner up for the next one."""
+        with self._lock:
+            session_id = self._session_id
+            if session_id is None:
+                raise DataLinkError("No session is running")
+            sheets = len(self._records)
+            keys = sum(1 for record in self._records if record.get("role") == "key")
+            waiting = len(self._pending_reviews)
+            name = self._session_name
+            self._session_id = None
+            self._session_name = ""
+            self._output_path = None
+            self._pending_reviews.clear()
+            self._pending_record_objects.clear()
+
+        self.store.update_session(session_id, finished=True)
+        self.store.prune_empty_sessions()
+        students = max(sheets - keys, 0)
+        label = f"“{name}”" if name else "The session"
+        summary = (
+            f"{label} ended with {students} student sheet"
+            f"{'' if students == 1 else 's'}"
+            + (" and no answer key." if not keys else ".")
+        )
+        if waiting:
+            summary += (
+                f" {waiting} sheet{'' if waiting == 1 else 's'}"
+                f" {'was' if waiting == 1 else 'were'} still waiting for review"
+                " and did not make it into the session."
+            )
+        self._log(summary, "warning" if waiting or not keys else "success")
+        return {
+            "session_id": session_id,
+            "sheets": students,
+            "discarded": waiting,
+            "message": summary,
+        }
+
+    def reset_scanner(self) -> None:
+        """Re-send the handshake to a scanner that has stopped taking sheets.
+
+        The same recovery the teacher performs at the device when it is stuck
+        part-way through a form, without having to reach for it.
+        """
+        with self._lock:
+            scanner = self._scanner
+        if scanner is None:
+            raise DataLinkError("Connect the scanner first")
+
+        self._paused.set()
+        # Let the reader finish whatever read it is inside before touching the
+        # port; two readers on one serial port lose bytes between them.
+        self._idle.wait(timeout=2.0)
+        try:
+            transcript = scanner.resynchronize()
+        except Exception as exc:
+            self._log(f"Could not reset the scanner: {exc}", "error")
+            raise
+        finally:
+            self._paused.clear()
+        for command, reply in transcript:
+            self._log(f"{command} → {reply}", "protocol")
+        self._log(
+            "Reset the scanner and put it back in Data Collection. "
+            "Re-feed the sheet that jammed.",
+            "success",
+        )
+
     def _read_loop(self) -> None:
         while not self._stop.is_set():
+            if self._paused.is_set():
+                # reset_scanner() owns the port until it clears this.
+                self._idle.set()
+                time.sleep(0.02)
+                continue
+            self._idle.clear()
             with self._lock:
                 scanner = self._scanner
-                output_path = self._output_path
             if scanner is None:
+                self._idle.set()
                 return
             try:
                 records, messages = scanner.read_available()
+                fragment = scanner.parser.take_stale_fragment()
+                if fragment is not None:
+                    messages.append(fragment)
                 for message in messages:
-                    self._log(f"Scanner: {message}", "protocol")
+                    # A line that is not a form record used to be filed as
+                    # protocol chatter, which the activity list hides unless
+                    # protocol details are showing. That is precisely how a
+                    # scanner asking for the other side of a sheet went unread
+                    # while nothing else would feed.
+                    kind, described = describe_message(message)
+                    self._log(described, kind)
+                if records and self._session_id is None:
+                    # A sheet has already gone through the machine. Refusing it
+                    # here would lose it for good, so open a session around it
+                    # and say so.
+                    self.start_session()
+                    self._log(
+                        "A sheet arrived with no session running, so one was "
+                        "started for it.",
+                        "warning",
+                    )
+                with self._lock:
+                    output_path = self._output_path
                 for record in records:
                     public = record.public_dict(include_raw_fields=False)
                     with self._lock:
@@ -349,7 +481,10 @@ class ScannerController:
                     self._state = "error"
                     self._error = str(exc)
                 self._log(f"Scanner read failed: {exc}", "error")
+                self._idle.set()
                 return
+            finally:
+                self._idle.set()
             time.sleep(0.025)
 
     def resolve_review(
@@ -428,18 +563,24 @@ class ScannerController:
             self._log(f"Could not save sheet {public.get('number')} to history: {exc}", "error")
 
     def disconnect(self) -> None:
+        if self._session_id is not None:
+            # Unplugging still ends the session, and says so the same way the
+            # End session button does.
+            try:
+                self.end_session()
+            except DataLinkError:
+                pass
         self._stop.set()
+        self._paused.clear()
         with self._lock:
             scanner = self._scanner
-            session_id = self._session_id
             self._scanner = None
             self._session_id = None
+            self._session_name = ""
+            self._output_path = None
             self._state = "disconnected"
             self._port = None
             self._error = None
-        if session_id is not None:
-            self.store.update_session(session_id, finished=True)
-            self.store.prune_empty_sessions()
         if scanner is not None:
             scanner.close()
         self._log("Scanner disconnected.")
@@ -722,6 +863,19 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     body.get("port") or None,
                     body.get("question_count", DEFAULT_ANSWER_COUNT),
                 )
+            elif path == "/api/session/start":
+                self.controller.start_session(
+                    body.get("question_count") or None
+                )
+            elif path == "/api/session/end":
+                summary = self.controller.end_session()
+                snapshot = self.controller.snapshot()
+                snapshot["ports"] = self.controller.available_ports()
+                snapshot["summary"] = summary
+                self._send_json(snapshot)
+                return
+            elif path == "/api/scanner/reset":
+                self.controller.reset_scanner()
             elif path == "/api/disconnect":
                 self.controller.disconnect()
             elif path == "/api/clear":

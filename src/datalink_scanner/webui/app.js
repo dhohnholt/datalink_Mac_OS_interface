@@ -10,6 +10,7 @@ const activityList = $("#activityList");
 let showProtocol = false;
 let refreshTimer = null;
 let lastPortSignature = "";
+let connectionState = "disconnected";
 let activeReviewId = null;
 let activeRosterMatchIndex = -1;
 let autoResolvingReviewId = null;
@@ -593,33 +594,51 @@ function updatePorts(ports) {
 
 function render(state) {
   updatePorts(state.ports || []);
+  connectionState = state.state;
   badge.className = `badge ${state.state}`;
-  const labels = { disconnected: "Disconnected", connecting: "Connecting…", connected: "Ready to scan", error: "Needs attention" };
+  const labels = { disconnected: "Disconnected", connecting: "Connecting…", connected: state.scanning ? "Ready to scan" : "Connected · no session", error: "Needs attention" };
   badge.innerHTML = `<span></span>${labels[state.state] || state.state}`;
-  connectButton.disabled = state.state === "connecting" || state.state === "connected";
+  const scanning = Boolean(state.scanning);
+  const busy = state.state === "connecting";
+  connectButton.disabled = busy || scanning;
+  connectButton.textContent = state.state === "connected"
+    ? "Start scanning session"
+    : "Connect and start session";
+  $("#endSessionButton").disabled = !scanning;
+  $("#resetScannerButton").disabled = state.state !== "connected";
   disconnectButton.disabled = state.state === "disconnected";
-  portSelect.disabled = state.state === "connecting" || state.state === "connected";
-  questionCount.disabled = state.state === "connecting" || state.state === "connected";
+  // The form length and the port belong to the session that is running, so
+  // they are only locked while one is.
+  portSelect.disabled = busy || state.state === "connected";
+  questionCount.disabled = busy || scanning;
   $("#connectionDetail").textContent = state.error || (state.state === "connected"
-    ? `Data Collection active on ${state.port}. Feed one sheet at a time.`
+    ? scanning
+      ? `Session running on ${state.port}. Feed one sheet at a time.`
+      : `Scanner ready on ${state.port}. No session is running.`
     : "Connect the scanner by USB, then select its serial port.");
   $("#scanCount").textContent = state.record_count;
   const latest = state.records[state.records.length - 1];
   $("#answerCount").textContent = latest ? `${latest.answered_count} / ${latest.responses.length}` : "—";
-  $("#sessionFile").textContent = state.output_path ? state.output_path.split("/").pop() : "Not started";
+  $("#sessionFile").textContent = state.scanning
+    ? (state.session_name || state.output_path?.split("/").pop() || "Running")
+    : "Not started";
   const hasKey = state.records.some(record => record.role === "key");
   const next = currentStudent();
   const workflow = $("#workflowCard");
   workflow.classList.toggle("key-complete", hasKey);
   workflow.classList.toggle("key-needed", !hasKey);
-  workflow.querySelector(".step-number").textContent = hasKey ? "✓" : "1";
-  $("#workflowTitle").textContent = hasKey
-    ? next ? `Next: ${next.name}` : roster.length ? "Roster complete" : "Answer key captured"
-    : "Scan the answer key first";
-  $("#workflowDetail").textContent = hasKey
-    ? next ? `Roster #${next.id} · Feed ${next.name}'s sheet now.` : roster.length ? "Every student on the roster has been handled." : "The session is ready for student sheets. Feed them one at a time."
-    : "After the scanner says Ready to scan, feed the marked answer key before any student sheets.";
-  $("#skipStudentButton").classList.toggle("hidden", !hasKey || !next);
+  workflow.querySelector(".step-number").textContent = !scanning ? "1" : hasKey ? "✓" : "2";
+  $("#workflowTitle").textContent = !scanning
+    ? "Start a session"
+    : hasKey
+      ? next ? `Next: ${next.name}` : roster.length ? "Roster complete" : "Answer key captured"
+      : "Scan the answer key first";
+  $("#workflowDetail").textContent = !scanning
+    ? "Name the test, pick the class, then press Start. Nothing is recorded until a session is running."
+    : hasKey
+      ? next ? `Roster #${next.id} · Feed ${next.name}'s sheet now.` : roster.length ? "Every student on the roster has been handled." : "The session is ready for student sheets. Feed them one at a time."
+      : "After the scanner says Ready to scan, feed the marked answer key before any student sheets.";
+  $("#skipStudentButton").classList.toggle("hidden", !scanning || !hasKey || !next);
   $("#rosterSummary").textContent = roster.length
     ? `${selectedClassName} · ${roster.length} students · ${Math.min(rosterIndex, roster.length)} handled · ${Math.max(roster.length - rosterIndex, 0)} remaining`
     : "No saved roster. Student IDs will be entered manually.";
@@ -738,8 +757,32 @@ async function refresh() {
 connectButton.addEventListener("click", async () => {
   connectButton.disabled = true;
   try {
-    render(await post("/api/connect", {port: portSelect.value, question_count: currentQuestionCount(), acknowledge_writes: true}));
+    // One press for the common case: bring the scanner up if it is not up
+    // already, then open the session on top of it.
+    if (connectionState !== "connected") {
+      await post("/api/connect", {port: portSelect.value, question_count: currentQuestionCount(), acknowledge_writes: true});
+    }
+    rosterIndex = 0;
+    saveRosterPosition();
+    render(await post("/api/session/start", {question_count: currentQuestionCount()}));
+    toast("Session started \u00b7 feed the answer key first");
   } catch (error) { toast(error.message); await refresh(); }
+});
+
+$("#endSessionButton").addEventListener("click", async () => {
+  if (!confirm("End this session? The sheets already captured stay saved under Sessions.")) return;
+  try {
+    const state = await post("/api/session/end", {});
+    render(state);
+    toast(state.summary?.message || "Session ended");
+  } catch (error) { toast(error.message); }
+});
+
+$("#resetScannerButton").addEventListener("click", async () => {
+  try {
+    render(await post("/api/scanner/reset", {}));
+    toast("Scanner reset \u00b7 re-feed the sheet that jammed");
+  } catch (error) { toast(error.message); }
 });
 
 disconnectButton.addEventListener("click", async () => {
@@ -819,6 +862,8 @@ $("#quitButton").addEventListener("click", async () => {
 
 window.datalinkMenu = {
   connect: () => connectButton.disabled || connectButton.click(),
+  endSession: () => $("#endSessionButton").disabled || $("#endSessionButton").click(),
+  resetScanner: () => $("#resetScannerButton").disabled || $("#resetScannerButton").click(),
   disconnect: () => disconnectButton.disabled || disconnectButton.click(),
   addDemo: () => $("#demoButton").click(),
   clearView: () => $("#clearButton").click(),

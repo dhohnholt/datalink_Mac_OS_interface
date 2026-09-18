@@ -42,6 +42,82 @@ class ExportFilenameTests(unittest.TestCase):
         self.assertEqual(safe_export_filename("Exam — 4º"), "Exam _ 4_.csv")
 
 
+class SessionLifecycleTests(unittest.TestCase):
+    """Starting and ending a session is now separate from the hardware."""
+
+    def setUp(self):
+        self._directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self._directory.cleanup)
+        self.store = Store(":memory:")
+        self.addCleanup(self.store.close)
+        self.controller = ScannerController(Path(self._directory.name), self.store)
+
+    def key_and_student(self):
+        self.controller._record_scan({"number": 1, "role": "key", "received_at": "x",
+                                      "answered_count": 3, "responses": ["A", "B", "C"]})
+        self.controller._records.append({"number": 1, "role": "key", "received_at": "x",
+                                         "answered_count": 3, "responses": ["A", "B", "C"]})
+        self.controller._record_scan({"number": 2, "role": "student", "student_id": "900011",
+                                      "received_at": "x", "answered_count": 3,
+                                      "responses": ["A", "B", "D"]})
+        self.controller._records.append({"number": 2, "role": "student", "student_id": "900011",
+                                         "received_at": "x", "answered_count": 3,
+                                         "responses": ["A", "B", "D"]})
+
+    def test_a_fresh_controller_is_not_scanning(self):
+        snapshot = self.controller.snapshot()
+        self.assertFalse(snapshot["scanning"])
+        self.assertIsNone(snapshot["session_id"])
+
+    def test_starting_opens_a_session_with_its_own_log(self):
+        self.store.set_setting("test_name", "Unit 1")
+        session_id = self.controller.start_session(30)
+        snapshot = self.controller.snapshot()
+        self.assertTrue(snapshot["scanning"])
+        self.assertEqual(snapshot["session_id"], session_id)
+        self.assertEqual(snapshot["session_name"], "Unit 1")
+        self.assertTrue(snapshot["output_path"].endswith(".jsonl"))
+
+    def test_two_sessions_cannot_run_at_once(self):
+        self.controller.start_session(30)
+        with self.assertRaises(DataLinkError):
+            self.controller.start_session(30)
+
+    def test_ending_files_the_session_and_reports_what_it_held(self):
+        self.store.set_setting("test_name", "Unit 1")
+        session_id = self.controller.start_session(30)
+        self.key_and_student()
+        summary = self.controller.end_session()
+        self.assertEqual(summary["session_id"], session_id)
+        self.assertEqual(summary["sheets"], 1)
+        self.assertIn("1 student sheet", summary["message"])
+        self.assertIsNotNone(self.store.session(session_id)["ended_at"])
+        self.assertFalse(self.controller.snapshot()["scanning"])
+
+    def test_ending_without_a_session_says_so(self):
+        with self.assertRaises(DataLinkError):
+            self.controller.end_session()
+
+    def test_the_next_session_starts_its_numbering_over(self):
+        # Period 2 needs its own answer key, so sheet 1 has to be a key again.
+        self.controller.start_session(30)
+        self.key_and_student()
+        self.controller.end_session()
+        second = self.controller.start_session(30)
+        self.assertEqual(self.controller.snapshot()["record_count"], 0)
+        self.assertNotEqual(second, None)
+
+    def test_a_session_with_sheets_survives_the_prune_on_ending(self):
+        session_id = self.controller.start_session(30)
+        self.key_and_student()
+        self.controller.end_session()
+        self.assertIsNotNone(self.store.session(session_id))
+
+    def test_resetting_needs_a_connected_scanner(self):
+        with self.assertRaises(DataLinkError):
+            self.controller.reset_scanner()
+
+
 class ExportCsvTests(unittest.TestCase):
     def setUp(self):
         self._directory = tempfile.TemporaryDirectory()
@@ -151,6 +227,19 @@ class HttpApiTests(unittest.TestCase):
             self.post("/api/connect", {"port": "/dev/null", "question_count": 50})
         self.assertEqual(caught.exception.code, 400)
         self.assertIn("acknowledgement", json.loads(caught.exception.read())["error"])
+
+    def test_a_session_starts_and_ends_over_the_api(self):
+        # No scanner is attached, so this also proves the two are separate.
+        started = self.post("/api/session/start", {"question_count": 30})
+        self.assertTrue(started["scanning"])
+        ended = self.post("/api/session/end", {})
+        self.assertFalse(ended["scanning"])
+        self.assertIn("message", ended["summary"])
+
+    def test_resetting_without_a_scanner_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/scanner/reset", {})
+        self.assertEqual(caught.exception.code, 400)
 
     def test_index_is_served(self):
         with urllib.request.urlopen(self.base + "/", timeout=5) as response:

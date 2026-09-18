@@ -40,8 +40,10 @@
             <p id="connectionDetail">Connect the scanner by USB, then select its serial port.</p>
           </div>
           <div class="button-row">
-            <button id="connectButton" class="primary">Connect and enter Data Collection</button>
-            <button id="disconnectButton" class="secondary" disabled>Disconnect</button>
+            <button id="connectButton" class="primary">Start scanning session</button>
+            <button id="endSessionButton" class="secondary" disabled>End session</button>
+            <button id="resetScannerButton" class="ghost" disabled title="Re-send the handshake when the scanner has stopped taking sheets">Reset scanner</button>
+            <button id="disconnectButton" class="ghost" disabled>Disconnect</button>
           </div>
         </div>
         <div class="controls">
@@ -76,13 +78,13 @@
             <input id="questionCount" type="number" inputmode="numeric" min="1" max="100" step="1" value="50" aria-describedby="questionCountHint">
           </label>
         </div>
-        <p class="safety">Connecting sends the command sequence recovered from DataLink Connect. Keep sheets out of the feeder until the status says Ready to scan.</p>
+        <p class="safety">Starting a session sends the command sequence recovered from DataLink Connect. Keep sheets out of the feeder until the status says Ready to scan. Each session gets its own answer key, its own numbering and its own file — end one and start the next for the following class.</p>
       </section>
 
       <section class="metrics">
         <article><span>Sheets captured</span><strong id="scanCount">0</strong></article>
         <article><span>Latest response count</span><strong id="answerCount">—</strong></article>
-        <article><span>Session file</span><strong id="sessionFile">Not started</strong></article>
+        <article><span>Session</span><strong id="sessionFile">Not started</strong></article>
       </section>
 
       <section id="workflowCard" class="workflow-card key-needed">

@@ -145,9 +145,23 @@ The window has six pages, on the tab bar and under the **View** menu:
    so questions a student left blank at the end stay blank instead of being
    trimmed away.
 3. Choose how sheets are matched to students (see below).
-4. Select **Connect and enter Data Collection**, and wait for *Ready to scan*.
+4. Select **Connect and start session** (⌘K), and wait for *Ready to scan*.
 5. Feed the **answer key first**, then the student sheets, one at a time.
-6. **Export CSV** when you're done — it opens a normal Save panel. ⌘Q quits.
+6. Select **End session** (⇧⌘K) when the class is done. The sheets are filed
+   under **Sessions**, and the scanner stays connected, so the next class only
+   needs a new test name and **Start scanning session**.
+7. **Export CSV** when you're done — it opens a normal Save panel. ⌘Q quits.
+
+A session owns its answer key, its sheet numbering and its own file. Nothing is
+recorded while no session is running, and each one begins by expecting a key.
+
+### When the scanner stops taking sheets
+
+The DataLink can stop part-way through a form — most often waiting for the
+other side of a two-sided one. The Activity list now says so in plain words
+rather than filing it with the protocol chatter, and **Reset scanner** re-sends
+the handshake to clear it without reaching for the device. Re-feed the sheet
+that jammed afterwards; it was never recorded.
 
 The test name, class, form length and matching mode are remembered between
 launches.

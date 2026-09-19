@@ -8,6 +8,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -77,6 +78,12 @@ class SessionLifecycleTests(unittest.TestCase):
         self.assertEqual(snapshot["session_id"], session_id)
         self.assertEqual(snapshot["session_name"], "Unit 1")
         self.assertTrue(snapshot["output_path"].endswith(".jsonl"))
+
+    def test_explicit_start_resets_a_connected_scanner(self):
+        self.controller._scanner = mock.Mock()
+        with mock.patch.object(self.controller, "reset_scanner") as reset:
+            self.controller.start_session(30, reset_scanner=True)
+        reset.assert_called_once_with()
 
     def test_a_form_length_out_of_range_is_refused(self):
         # The controller's own check on the count, which used to be reached

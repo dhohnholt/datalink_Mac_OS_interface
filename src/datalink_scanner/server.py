@@ -279,8 +279,25 @@ class ScannerController:
             self._log(str(exc), "error")
             raise
 
-    def start_session(self, question_count: int | None = None) -> int:
-        """Open a session: its own log file, its own numbering, its own key."""
+    def start_session(
+        self,
+        question_count: int | None = None,
+        *,
+        reset_scanner: bool = False,
+    ) -> int:
+        """Open a session with a fresh scanner collection state.
+
+        The explicit UI action resets a connected scanner first. A DataLink
+        can retain a pending second-side prompt after an interrupted key; the
+        reset clears that state before the next one-sided key is fed. The
+        reader's automatic-session path leaves the port alone because a sheet
+        has already arrived by then.
+        """
+        if reset_scanner:
+            with self._lock:
+                connected = self._scanner is not None
+            if connected:
+                self.reset_scanner()
         with self._lock:
             if self._session_id is not None:
                 raise DataLinkError(
@@ -377,7 +394,7 @@ class ScannerController:
             self._log(f"{command} → {reply}", "protocol")
         self._log(
             "Reset the scanner and put it back in Data Collection. "
-            "Re-feed the sheet that jammed.",
+            "Feed the next sheet.",
             "success",
         )
 
@@ -919,7 +936,8 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 )
             elif path == "/api/session/start":
                 self.controller.start_session(
-                    body.get("question_count") or None
+                    body.get("question_count") or None,
+                    reset_scanner=True,
                 )
             elif path == "/api/session/end":
                 summary = self.controller.end_session()

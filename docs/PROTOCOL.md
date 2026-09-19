@@ -267,3 +267,9 @@ already sends: `INITIALIZATION_COMMANDS` followed by `DATA_COLLECTION_COMMANDS`.
 No new command is written to the device. It is the software equivalent of
 taking the scanner out of Data Collection and putting it back, which is what
 cleared the jam by hand.
+
+The app now performs that resynchronization when the teacher explicitly starts
+a session. This clears a stale pending-side state before a one-sided answer key
+is fed. Sessions created automatically after an already-arrived sheet do not
+reset the port, so that recovery path cannot discard the sheet that triggered
+it.

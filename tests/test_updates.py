@@ -228,6 +228,81 @@ class SweepTests(unittest.TestCase):
         self.assertFalse(movable.exists())
 
 
+class StaleRegistrationTests(unittest.TestCase):
+    """macOS keeps listing app copies after Homebrew deletes the keg.
+
+    Launchpad and Spotlight read that list, so old versions show up as
+    duplicates pointing at nothing. Fourteen had collected before anyone
+    noticed.
+    """
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.real = Path(self.temporary.name) / updates.APP_BUNDLE_NAME
+        self.real.mkdir()
+        self.gone = Path(self.temporary.name) / "old" / updates.APP_BUNDLE_NAME
+        self.calls = []
+
+    def dump(self, *paths):
+        body = "\n".join(f"\tpath:      {path} (0x7c18)" for path in paths)
+
+        def runner(command, **kwargs):
+            self.calls.append(command)
+            if command[1:] == ["-dump"]:
+                return subprocess.CompletedProcess(command, 0, body, "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        return runner
+
+    def test_a_copy_that_is_gone_is_listed(self):
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(self.dump(self.gone))
+        self.assertEqual(stale, [self.gone])
+
+    def test_a_copy_that_is_still_there_is_left_alone(self):
+        # It is a real duplicate, and belongs to the Trash sweep instead.
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(self.dump(self.real))
+        self.assertEqual(stale, [])
+
+    def test_other_applications_are_not_touched(self):
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(
+                self.dump("/Applications/Some Other.app", self.gone)
+            )
+        self.assertEqual(stale, [self.gone])
+
+    def test_the_same_path_listed_twice_is_forgotten_once(self):
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(self.dump(self.gone, self.gone))
+        self.assertEqual(stale, [self.gone])
+
+    def test_forgetting_calls_lsregister_for_each(self):
+        with mock.patch.object(Path, "is_file", return_value=True):
+            forgotten = updates.forget_stale_registrations(self.dump(self.gone))
+        self.assertEqual(forgotten, [self.gone])
+        self.assertIn([updates.LSREGISTER, "-u", str(self.gone)], self.calls)
+
+    def test_nothing_happens_without_lsregister(self):
+        with mock.patch.object(Path, "is_file", return_value=False):
+            self.assertEqual(updates.stale_registrations(self.dump(self.gone)), [])
+
+    def test_a_failure_to_dump_is_not_fatal(self):
+        def runner(command, **kwargs):
+            raise OSError("no such tool")
+
+        with mock.patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(updates.stale_registrations(runner), [])
+
+    def test_the_trash_sweep_tidies_the_list_as_well(self):
+        # Tidying the copies on disk without tidying what macOS lists leaves
+        # the duplicates exactly where they are seen.
+        with mock.patch.object(updates, "forget_stale_registrations") as forget:
+            updates.sweep([])
+        forget.assert_called_once()
+
+
 class UpgradeTests(unittest.TestCase):
     def setUp(self):
         patch = mock.patch.object(updates, "brew_path", return_value="/opt/brew")

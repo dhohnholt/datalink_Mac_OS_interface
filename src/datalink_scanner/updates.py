@@ -8,6 +8,9 @@ Three things are easy to get wrong here, so they are each handled explicitly:
   work.
 * Homebrew's own storage is not ours to move. Old versions in the Cellar are
   removed with `brew cleanup`; anything under a Cellar directory is left alone.
+* The list macOS keeps is tidied alongside the copies on disk. Homebrew
+  deletes the old keg on every upgrade and LaunchServices keeps the
+  registration, so Launchpad fills up with entries pointing at nothing.
 * Nothing is ever deleted. Extra copies go to the Trash, where an unwanted
   sweep can be undone.
 
@@ -332,6 +335,57 @@ def survey(runner=subprocess.run, executable=None) -> dict:
     }
 
 
+LSREGISTER = (
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks"
+    "/LaunchServices.framework/Support/lsregister"
+)
+
+
+def stale_registrations(runner=subprocess.run) -> list[Path]:
+    """Copies macOS still lists that are not on disk any more.
+
+    Homebrew deletes the old keg on every upgrade, and LaunchServices keeps
+    the registration. Launchpad and Spotlight read that list, so the old
+    versions pile up as entries pointing at nothing — fourteen of them had
+    collected before anybody noticed.
+    """
+    if not Path(LSREGISTER).is_file():
+        return []
+    try:
+        result = runner(
+            [LSREGISTER, "-dump"], capture_output=True, text=True, timeout=120
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    stale: dict[str, Path] = {}
+    for line in (result.stdout or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("path:"):
+            continue
+        # "path:  /some/where/DataLink Scanner.app (0x1234)"
+        candidate = re.sub(r"\s*\(0x[0-9a-f]+\)$", "", stripped[5:].strip())
+        if not candidate.endswith("/" + APP_BUNDLE_NAME):
+            continue
+        # Only ones that are gone. Anything still on disk is a real copy and
+        # belongs to the Trash sweep, not to this.
+        if candidate in stale or Path(candidate).exists():
+            continue
+        stale[candidate] = Path(candidate)
+    return sorted(stale.values(), key=lambda item: str(item).lower())
+
+
+def forget_stale_registrations(runner=subprocess.run) -> list[Path]:
+    """Tell macOS about the copies that are gone. Returns what was forgotten."""
+    forgotten = []
+    for path in stale_registrations(runner):
+        try:
+            runner([LSREGISTER, "-u", str(path)], capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        forgotten.append(path)
+    return forgotten
+
+
 def sweep(extra: list[Path]) -> list[Path]:
     """Move the extra copies to the Trash, and report what actually moved."""
     moved = []
@@ -342,6 +396,9 @@ def sweep(extra: list[Path]) -> list[Path]:
             # A copy on a read-only volume or a mounted disk image cannot be
             # moved; skipping it is better than abandoning the whole sweep.
             continue
+    # Tidying the copies on disk without tidying the list macOS keeps leaves
+    # the duplicates in Launchpad, which is where they are actually seen.
+    forget_stale_registrations()
     return moved
 
 

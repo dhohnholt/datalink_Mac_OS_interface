@@ -151,6 +151,12 @@ fi
 # The .dmg is the artefact worth keeping; unpack it if the bundle is wanted.
 # "$DIST_DIR/$APP_NAME" is PyInstaller's intermediate COLLECT folder — 179 MB
 # that is already inside the bundle, and inside the image after that.
+#
+# Deleting the bundle is not quite enough: macOS notices it during the seconds
+# it exists and keeps the registration after the file is gone, which is a
+# ghost in Launchpad. Tell LaunchServices explicitly.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[[ -x "$LSREGISTER" ]] && "$LSREGISTER" -u "$DIST_DIR/$APP_NAME.app" 2>/dev/null || true
 /bin/rm -rf "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/$APP_NAME" "$DMG_ROOT"
 
 echo "Built installer: $DMG_PATH"

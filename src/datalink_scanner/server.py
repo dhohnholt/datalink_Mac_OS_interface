@@ -791,6 +791,10 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             # one and the T-TESS upload keep the schema the site expects.
             cache = session.get("page_cache")
             report["has_pages"] = bool(cache) and Path(cache).is_dir()
+            # Which roster this test was scanned against, so a corrected ID can
+            # pull the right name. The session's class, not whichever one the
+            # Scan tab happens to have selected now.
+            report["class_name"] = session.get("class_name") or ""
             self._send_json(report)
             return
         session_id = self._session_id_from(path, "/analysis.json")

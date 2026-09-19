@@ -260,6 +260,27 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(saved["student_id"], "900011")
         self.assertEqual(saved["student_name"], "Ada Lovelace")
 
+    def test_the_review_report_names_the_class_it_was_scanned_against(self):
+        # Review fills a name from the roster of the session's own class, not
+        # whichever one the Scan tab is pointed at now, so the report has to
+        # say which that was.
+        store = self.controller_store()
+        session_id = store.create_session("Unit 5", "Period 4", 3)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        store.add_scan(session_id, {"number": 2, "role": "student", "student_id": "900011",
+                                    "received_at": "x", "answered_count": 3,
+                                    "responses": ["A", "B", "C"]})
+        inline = self.get(f"/api/sessions/{session_id}/analysis")
+        self.assertEqual(inline["class_name"], "Period 4")
+        # The downloadable report keeps the schema the website expects.
+        with urllib.request.urlopen(
+            self.base + f"/api/sessions/{session_id}/analysis.json", timeout=5
+        ) as response:
+            download = json.loads(response.read())
+        self.assertNotIn("class_name", download)
+        self.assertNotIn("has_pages", download)
+
     def test_a_datalink_session_offers_no_sheet_images(self):
         # The scanner sends letters, never a picture, so there is nothing to
         # show and the Review tab must not offer a link to it.

@@ -1240,6 +1240,44 @@ function renderAnalysisReview(report) {
   for (const button of document.querySelectorAll("#reviewRows [data-sheet-view]")) {
     button.addEventListener("click", () => showSheet(Number(button.dataset.sheetView)));
   }
+  for (const field of document.querySelectorAll('#reviewRows [data-edit="student_id"]')) {
+    // While the digits are still going in, a half-typed ID is not yet a
+    // missing one, so the name fills quietly and only says it found nothing
+    // once the field is left.
+    field.addEventListener("input", () => fillNameFromRoster(field, report.class_name));
+    field.addEventListener("blur", () => fillNameFromRoster(field, report.class_name, true));
+    // An ID the reader already got right should bring its name in without
+    // anyone having to retype the ID to trigger it.
+    fillNameFromRoster(field, report.class_name);
+  }
+}
+
+// Typing an ID should bring its name with it. The roster is the one this test
+// was scanned against, not whichever class the Scan tab is pointed at now.
+function fillNameFromRoster(idField, className, announce = false) {
+  const row = idField.closest("tr");
+  const nameField = row?.querySelector('[data-edit="student_name"]');
+  if (!nameField) return;
+  const list = (classes.find(item => item.name === className) || {}).students || [];
+  // Never overwrite a name the teacher typed: only a blank box, or one this
+  // filled in itself and so is free to replace.
+  const ours = nameField.dataset.fromRoster === "1";
+  if (nameField.value.trim() && !ours) return;
+
+  const match = list.find(student => sameStudentId(student.id, idField.value));
+  if (match) {
+    nameField.value = match.name;
+    nameField.dataset.fromRoster = "1";
+    nameField.placeholder = "Student name";
+    return;
+  }
+  if (ours) {
+    nameField.value = "";
+    delete nameField.dataset.fromRoster;
+  }
+  nameField.placeholder = announce && className && idField.value.trim()
+    ? `Not on ${className} — type the name`
+    : "Student name";
 }
 
 function showSheet(sheet) {

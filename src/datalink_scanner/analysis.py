@@ -194,7 +194,7 @@ def build_session_analysis(
 
     review_items = []
     for number, row in parsed.items():
-        if not row["student_id"]:
+        if not row["student_id"] or not row["student_id"].isdigit():
             review_items.append({"page": number, "field": "student_id", "value": None})
         for question, response in row["answers"].items():
             if response == "MULTIPLE":
@@ -208,6 +208,10 @@ def build_session_analysis(
                     }
                 )
         review_items.extend(faint_marks(number, row))
+
+    for scan in students:
+        if scan.get("pending_review"):
+            review_items.append({"page": scan["number"], "field": "sheet", "reason": "pending_review"})
 
     if dismissed:
         review_items = [

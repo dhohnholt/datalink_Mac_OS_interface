@@ -1332,8 +1332,10 @@ function reviewProblems(report) {
         student,
         key: reviewKey(item),
         kind: "note",
-        problem: `Every mark on this sheet is light (${item.value} of them). Worth checking the sheet against the screen.`,
-        read: "faint",
+        problem: item.reason === "pending_review"
+          ? "This sheet was saved before live review finished. Check its student ID and answers."
+          : `Every mark on this sheet is light (${item.value} of them). Worth checking the sheet against the screen.`,
+        read: item.reason === "pending_review" ? "Review pending" : "faint",
       });
     }
   }

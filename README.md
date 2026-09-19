@@ -269,7 +269,9 @@ the Analysis page, which rescores every sheet against it.
 ### Sessions
 
 Every sheet is written to a local SQLite database as it is scanned, so a
-session is never only on screen. The **Sessions** page lists them newest first
+session is never only on screen. Sheets waiting for live review are saved too;
+if the session ends or the app restarts, review them under **Analysis → Review**.
+The **Sessions** page lists them newest first
 and lets you open one to see every response, export it to CSV, rename it, or
 delete it. Sessions that were opened but never received a sheet are discarded
 on disconnect.

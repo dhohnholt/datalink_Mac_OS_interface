@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS scans (
     answered_count INTEGER NOT NULL,
     responses      TEXT NOT NULL,
     demo           INTEGER NOT NULL DEFAULT 0,
-    confidence     TEXT
+    confidence     TEXT,
+    pending_review INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS scans_by_session ON scans(session_id, number);
@@ -142,6 +143,8 @@ class Store:
         scan_columns = {
             row["name"] for row in self._connection.execute("PRAGMA table_info(scans)")
         }
+        if "pending_review" not in scan_columns:
+            self._connection.execute("ALTER TABLE scans ADD COLUMN pending_review INTEGER NOT NULL DEFAULT 0")
         if "confidence" not in scan_columns:
             self._connection.execute("ALTER TABLE scans ADD COLUMN confidence TEXT")
 
@@ -339,8 +342,8 @@ class Store:
         with self._lock:
             cursor = self._connection.execute(
                 "INSERT INTO scans(session_id, number, role, student_id, student_name, "
-                "received_at, answered_count, responses, demo, confidence) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "received_at, answered_count, responses, demo, confidence, pending_review) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     int(scan.get("number", 0)),
@@ -352,6 +355,7 @@ class Store:
                     json.dumps(list(scan.get("responses", []))),
                     1 if scan.get("demo") else 0,
                     json.dumps(scan["confidence"]) if scan.get("confidence") else None,
+                    int(bool(scan.get("pending_review"))),
                 ),
             )
             self._connection.commit()
@@ -364,6 +368,7 @@ class Store:
         student_id: str | None = None,
         student_name: str | None = None,
         responses: list[str] | None = None,
+        *, commit: bool = True,
     ) -> bool:
         """Correct one stored sheet.
 
@@ -386,6 +391,7 @@ class Store:
             values.append(sum(1 for value in responses if value))
         if not assignments:
             return False
+        assignments.append("pending_review = 0")
         values.extend([session_id, number])
         with self._lock:
             cursor = self._connection.execute(
@@ -393,8 +399,20 @@ class Store:
                 "WHERE session_id = ? AND number = ?",
                 values,
             )
-            self._connection.commit()
+            if commit:
+                self._connection.commit()
             return cursor.rowcount > 0
+
+    def apply_corrections(self, session_id: int, corrections: list[dict], dismiss: list[str]) -> tuple[int, int]:
+        """Commit a validated correction batch and its review decisions together."""
+        with self._lock, self._connection:
+            applied = 0
+            for correction in corrections:
+                if not self.update_scan(session_id, commit=False, **correction):
+                    raise ValueError(f"Sheet {correction['number']} was not found or has no changes")
+                applied += 1
+            settled = self.dismiss_reviews(session_id, dismiss, commit=False)
+            return applied, settled
 
     def list_sessions(self) -> list[dict]:
         with self._lock:
@@ -469,7 +487,7 @@ class Store:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT number, role, student_id, student_name, received_at, "
-                "       answered_count, responses, demo, confidence "
+                "       answered_count, responses, demo, confidence, pending_review "
                 "FROM scans WHERE session_id = ? ORDER BY number",
                 (session_id,),
             ).fetchall()
@@ -500,7 +518,7 @@ class Store:
             ).fetchall()
         return {row["item_key"] for row in rows}
 
-    def dismiss_reviews(self, session_id: int, item_keys: list[str]) -> int:
+    def dismiss_reviews(self, session_id: int, item_keys: list[str], *, commit: bool = True) -> int:
         """Settle review items. Doing it twice is not an error."""
         wanted = [str(key) for key in item_keys if str(key).strip()]
         if not wanted:
@@ -516,7 +534,8 @@ class Store:
                 "created_at) VALUES(?, ?, ?)",
                 [(session_id, key, now) for key in wanted],
             )
-            self._connection.commit()
+            if commit:
+                self._connection.commit()
             after = self._connection.execute(
                 "SELECT COUNT(*) AS n FROM review_dismissals WHERE session_id = ?",
                 (session_id,),

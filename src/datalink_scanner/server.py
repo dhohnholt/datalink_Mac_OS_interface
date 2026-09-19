@@ -289,16 +289,17 @@ class ScannerController:
             if question_count is not None:
                 self._question_count = validate_question_count(question_count)
             count = self._question_count
+            if self._scanner is not None:
+                self._scanner.parser.question_count = count
 
-        name = self.store.get_setting("test_name")
-        class_name = self.store.get_setting("selected_class")
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.capture_root.mkdir(parents=True, exist_ok=True)
-        output_path = self.capture_root / f"browser_session_{stamp}.jsonl"
-        session_id = self.store.create_session(
-            name, class_name, count, log_path=str(output_path)
-        )
-        with self._lock:
+            name = self.store.get_setting("test_name")
+            class_name = self.store.get_setting("selected_class")
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            self.capture_root.mkdir(parents=True, exist_ok=True)
+            output_path = self.capture_root / f"browser_session_{stamp}.jsonl"
+            session_id = self.store.create_session(
+                name, class_name, count, log_path=str(output_path)
+            )
             self._session_id = session_id
             self._session_name = name
             self._output_path = output_path
@@ -315,8 +316,9 @@ class ScannerController:
             session_id = self._session_id
             if session_id is None:
                 raise DataLinkError("No session is running")
-            sheets = len(self._records)
-            keys = sum(1 for record in self._records if record.get("role") == "key")
+            saved = self.store.session_scans(session_id)
+            sheets = len(saved)
+            keys = sum(1 for record in saved if record.get("role") == "key")
             waiting = len(self._pending_reviews)
             name = self._session_name
             self._session_id = None
@@ -338,13 +340,14 @@ class ScannerController:
             summary += (
                 f" {waiting} sheet{'' if waiting == 1 else 's'}"
                 f" {'was' if waiting == 1 else 'were'} still waiting for review"
-                " and did not make it into the session."
+                "; all remain saved for review under Analysis."
             )
         self._log(summary, "warning" if waiting or not keys else "success")
         return {
             "session_id": session_id,
             "sheets": students,
-            "discarded": waiting,
+            "discarded": 0,
+            "pending_review": waiting,
             "message": summary,
         }
 
@@ -392,94 +395,102 @@ class ScannerController:
                 self._idle.set()
                 return
             try:
-                records, messages = scanner.read_available()
-                fragment = scanner.parser.take_stale_fragment()
-                if fragment is not None:
-                    messages.append(fragment)
-                for message in messages:
-                    # A line that is not a form record used to be filed as
-                    # protocol chatter, which the activity list hides unless
-                    # protocol details are showing. That is precisely how a
-                    # scanner asking for the other side of a sheet went unread
-                    # while nothing else would feed.
-                    kind, described = describe_message(message)
-                    self._log(described, kind)
-                if records and self._session_id is None:
-                    # A sheet has already gone through the machine. Refusing it
-                    # here would lose it for good, so open a session around it
-                    # and say so.
-                    self.start_session()
-                    self._log(
-                        "A sheet arrived with no session running, so one was "
-                        "started for it.",
-                        "warning",
-                    )
                 with self._lock:
-                    output_path = self._output_path
-                for record in records:
-                    public = record.public_dict(include_raw_fields=False)
+                    records, messages = scanner.read_available()
+                    fragment = scanner.parser.take_stale_fragment()
+                    if fragment is not None:
+                        messages.append(fragment)
+                    for message in messages:
+                        # A line that is not a form record used to be filed as
+                        # protocol chatter, which the activity list hides unless
+                        # protocol details are showing. That is precisely how a
+                        # scanner asking for the other side of a sheet went unread
+                        # while nothing else would feed.
+                        kind, described = describe_message(message)
+                        self._log(described, kind)
+                    if records and self._session_id is None:
+                        # A sheet has already gone through the machine. Refusing it
+                        # here would lose it for good, so open a session around it
+                        # and say so.
+                        self.start_session()
+                        self._log(
+                            "A sheet arrived with no session running, so one was "
+                            "started for it.",
+                            "warning",
+                        )
                     with self._lock:
-                        public["number"] = len(self._records) + len(self._pending_reviews) + 1
-                        public["role"] = "key" if public["number"] == 1 else "student"
-                        ambiguities = [
-                            {
-                                "question": index + 1,
-                                "value": value,
-                                "options": list(value),
-                            }
-                            for index, value in enumerate(record.responses)
-                            if len(value) > 1
-                        ]
-                        if public["role"] == "student" or ambiguities:
-                            review = {
-                                "id": public["number"],
-                                "number": public["number"],
-                                "role": public["role"],
-                                "received_at": public["received_at"],
-                                "ambiguities": ambiguities,
-                                "student_id_required": public["role"] == "student",
-                                "scanner_id": public.get("scanner_id"),
-                            }
-                            self._pending_reviews.append(review)
-                            self._pending_record_objects[public["number"]] = record
-                            if ambiguities:
-                                detail = ", ".join(
-                                    f"question {item['question']}" for item in ambiguities
-                                )
-                                self._log(
-                                    f"Sheet {public['number']} needs review for {detail}.",
-                                    "warning",
-                                )
-                            else:
-                                if public.get("scanner_id"):
-                                    self._log(
-                                        f"Scanner read student ID {public['scanner_id']} from sheet {public['number'] - 1}.",
-                                        "success",
+                        output_path = self._output_path
+                    for record in records:
+                        public = record.public_dict(include_raw_fields=False)
+                        with self._lock:
+                            public["number"] = len(self._records) + len(self._pending_reviews) + 1
+                            public["role"] = "key" if public["number"] == 1 else "student"
+                            ambiguities = [
+                                {
+                                    "question": index + 1,
+                                    "value": value,
+                                    "options": list(value),
+                                }
+                                for index, value in enumerate(record.responses)
+                                if len(value) > 1
+                            ]
+                            if public["role"] == "student" or ambiguities:
+                                public["student_id"] = public.get("scanner_id")
+                                public["pending_review"] = True
+                                # Save before presenting the sheet to the UI. The stored
+                                # pending flag keeps it reviewable after a restart.
+                                self.store.add_scan(self._session_id, public)
+                                if output_path is not None:
+                                    append_jsonl(output_path, record, False, extra=public)
+                                review = {
+                                    "id": public["number"],
+                                    "number": public["number"],
+                                    "role": public["role"],
+                                    "received_at": public["received_at"],
+                                    "ambiguities": ambiguities,
+                                    "student_id_required": public["role"] == "student",
+                                    "scanner_id": public.get("scanner_id"),
+                                }
+                                self._pending_reviews.append(review)
+                                self._pending_record_objects[public["number"]] = record
+                                if ambiguities:
+                                    detail = ", ".join(
+                                        f"question {item['question']}" for item in ambiguities
                                     )
-                                else:
                                     self._log(
-                                        f"Student sheet {public['number'] - 1} is waiting for its student ID.",
+                                        f"Sheet {public['number']} needs review for {detail}.",
                                         "warning",
                                     )
-                            continue
-                        self._records.append(public)
-                    if output_path is not None:
-                        append_jsonl(
-                            output_path,
-                            record,
-                            include_raw_fields=False,
-                            extra={"number": public["number"], "role": public["role"]},
+                                else:
+                                    if public.get("scanner_id"):
+                                        self._log(
+                                            f"Scanner read student ID {public['scanner_id']} from sheet {public['number'] - 1}.",
+                                            "success",
+                                        )
+                                    else:
+                                        self._log(
+                                            f"Student sheet {public['number'] - 1} is waiting for its student ID.",
+                                            "warning",
+                                        )
+                                continue
+                            self._records.append(public)
+                        if output_path is not None:
+                            append_jsonl(
+                                output_path,
+                                record,
+                                include_raw_fields=False,
+                                extra={"number": public["number"], "role": public["role"]},
+                            )
+                        self._record_scan(public)
+                        self._log(
+                            (
+                                f"Captured answer key with {public['answered_count']}/{len(record.responses)} answered."
+                                if public["role"] == "key"
+                                else f"Captured student sheet {public['number'] - 1} with "
+                                f"{public['answered_count']}/{len(record.responses)} answered."
+                            ),
+                            "success",
                         )
-                    self._record_scan(public)
-                    self._log(
-                        (
-                            f"Captured answer key with {public['answered_count']}/{len(record.responses)} answered."
-                            if public["role"] == "key"
-                            else f"Captured student sheet {public['number'] - 1} with "
-                            f"{public['answered_count']}/{len(record.responses)} answered."
-                        ),
-                        "success",
-                    )
             except DataLinkError as exc:
                 self._log(f"Skipped an invalid scanner record: {exc}", "error")
                 continue
@@ -534,6 +545,9 @@ class ScannerController:
                 "student_id": student_id or None,
                 "student_name": student_name or None,
             }
+            self.store.update_scan(self._session_id, int(public["number"]),
+                                   student_id=student_id, student_name=student_name,
+                                   responses=corrected)
             self._records.append(public)
             self._records.sort(key=lambda item: int(item["number"]))
             self._pending_reviews.remove(review)
@@ -553,7 +567,6 @@ class ScannerController:
                     "student_name": public["student_name"],
                 },
             )
-        self._record_scan(public)
         label = "answer key" if public["role"] == "key" else f"student sheet {int(public['number']) - 1}"
         self._log(f"Saved reviewed {label}.", "success")
 
@@ -1032,37 +1045,26 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                     return
                 corrections = list(body.get("corrections", []))
-                settled = self.store.dismiss_reviews(
-                    session_id, list(body.get("dismiss", []))
-                )
-                if not corrections:
-                    if settled:
-                        # Nothing was read wrong; the teacher checked the
-                        # sheets and said so. That is a complete answer.
-                        scans = self.store.session_scans(session_id)
-                        self._send_json({
-                            "applied": 0,
-                            "dismissed": settled,
-                            "analysis": build_session_analysis(
-                                session, scans,
-                                dismissed=self.store.dismissed_reviews(session_id),
-                            ),
-                        })
-                        return
+                dismiss = list(body.get("dismiss", []))
+                if not corrections and not dismiss:
                     raise DataLinkError("No corrections were supplied")
-                applied = 0
+                validated = []
                 for correction in corrections:
                     number = int(correction.get("number", 0))
                     responses = correction.get("responses")
                     if responses is not None:
                         responses = [str(value).strip().upper() for value in responses]
+                        responses = [
+                            {"BLANK": "", "MULTIPLE": "*"}.get(value, value)
+                            for value in responses
+                        ]
                         expected = int(session["question_count"])
                         if len(responses) != expected:
                             raise DataLinkError(
                                 f"Sheet {number} needs exactly {expected} responses"
                             )
                         for value in responses:
-                            if value and not all(
+                            if value and value != "*" and not all(
                                 letter in "ABCDE" for letter in value
                             ):
                                 raise DataLinkError(
@@ -1074,14 +1076,10 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                         if student_id and not student_id.isdigit():
                             raise DataLinkError("Student ID must contain digits only")
                     name = correction.get("student_name")
-                    if self.store.update_scan(
-                        session_id,
-                        number,
-                        student_id=student_id,
-                        student_name=None if name is None else str(name).strip(),
-                        responses=responses,
-                    ):
-                        applied += 1
+                    validated.append(dict(number=number, student_id=student_id,
+                                          student_name=None if name is None else str(name).strip(),
+                                          responses=responses))
+                applied, settled = self.store.apply_corrections(session_id, validated, dismiss)
                 # A corrected ID may be one the roster can name.
                 self.store.name_missing_students(session_id)
                 scans = self.store.session_scans(session_id)

@@ -1194,12 +1194,21 @@ function renderAnalysisReview(report) {
   // the problem's, so they are edited once and sent once however many rows it
   // has — otherwise two rows for the same sheet would fight over the value.
   const firstRowForSheet = new Map();
+  const problemsPerSheet = new Map();
   for (const row of rows) {
     if (!firstRowForSheet.has(row.sheet)) firstRowForSheet.set(row.sheet, row);
+    problemsPerSheet.set(row.sheet, (problemsPerSheet.get(row.sheet) || 0) + 1);
   }
 
   $("#reviewRows").innerHTML = rows.map(row => {
+    // One sheet can raise several problems, and its ID and name belong to the
+    // sheet rather than to any one of them. The cells span the sheet's rows
+    // instead of being drawn once and leaving the rest blank, which read as a
+    // dropdown that had gone missing.
     const owns = firstRowForSheet.get(row.sheet) === row;
+    const span = problemsPerSheet.get(row.sheet) > 1
+      ? ` rowspan="${problemsPerSheet.get(row.sheet)}"`
+      : "";
     const student = row.student || {};
     const sheet = report.has_pages
       ? `<button type="button" class="link-button" data-sheet-view="${row.sheet}"
@@ -1208,12 +1217,10 @@ function renderAnalysisReview(report) {
     // The ID the reader saw, even when it was not sure enough to use it: that
     // is the likeliest starting point for a correction, not an empty box.
     const idValue = student.student_id || student.student_id_read || "";
-    const who = owns
-      ? `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Student ID"
+    const who = `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Student ID"
                 class="cell-input" data-edit="student_id" data-sheet="${row.sheet}"
-                value="${escapeHtml(idValue)}">`
-      : "";
-    const named = owns ? nameControl(report.class_name, student, row.sheet) : "";
+                value="${escapeHtml(idValue)}">`;
+    const named = nameControl(report.class_name, student, row.sheet);
     const control = row.kind === "note"
       ? "—"
       : row.kind === "student_id"
@@ -1223,10 +1230,11 @@ function renderAnalysisReview(report) {
            ${[..."ABCDE"].map(letter => `<option value="${letter}">${letter}</option>`).join("")}
            <option value="BLANK">Blank</option>
          </select>`;
+    const sheetCells = owns
+      ? `<td${span}>${sheet}</td><td${span}>${who}</td><td${span}>${named}</td>`
+      : "";
     return `<tr>
-      <td>${sheet}</td>
-      <td>${who}</td>
-      <td>${named}</td>
+      ${sheetCells}
       <td>${escapeHtml(row.problem)}</td>
       <td><code>${escapeHtml(row.read)}</code></td>
       <td>${control}</td>

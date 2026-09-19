@@ -365,6 +365,16 @@ td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }
 .sheet-view img { display: block; width: 100%; height: auto; }
 
 /* The name cell offers the roster and the typed name together: the dropdown
-   fills the box, and the box is what gets saved. */
+   fills the box, and the box is what gets saved. The sheet, ID and name cells
+   span every problem that sheet raised, so they centre against the group. */
+#reviewRows td { vertical-align: middle; }
+/* The sticky, bold first column belongs to the wide answer tables, where it
+   pins the scan number while 50 question columns scroll past. Review has no
+   such columns, and once a sheet's cells span its problems the first cell of
+   a continuation row is the problem text — which was being pinned to the left
+   edge and bolded as though it were a heading. */
+#reviewRows td:first-child {
+  position: static; font-weight: inherit; box-shadow: none; min-width: 0;
+}
 .name-cell { display: grid; gap: 6px; }
 .name-cell select { background: #fff; }

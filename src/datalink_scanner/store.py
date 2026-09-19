@@ -233,6 +233,15 @@ class Store:
                 self._connection.execute(
                     "UPDATE classes SET name = ? WHERE id = ?", (name, class_id)
                 )
+                # Sessions keep the class name as text, so a rename has to
+                # reach them too. Without this every session already recorded
+                # points at a class that no longer answers to that name: its
+                # students stop being named and the Review roster disappears.
+                if previous != name:
+                    self._connection.execute(
+                        "UPDATE sessions SET class_name = ? WHERE class_name = ?",
+                        (name, previous),
+                    )
                 self._connection.execute(
                     "DELETE FROM students WHERE class_id = ?", (class_id,)
                 )
@@ -468,13 +477,25 @@ class Store:
             self._connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             self._connection.commit()
 
-    def prune_empty_sessions(self) -> int:
+    def prune_empty_sessions(self, session_id: int | None = None) -> int:
         """Drop sessions that never received a sheet. Connecting to check the
-        scanner should not litter the history."""
+        scanner should not litter the history.
+
+        `session_id` limits it to the one being ended, which is what a caller
+        almost always means. A paper batch is written as a session first and
+        filled a moment later, so a bare sweep triggered by an unrelated
+        session ending could delete it out from under its own import.
+        """
+        query = (
+            "DELETE FROM sessions WHERE id NOT IN "
+            "(SELECT DISTINCT session_id FROM scans)"
+        )
+        values: tuple = ()
+        if session_id is not None:
+            query += " AND id = ?"
+            values = (session_id,)
         with self._lock:
-            cursor = self._connection.execute(
-                "DELETE FROM sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM scans)"
-            )
+            cursor = self._connection.execute(query, values)
             self._connection.commit()
             return cursor.rowcount
 

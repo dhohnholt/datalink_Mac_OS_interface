@@ -71,8 +71,9 @@ def scored_session(store: Store, session_id: int) -> tuple[dict, dict]:
     if session is None:
         raise AnalysisError("No such session")
     # A roster imported or corrected after a batch was filed still names its
-    # students. Names do not enter the fingerprint, so this cannot invalidate
-    # a run_id on its own.
+    # students. This runs before the fingerprint is taken, so the name is part
+    # of what is hashed: a session uploaded before it had names and re-uploaded
+    # after gets a new run_id, which is correct, because the payload did change.
     store.name_missing_students(session_id)
     scans = store.session_scans(session_id)
     fingerprint = scan_fingerprint(session, scans)
@@ -323,7 +324,7 @@ class ScannerController:
             self._pending_record_objects.clear()
 
         self.store.update_session(session_id, finished=True)
-        self.store.prune_empty_sessions()
+        self.store.prune_empty_sessions(session_id)
         students = max(sheets - keys, 0)
         label = f"“{name}”" if name else "The session"
         summary = (
@@ -615,6 +616,15 @@ class ScannerController:
 
     def clear(self) -> None:
         with self._lock:
+            if self._session_id is not None:
+                # Sheets are numbered from what is on screen, and sheet 1 is
+                # the answer key. Emptying the table mid-session sent the next
+                # sheet in as a second key on a number already used, and the
+                # session could never be scored again.
+                raise DataLinkError(
+                    "A session is running, so the sheets on screen are the ones "
+                    "being recorded. End the session to start a fresh one."
+                )
             self._records.clear()
             self._pending_reviews.clear()
             self._pending_record_objects.clear()
@@ -622,6 +632,16 @@ class ScannerController:
 
     def add_demo_record(self, question_count: int) -> None:
         question_count = validate_question_count(question_count)
+        with self._lock:
+            if self._session_id is not None:
+                # A demo sheet takes a number but is never saved, so it pushed
+                # every real sheet along by one: the answer key arrived as
+                # sheet 2, was treated as a student, and the session recorded
+                # nothing at all.
+                raise DataLinkError(
+                    "Demo sheets are for previewing the table before a session "
+                    "starts. End the session first."
+                )
         choices = ["A", "B", "C", "D", "E"]
         responses = [choices[index % 5] for index in range(question_count)]
         with self._lock:

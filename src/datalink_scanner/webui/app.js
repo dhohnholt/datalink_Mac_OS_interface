@@ -605,6 +605,14 @@ function render(state) {
     ? "Start scanning session"
     : "Connect and start session";
   $("#endSessionButton").disabled = !scanning;
+  // Both of these renumber what is on screen, and while a session is running
+  // that numbering is what gets saved. They say so rather than being dead.
+  for (const id of ["#clearButton", "#demoButton"]) {
+    $(id).disabled = scanning;
+    $(id).title = scanning
+      ? "Not while a session is running — the sheets on screen are the ones being recorded"
+      : "";
+  }
   $("#resetScannerButton").disabled = state.state !== "connected";
   disconnectButton.disabled = state.state === "disconnected";
   // The form length and the port belong to the session that is running, so

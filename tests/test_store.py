@@ -406,3 +406,70 @@ class NameMissingStudentsTests(unittest.TestCase):
                                          "responses": ["A", "B", "C"]})
         self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
         self.assertEqual(self.store.name_missing_students(session_id), 0)
+
+
+class ClassRenameTests(unittest.TestCase):
+    """A class name is copied onto every session, so a rename has to follow."""
+
+    def setUp(self):
+        self.store = Store(":memory:")
+        self.addCleanup(self.store.close)
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+        self.session_id = self.store.create_session("Unit 1", "Period 4", 3)
+        self.store.add_scan(self.session_id, {"number": 2, "role": "student",
+                                              "student_id": "566940", "student_name": None,
+                                              "received_at": "x", "answered_count": 3,
+                                              "responses": ["A", "B", "C"]})
+
+    def test_the_session_follows_the_new_name(self):
+        self.store.save_class("4th Period - Govt", [{"id": "566940", "name": "Ada Lovelace"}],
+                              original_name="Period 4")
+        self.assertEqual(self.store.session(self.session_id)["class_name"], "4th Period - Govt")
+
+    def test_its_students_can_still_be_named_afterwards(self):
+        # This is what the orphaning cost: the roster was right there and the
+        # session could no longer find it.
+        self.store.save_class("4th Period - Govt", [{"id": "566940", "name": "Ada Lovelace"}],
+                              original_name="Period 4")
+        self.assertEqual(self.store.name_missing_students(self.session_id), 1)
+
+    def test_other_classes_sessions_are_not_touched(self):
+        other = self.store.create_session("Unit 1", "Period 6", 3)
+        self.store.add_scan(other, {"number": 2, "role": "student", "student_id": "1",
+                                    "received_at": "x", "answered_count": 3,
+                                    "responses": ["A", "B", "C"]})
+        self.store.save_class("4th Period - Govt", [{"id": "566940", "name": "Ada Lovelace"}],
+                              original_name="Period 4")
+        self.assertEqual(self.store.session(other)["class_name"], "Period 6")
+
+    def test_saving_without_renaming_leaves_sessions_alone(self):
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}],
+                              original_name="Period 4")
+        self.assertEqual(self.store.session(self.session_id)["class_name"], "Period 4")
+
+
+class PruneEmptySessionsTests(unittest.TestCase):
+    def setUp(self):
+        self.store = Store(":memory:")
+        self.addCleanup(self.store.close)
+
+    def test_it_can_be_limited_to_one_session(self):
+        # A paper batch is created as a session and filled a moment later. An
+        # unrelated session ending used to delete it mid-import, and its scans
+        # then failed on the foreign key.
+        importing = self.store.create_session("Paper batch", "P4", 3)
+        ending = self.store.create_session("Scan session", "P4", 3)
+        self.assertEqual(self.store.prune_empty_sessions(ending), 1)
+        self.assertIsNotNone(self.store.session(importing))
+
+    def test_without_an_id_it_still_sweeps_everything(self):
+        self.store.create_session("One", "P4", 3)
+        self.store.create_session("Two", "P4", 3)
+        self.assertEqual(self.store.prune_empty_sessions(), 2)
+
+    def test_a_session_with_sheets_is_never_pruned(self):
+        session_id = self.store.create_session("Real", "P4", 3)
+        self.store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                         "answered_count": 3, "responses": ["A", "B", "C"]})
+        self.assertEqual(self.store.prune_empty_sessions(session_id), 0)
+        self.assertIsNotNone(self.store.session(session_id))

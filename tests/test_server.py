@@ -113,6 +113,32 @@ class SessionLifecycleTests(unittest.TestCase):
         self.controller.end_session()
         self.assertIsNotNone(self.store.session(session_id))
 
+    def test_clearing_the_view_is_refused_while_a_session_runs(self):
+        # It renumbered what was on screen, and the next sheet went in as a
+        # second answer key on a number already used. The session could then
+        # never be scored.
+        self.controller.start_session(30)
+        with self.assertRaises(DataLinkError):
+            self.controller.clear()
+        self.controller.end_session()
+        self.controller.clear()  # fine once nothing is being recorded
+
+    def test_a_demo_sheet_is_refused_while_a_session_runs(self):
+        # A demo takes a number but is never saved, so it pushed the real
+        # answer key to sheet 2, where it was treated as a student.
+        self.controller.start_session(30)
+        with self.assertRaises(DataLinkError):
+            self.controller.add_demo_record(30)
+        self.controller.end_session()
+        self.controller.add_demo_record(30)
+        self.assertEqual(self.controller.snapshot()["record_count"], 1)
+
+    def test_ending_a_session_leaves_another_being_written_alone(self):
+        importing = self.store.create_session("Paper batch", "P4", 3)
+        self.controller.start_session(30)
+        self.controller.end_session()
+        self.assertIsNotNone(self.store.session(importing))
+
     def test_resetting_needs_a_connected_scanner(self):
         with self.assertRaises(DataLinkError):
             self.controller.reset_scanner()

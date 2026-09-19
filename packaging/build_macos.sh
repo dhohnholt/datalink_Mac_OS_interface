@@ -166,8 +166,13 @@ fi
 # Deleting the bundle is not quite enough: macOS notices it during the seconds
 # it exists and keeps the registration after the file is gone, which is a
 # ghost in Launchpad. Tell LaunchServices explicitly.
+# Both copies: the one PyInstaller writes and the one staged for the image.
+# Missing the staging copy left build/dmg registered after a release.
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-[[ -x "$LSREGISTER" ]] && "$LSREGISTER" -u "$DIST_DIR/$APP_NAME.app" 2>/dev/null || true
+if [[ -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -u "$DIST_DIR/$APP_NAME.app" 2>/dev/null || true
+  "$LSREGISTER" -u "$DMG_ROOT/$APP_NAME.app" 2>/dev/null || true
+fi
 /bin/rm -rf "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/$APP_NAME" "$DMG_ROOT"
 
 echo "Built installer: $DMG_PATH"

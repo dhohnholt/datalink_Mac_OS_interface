@@ -400,7 +400,7 @@ async function openSession(id) {
       ` data-scan="${scan.number}" data-question="${index + 1}"` +
       ` title="Click to correct question ${index + 1}">${escapeHtml(value || "—")}</td>`
     ).join("");
-    return `<tr><td>${label}${scan.demo ? " · demo" : ""}</td><td>${student}</td>` +
+    return `<tr><td>${label}</td><td>${student}</td>` +
       `<td>${formatTimestamp(scan.received_at)}</td><td>${scan.answered_count}</td>${cells}</tr>`;
   }).join("");
   $("#sessionDetailCard").scrollIntoView({behavior: "smooth", block: "start"});
@@ -605,14 +605,12 @@ function render(state) {
     ? "Start scanning session"
     : "Connect and start session";
   $("#endSessionButton").disabled = !scanning;
-  // Both of these renumber what is on screen, and while a session is running
-  // that numbering is what gets saved. They say so rather than being dead.
-  for (const id of ["#clearButton", "#demoButton"]) {
-    $(id).disabled = scanning;
-    $(id).title = scanning
-      ? "Not while a session is running — the sheets on screen are the ones being recorded"
-      : "";
-  }
+  // Clearing renumbers what is on screen, and while a session is running that
+  // numbering is what gets saved. It says so rather than being dead.
+  $("#clearButton").disabled = scanning;
+  $("#clearButton").title = scanning
+    ? "Not while a session is running — the sheets on screen are the ones being recorded"
+    : "";
   $("#resetScannerButton").disabled = state.state !== "connected";
   disconnectButton.disabled = state.state === "disconnected";
   // The form length and the port belong to the session that is running, so
@@ -746,7 +744,7 @@ function renderRecords(records) {
     const cells = record.responses.map(value => `<td class="${!value ? "blank" : value.length > 1 ? "multiple" : ""}">${value || "—"}</td>`).join("");
     const label = record.role === "key" ? "Key" : `Student ${record.number - 1}`;
     const student = record.student_name ? `${escapeHtml(record.student_name)}<br><small>${escapeHtml(record.student_id || "")}</small>` : escapeHtml(record.student_id || "—");
-    return `<tr><td>${label}${record.demo ? " · demo" : ""}</td><td>${student}</td><td>${time}</td>${cells}</tr>`;
+    return `<tr><td>${label}</td><td>${student}</td><td>${time}</td>${cells}</tr>`;
   }).join("");
 }
 
@@ -797,9 +795,6 @@ disconnectButton.addEventListener("click", async () => {
   try { render(await post("/api/disconnect", {})); }
   catch (error) { toast(error.message); }
 });
-
-$("#demoButton").addEventListener("click", async () =>
-  render(await post("/api/demo", {question_count: currentQuestionCount()})));
 
 $("#clearButton").addEventListener("click", async () => {
   if (confirm("Clear the scans shown here? The saved session is not deleted.")) {
@@ -873,7 +868,6 @@ window.datalinkMenu = {
   endSession: () => $("#endSessionButton").disabled || $("#endSessionButton").click(),
   resetScanner: () => $("#resetScannerButton").disabled || $("#resetScannerButton").click(),
   disconnect: () => disconnectButton.disabled || disconnectButton.click(),
-  addDemo: () => $("#demoButton").click(),
   clearView: () => $("#clearButton").click(),
   exportCsv: () => (currentView === "sessions" && openSessionId !== null
     ? $("#sessionExportButton") : $("#exportButton")).click(),

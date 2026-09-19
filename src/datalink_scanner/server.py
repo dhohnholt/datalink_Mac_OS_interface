@@ -630,37 +630,6 @@ class ScannerController:
             self._pending_record_objects.clear()
         self._log("The on-screen session was cleared.")
 
-    def add_demo_record(self, question_count: int) -> None:
-        question_count = validate_question_count(question_count)
-        with self._lock:
-            if self._session_id is not None:
-                # A demo sheet takes a number but is never saved, so it pushed
-                # every real sheet along by one: the answer key arrived as
-                # sheet 2, was treated as a student, and the session recorded
-                # nothing at all.
-                raise DataLinkError(
-                    "Demo sheets are for previewing the table before a session "
-                    "starts. End the session first."
-                )
-        choices = ["A", "B", "C", "D", "E"]
-        responses = [choices[index % 5] for index in range(question_count)]
-        with self._lock:
-            self._question_count = question_count
-            number = len(self._records) + 1
-            self._records.append(
-                {
-                    "number": number,
-                    "received_at": datetime.now(timezone.utc).isoformat(),
-                    "responses": responses,
-                    "answered_count": question_count,
-                    "demo": True,
-                    "role": "key" if not self._records else "student",
-                    "student_id": None if not self._records else str(900000 + number),
-                    "student_name": None if not self._records else f"Demo Student {number - 1}",
-                }
-            )
-        self._log(f"Added demo sheet {number}.", "success")
-
     def export_csv(self, class_name: str = "") -> bytes:
         with self._lock:
             records = list(self._records)
@@ -951,10 +920,6 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"stopping": True})
                 self.shutdown_requested.set()
                 return
-            elif path == "/api/demo":
-                self.controller.add_demo_record(
-                    body.get("question_count", DEFAULT_ANSWER_COUNT)
-                )
             elif path == "/api/classes/save":
                 self.store.save_class(
                     str(body.get("name", "")),

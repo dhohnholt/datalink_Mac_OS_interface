@@ -78,6 +78,14 @@ class SessionLifecycleTests(unittest.TestCase):
         self.assertEqual(snapshot["session_name"], "Unit 1")
         self.assertTrue(snapshot["output_path"].endswith(".jsonl"))
 
+    def test_a_form_length_out_of_range_is_refused(self):
+        # The controller's own check on the count, which used to be reached
+        # only through the demo sheet.
+        for count in (0, 101, "abc"):
+            with self.assertRaises(DataLinkError, msg=count):
+                self.controller.start_session(count)
+        self.assertFalse(self.controller.snapshot()["scanning"])
+
     def test_two_sessions_cannot_run_at_once(self):
         self.controller.start_session(30)
         with self.assertRaises(DataLinkError):
@@ -122,16 +130,7 @@ class SessionLifecycleTests(unittest.TestCase):
             self.controller.clear()
         self.controller.end_session()
         self.controller.clear()  # fine once nothing is being recorded
-
-    def test_a_demo_sheet_is_refused_while_a_session_runs(self):
-        # A demo takes a number but is never saved, so it pushed the real
-        # answer key to sheet 2, where it was treated as a student.
-        self.controller.start_session(30)
-        with self.assertRaises(DataLinkError):
-            self.controller.add_demo_record(30)
-        self.controller.end_session()
-        self.controller.add_demo_record(30)
-        self.assertEqual(self.controller.snapshot()["record_count"], 1)
+        self.assertEqual(self.controller.snapshot()["record_count"], 0)
 
     def test_ending_a_session_leaves_another_being_written_alone(self):
         importing = self.store.create_session("Paper batch", "P4", 3)
@@ -152,8 +151,21 @@ class ExportCsvTests(unittest.TestCase):
         self.addCleanup(self.store.close)
         self.controller = ScannerController(Path(self._directory.name), self.store)
 
+    def sheet(self, question_count):
+        """A row on screen, the way the reader puts one there."""
+        number = len(self.controller._records) + 1
+        self.controller._records.append({
+            "number": number,
+            "role": "key" if number == 1 else "student",
+            "received_at": "2026-09-18T12:00:00+00:00",
+            "responses": ["A"] * question_count,
+            "answered_count": question_count,
+            "student_id": None if number == 1 else "900011",
+            "student_name": None,
+        })
+
     def test_header_covers_the_longest_record(self):
-        self.controller.add_demo_record(30)
+        self.sheet(30)
         rows = list(csv.reader(io.StringIO(self.controller.export_csv("P4").decode())))
         self.assertEqual(rows[0][-1], "Q30")
         self.assertEqual(rows[1][2], "P4")
@@ -163,24 +175,19 @@ class ExportCsvTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][0], "Scan")
 
-    def test_rejects_out_of_range_question_count(self):
-        for count in (0, 101, "abc"):
-            with self.assertRaises(DataLinkError, msg=count):
-                self.controller.add_demo_record(count)
-
-    def test_accepts_any_count_in_range(self):
-        self.controller.add_demo_record(64)
+    def test_a_longer_form_widens_the_header(self):
+        self.sheet(64)
         rows = list(csv.reader(io.StringIO(self.controller.export_csv().decode())))
         self.assertEqual(rows[0][-1], "Q64")
 
     def test_first_sheet_is_the_answer_key(self):
-        self.controller.add_demo_record(30)
-        self.controller.add_demo_record(30)
+        self.sheet(30)
+        self.sheet(30)
         rows = list(csv.reader(io.StringIO(self.controller.export_csv().decode())))
         self.assertEqual([row[1] for row in rows[1:]], ["key", "student"])
 
     def test_clear_empties_the_session(self):
-        self.controller.add_demo_record(30)
+        self.sheet(30)
         self.controller.clear()
         self.assertEqual(self.controller.snapshot()["record_count"], 0)
 

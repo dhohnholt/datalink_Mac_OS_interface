@@ -381,7 +381,6 @@ class DataLinkAppDelegate(NSObject):
             _item("Start at First Student", "startAtFirstStudent:", target=self)
         )
         scanner_menu.addItem_(_separator())
-        scanner_menu.addItem_(_item("Add Demo Scan", "addDemoScan:", "d", target=self))
         scanner_menu.addItem_(_item("Clear View", "clearView:", target=self))
 
         view_menu = _submenu(menubar, "View")
@@ -434,9 +433,6 @@ class DataLinkAppDelegate(NSObject):
 
     def disconnectScanner_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.disconnect()")
-
-    def addDemoScan_(self, sender):
-        self._run_js("window.datalinkMenu && datalinkMenu.addDemo()")
 
     def clearView_(self, sender):
         self._run_js("window.datalinkMenu && datalinkMenu.clearView()")

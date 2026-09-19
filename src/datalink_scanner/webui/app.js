@@ -37,7 +37,7 @@ function rosterIndexForId(id) {
 }
 let editingClassName = "";
 let currentView = "scan";
-let openSessionId = null;
+let currentSessionId = null;
 // The loaded session, kept because correcting one answer means sending the
 // whole row back: the server checks the response count against the form.
 let openSessionDetail = null;
@@ -70,14 +70,17 @@ function post(path, body) {
 
 /* ------------------------------------------------------------------ views */
 
+const VIEWS = ["scan", "paper", "classes", "sessions", "analysis", "settings"];
+const ANALYSIS_PANES = ["items", "students", "review", "key", "upload"];
+
 function showView(name) {
+  if (!VIEWS.includes(name)) name = "scan";
   currentView = name;
   for (const button of document.querySelectorAll("#viewTabs button")) {
     button.classList.toggle("active", button.dataset.view === name);
   }
-  for (const view of ["scan", "paper", "classes", "sessions", "analysis", "settings"]) {
-    $(`#view-${view}`).hidden = view !== name;
-  }
+  for (const view of VIEWS) $(`#view-${view}`).hidden = view !== name;
+  renderContextBar();
   if (name === "paper") loadPaper();
   if (name === "classes") loadClasses();
   if (name === "sessions") loadSessions();
@@ -85,8 +88,118 @@ function showView(name) {
   if (name === "settings") loadConnection();
 }
 
+/* --------------------------------------------------------------- routing */
+
+// The address bar is the app's memory of where you are. Without it the back
+// button did nothing, a reload dropped you on the Scan tab, and there was no
+// way to point at "the review list for this test".
+//
+//   #/scan  #/paper  #/classes  #/settings
+//   #/sessions              #/sessions/5
+//   #/analysis              #/analysis/5        #/analysis/5/review
+let applyingRoute = false;
+
+function currentRoute() {
+  const raw = location.hash.replace(/^#\/?/, "");
+  const [view, id, pane] = raw.split("/").filter(Boolean);
+  return {
+    view: VIEWS.includes(view) ? view : "scan",
+    id: /^\d+$/.test(id || "") ? Number(id) : null,
+    pane: ANALYSIS_PANES.includes(pane) ? pane : null,
+  };
+}
+
+function routeFor(view, id, pane) {
+  return "#/" + [view, id ?? null, pane ?? null].filter(value => value !== null).join("/");
+}
+
+// `replace` for a redirect the user did not ask for, so Back does not land
+// them on a route that immediately bounces them forward again.
+function navigate(view, {id = null, pane = null, replace = false} = {}) {
+  const target = routeFor(view, id, pane);
+  if (location.hash === target) {
+    applyRoute();
+    return;
+  }
+  if (replace) location.replace(target);
+  else location.hash = target;
+}
+
+async function applyRoute() {
+  if (applyingRoute) return;
+  applyingRoute = true;
+  try {
+    const {view, id, pane} = currentRoute();
+    // A route must mean one thing however you reached it. On the two tabs that
+    // own a test, no id in the address means no test selected — otherwise
+    // Back to #/sessions left the previous one on screen while the address
+    // said there was none, and a reload of that same URL showed something
+    // different again.
+    const ownsSession = view === "sessions" || view === "analysis";
+    if (id !== null && id !== currentSessionId) await selectSession(id, {silent: true});
+    else if (id === null && ownsSession && currentSessionId !== null) closeSession();
+    showView(view);
+    if (view === "sessions" && currentSessionId !== null) {
+      await loadSessionDetail(currentSessionId, {reveal: false});
+    }
+    if (view === "analysis" && pane) showAnalysisPane(pane, {push: false});
+  } finally {
+    applyingRoute = false;
+  }
+}
+
+window.addEventListener("hashchange", applyRoute);
+
+/* ------------------------------------------------- the test being worked on */
+
+let currentSessionName = "";
+let currentSessionMeta = "";
+
+// Choosing a test is one act, wherever it happens. Both tabs read this.
+async function selectSession(id, {silent = false} = {}) {
+  if (id === null) {
+    closeSession();
+    return;
+  }
+  currentSessionId = id;
+  try {
+    const summary = (await request("/api/sessions")).sessions.find(item => item.id === id);
+    currentSessionName = summary?.name || "Untitled session";
+    currentSessionMeta = summary
+      ? [summary.class_name, `${summary.scan_count} sheets`, formatTimestamp(summary.started_at)]
+          .filter(Boolean).join(" · ")
+      : "";
+  } catch (error) {
+    currentSessionName = "Untitled session";
+    currentSessionMeta = "";
+  }
+  renderContextBar();
+  if (!silent) navigate(currentView === "analysis" ? "analysis" : "sessions", {id});
+}
+
+function renderContextBar() {
+  const bar = $("#contextBar");
+  const showing = currentSessionId !== null;
+  bar.classList.toggle("hidden", !showing);
+  if (!showing) return;
+  $("#contextName").textContent = currentSessionName;
+  $("#contextMeta").textContent = currentSessionMeta;
+  $("#contextSheets").classList.toggle("active", currentView === "sessions");
+  $("#contextAnalysis").classList.toggle("active", currentView === "analysis");
+}
+
+$("#contextSheets").addEventListener("click", () => navigate("sessions", {id: currentSessionId}));
+$("#contextAnalysis").addEventListener("click", () => navigate("analysis", {id: currentSessionId}));
+$("#contextClear").addEventListener("click", () => {
+  closeSession();
+  navigate(currentView);
+});
+
 for (const button of document.querySelectorAll("#viewTabs button")) {
-  button.addEventListener("click", () => showView(button.dataset.view));
+  button.addEventListener("click", () => navigate(button.dataset.view, {
+    // A tab that owns the selected test keeps it in the address.
+    id: ["sessions", "analysis"].includes(button.dataset.view) ? currentSessionId : null,
+  }));
 }
 
 /* ---------------------------------------------------------------- classes */
@@ -342,7 +455,7 @@ function renderSessions(sessions) {
       const name = prompt("Name this session", existing?.name || "");
       if (name === null) return;
       renderSessions((await post("/api/sessions/rename", {id, name})).sessions);
-      if (openSessionId === id) openSession(id);
+      if (currentSessionId === id) await loadSessionDetail(id);
     });
   }
   for (const button of rows.querySelectorAll("[data-delete]")) {
@@ -350,16 +463,23 @@ function renderSessions(sessions) {
       const id = Number(button.dataset.delete);
       if (!confirm("Delete this saved session and all of its scans? This cannot be undone.")) return;
       renderSessions((await post("/api/sessions/delete", {id})).sessions);
-      if (openSessionId === id) closeSession();
+      if (currentSessionId === id) closeSession();
       toast("Session deleted");
     });
   }
 }
 
-async function openSession(id) {
+// Clicking a session is a navigation, so it goes through the address bar and
+// Back works. loadSessionDetail() is what actually fills the card.
+function openSession(id) {
+  navigate("sessions", {id});
+}
+
+async function loadSessionDetail(id, {reveal = true} = {}) {
   const session = await request(`/api/sessions/${id}`);
-  openSessionId = id;
+  currentSessionId = id;
   openSessionDetail = session;
+  renderContextBar();
   $("#sessionDetailCard").classList.remove("hidden");
   $("#sessionDetailTitle").textContent = session.name || "Untitled session";
   const parts = [
@@ -403,7 +523,9 @@ async function openSession(id) {
     return `<tr><td>${label}</td><td>${student}</td>` +
       `<td>${formatTimestamp(scan.received_at)}</td><td>${scan.answered_count}</td>${cells}</tr>`;
   }).join("");
-  $("#sessionDetailCard").scrollIntoView({behavior: "smooth", block: "start"});
+  // Only when the user asked for this card by clicking it. Arriving by link or
+  // by Back should leave them at the top, where the navigation is.
+  if (reveal) $("#sessionDetailCard").scrollIntoView({behavior: "smooth", block: "start"});
 }
 
 $("#sessionDetailRows").addEventListener("click", event => {
@@ -449,22 +571,28 @@ $("#answerForm").addEventListener("submit", async () => {
   responses[question - 1] = chosen.value;
   try {
     const result = await post("/api/sessions/correct", {
-      session_id: openSessionId,
+      session_id: currentSessionId,
       corrections: [{number, responses}],
     });
     toast(result.applied
       ? `Question ${question} saved as ${chosen.value || "blank"}`
       : "No change was made");
-    await openSession(openSessionId);
+    await loadSessionDetail(currentSessionId);
   } catch (error) {
     toast(error.message);
   }
 });
 
 function closeSession() {
-  openSessionId = null;
+  currentSessionId = null;
   openSessionDetail = null;
+  analysisReport = null;
+  analysisReportId = null;
+  for (const id of ["#reviewBadge", "#tabReviewBadge", "#contextReviewBadge"]) {
+    $(id).classList.add("hidden");
+  }
   $("#sessionDetailCard").classList.add("hidden");
+  renderContextBar();
 }
 
 $("#sessionAnalysisButton").addEventListener("click", event => {
@@ -869,27 +997,27 @@ window.datalinkMenu = {
   resetScanner: () => $("#resetScannerButton").disabled || $("#resetScannerButton").click(),
   disconnect: () => disconnectButton.disabled || disconnectButton.click(),
   clearView: () => $("#clearButton").click(),
-  exportCsv: () => (currentView === "sessions" && openSessionId !== null
+  exportCsv: () => (currentView === "sessions" && currentSessionId !== null
     ? $("#sessionExportButton") : $("#exportButton")).click(),
   exportAnalysis: () => {
-    if (currentView !== "sessions" || openSessionId === null) {
+    if (currentView !== "sessions" || currentSessionId === null) {
       toast("Open a saved session first, then export its item analysis");
       return;
     }
     $("#sessionAnalysisButton").click();
   },
-  newClass: () => { showView("classes"); openClassEditor(null); },
-  editClass: () => { showView("classes"); openClassEditor(selectedClassName); },
+  newClass: () => { navigate("classes"); openClassEditor(null); },
+  editClass: () => { navigate("classes"); openClassEditor(selectedClassName); },
   skipStudent: () => $("#skipStudentButton").click(),
   startAtFirst: () => $("#resetRosterButton").click(),
   toggleProtocol: () => $("#toggleProtocol").click(),
-  showScan: () => showView("scan"),
-  showPaper: () => showView("paper"),
-  choosePaperPdf: () => { showView("paper"); $("#paperChooseButton").click(); },
-  showClasses: () => showView("classes"),
-  showSessions: () => showView("sessions"),
-  showAnalysis: () => showView("analysis"),
-  showSettings: () => showView("settings"),
+  showScan: () => navigate("scan"),
+  showPaper: () => navigate("paper"),
+  choosePaperPdf: () => { navigate("paper"); $("#paperChooseButton").click(); },
+  showClasses: () => navigate("classes"),
+  showSessions: () => navigate("sessions", {id: currentSessionId}),
+  showAnalysis: () => navigate("analysis", {id: currentSessionId}),
+  showSettings: () => navigate("settings"),
 };
 
 if (window.datalinkNative) {
@@ -928,6 +1056,7 @@ const PRIORITY_BELOW = 60;
 const SECURE_AT = 70;
 
 let analysisReport = null;
+let analysisReportId = null;
 let itemFilter = "all";
 
 function itemStatus(item) {
@@ -943,13 +1072,22 @@ function statusLabel(status) {
 async function loadAnalysisSessions() {
   const {sessions} = await request("/api/sessions");
   const select = $("#analysisSession");
-  const previous = select.value;
   select.innerHTML = '<option value="">Choose a test…</option>' + sessions.map(item =>
     `<option value="${item.id}">${escapeHtml(item.name || "Untitled")} · ` +
     `${formatTimestamp(item.started_at)} · ${item.scan_count} sheets</option>`
   ).join("");
-  if (sessions.some(item => String(item.id) === previous)) select.value = previous;
-  if (!select.value) showAnalysisPlaceholder("No test selected");
+  // A test already chosen elsewhere is the one to show. Asking for it again
+  // was the single most tiresome thing about moving between these two tabs.
+  const wanted = String(currentSessionId ?? "");
+  if (sessions.some(item => String(item.id) === wanted)) {
+    select.value = wanted;
+    if (analysisReportId !== wanted) {
+      await loadAnalysis(wanted);
+    }
+  } else {
+    select.value = "";
+    showAnalysisPlaceholder("No test selected");
+  }
 }
 
 function showAnalysisPlaceholder(message, error) {
@@ -965,12 +1103,15 @@ function showAnalysisPlaceholder(message, error) {
 
 async function loadAnalysis(sessionId) {
   if (!sessionId) {
+    analysisReportId = null;
     showAnalysisPlaceholder("No test selected");
     return;
   }
   try {
     analysisReport = await request(`/api/sessions/${sessionId}/analysis`);
+    analysisReportId = String(sessionId);
   } catch (error) {
+    analysisReportId = null;
     showAnalysisPlaceholder("This test cannot be scored", error.message);
     return;
   }
@@ -1083,7 +1224,11 @@ function renderStudentScores(report) {
     </tr>`).join("");
 }
 
-$("#analysisSession").addEventListener("change", event => loadAnalysis(event.target.value));
+$("#analysisSession").addEventListener("change", event => {
+  const value = event.target.value;
+  if (value) selectSession(Number(value));
+  else { closeSession(); navigate("analysis"); }
+});
 
 for (const button of document.querySelectorAll("#itemFilters button")) {
   button.addEventListener("click", () => {
@@ -1120,8 +1265,12 @@ $("#analysisDownload").addEventListener("click", event => {
 let analysisPane = "items";
 let editedKey = null;
 
-function showAnalysisPane(name) {
+function showAnalysisPane(name, {push = true} = {}) {
   analysisPane = name;
+  if (push && currentSessionId !== null && !applyingRoute) {
+    const target = routeFor("analysis", currentSessionId, name);
+    if (location.hash !== target) location.replace(target);
+  }
   for (const button of document.querySelectorAll("#analysisTabs button")) {
     button.classList.toggle("active", button.dataset.pane === name);
   }
@@ -1185,9 +1334,11 @@ function reviewProblems(report) {
 
 function renderAnalysisReview(report) {
   const rows = reviewProblems(report);
-  const badge = $("#reviewBadge");
-  badge.textContent = rows.length;
-  badge.classList.toggle("hidden", rows.length === 0);
+  for (const id of ["#reviewBadge", "#tabReviewBadge", "#contextReviewBadge"]) {
+    const badge = $(id);
+    badge.textContent = rows.length;
+    badge.classList.toggle("hidden", rows.length === 0);
+  }
   $("#reviewEmpty").classList.toggle("hidden", rows.length > 0);
   $("#reviewWrap").classList.toggle("hidden", rows.length === 0);
   $("#applyReviewButton").disabled = rows.length === 0;
@@ -1897,11 +2048,9 @@ $("#paperAgainButton").addEventListener("click", async () => {
 });
 
 $("#paperOpenAnalysis").addEventListener("click", async () => {
-  const sessionId = $("#paperOpenAnalysis").dataset.session;
-  showView("analysis");
-  await loadAnalysisSessions();
-  $("#analysisSession").value = sessionId;
-  $("#analysisSession").dispatchEvent(new Event("change"));
+  const sessionId = Number($("#paperOpenAnalysis").dataset.session);
+  await selectSession(sessionId, {silent: true});
+  navigate("analysis", {id: sessionId});
 });
 
 function renderUpdateSettings(settings) {
@@ -1949,6 +2098,9 @@ async function start() {
   await refresh();
   refreshTimer = setInterval(refresh, 750);
   loadConnection().catch(() => {});
+  // A reload, a bookmark, or the back button all land here.
+  if (!location.hash) location.replace(routeFor("scan"));
+  await applyRoute();
 }
 
 start();

@@ -166,6 +166,20 @@ that jammed afterwards; it was never recorded.
 The test name, class, form length and matching mode are remembered between
 launches.
 
+### Moving around
+
+The address bar is the app's memory of where you are, so Back and Forward work
+and a view can be linked to or bookmarked:
+
+    #/scan   #/paper   #/classes   #/settings
+    #/sessions        #/sessions/5
+    #/analysis        #/analysis/5        #/analysis/5/review
+
+A test is chosen once. Open it under **Sessions** and it is already loaded
+under **Analysis**, and the other way round. A green bar under the tabs says
+which test you are working on and jumps between its sheets and its analysis;
+it stays put while you scroll a long table. **Clear** puts it down again.
+
 ### Correcting a sheet
 
 The **Review** tab lists every sheet that could not be read cleanly. Each row

@@ -99,6 +99,19 @@ the app without rebuilding it, and the `/Applications` symlink created by
 brew update-python-resources datalink-scanner
 ```
 
+## The Keychain helper
+
+`packaging/keychain_helper.c` is compiled and signed into
+`Contents/Helpers/keychain-helper` by the build. It exists because macOS
+records which program may read a Keychain item by file path and notices when
+the bytes there change, so a bundle that is re-signed every build can never
+stay trusted. The app copies it once to
+`~/Library/Application Support/DataLink Scanner/runtime/keychain-helper-native`
+and leaves it alone after that, so an update does not cost a password prompt.
+
+It needs no toolchain beyond the command line tools. If `clang` is missing the
+build fails loudly rather than shipping an app without it.
+
 ## The DMG and which macOS it runs on
 
 Whatever Python builds the disk image is bundled into it, and a framework

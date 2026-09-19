@@ -34,11 +34,97 @@ class HelperLocationTests(unittest.TestCase):
         # The whole point: no version number anywhere in the path.
         self.assertNotIn("Cellar", str(helper))
 
-    def test_a_frozen_build_has_no_helper_to_make(self):
-        # Its sys.executable is the app itself, and it already lives at a path
-        # the user chose, which does not move.
+    def test_a_frozen_build_copies_no_interpreter(self):
+        # Its sys.executable is the app itself; running that would open a
+        # second window rather than answer a question.
         with mock.patch.object(sys, "frozen", True, create=True):
             self.assertIsNone(keychain._interpreter())
+
+
+class FrozenHelperTests(unittest.TestCase):
+    """The .app carries a compiled helper, because it has no interpreter.
+
+    Without one it read the Keychain as itself, and since the bundle is
+    re-signed on every build and replaced by every update, that cost a
+    password prompt each time.
+    """
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        patch = mock.patch.dict(
+            os.environ, {"DATALINK_KEYCHAIN_HELPER_DIR": self.temporary.name}
+        )
+        patch.start()
+        self.addCleanup(patch.stop)
+        # A stand-in for the compiled helper inside Contents/Helpers.
+        self.bundle = Path(self.temporary.name) / "App.app" / "Contents"
+        (self.bundle / "MacOS").mkdir(parents=True)
+        (self.bundle / "Helpers").mkdir()
+        self.bundled = self.bundle / "Helpers" / keychain.HELPER_NAME
+        self.bundled.write_bytes(b"#!/bin/sh\nexit 0\n")
+        self.bundled.chmod(0o755)
+
+    def as_frozen(self):
+        return mock.patch.multiple(
+            sys,
+            frozen=True,
+            executable=str(self.bundle / "MacOS" / "App"),
+            create=True,
+        )
+
+    def test_the_bundled_helper_is_what_gets_copied(self):
+        with self.as_frozen():
+            source, kind = keychain._helper_source()
+        self.assertEqual(kind, "native")
+        # resolve(): macOS puts temporary directories under /var, which is a
+        # symlink to /private/var, and the lookup resolves sys.executable.
+        self.assertEqual(source, self.bundled.resolve())
+
+    def test_it_lands_beside_the_other_helper_under_its_own_name(self):
+        # Both builds share one directory. If they shared one filename they
+        # would overwrite each other, and each overwrite is a prompt.
+        self.assertNotEqual(keychain.helper_path("native"), keychain.helper_path())
+        self.assertEqual(
+            keychain.helper_path("native").name, keychain.NATIVE_HELPER_NAME
+        )
+
+    def test_the_copy_is_made_once_and_then_left_alone(self):
+        with self.as_frozen():
+            first = keychain.ensure_helper()
+            self.assertIsNotNone(first)
+            self.assertEqual(first, keychain.helper_path("native"))
+            stamped = first.stat().st_mtime_ns
+            keychain.ensure_helper()
+        self.assertEqual(first.stat().st_mtime_ns, stamped)
+
+    def test_a_bundle_without_the_helper_falls_back(self):
+        self.bundled.unlink()
+        with self.as_frozen():
+            self.assertIsNone(keychain.ensure_helper())
+
+    def test_a_read_returns_what_the_helper_printed(self):
+        self.assertEqual(
+            keychain._read_native_reply("ok\ntoken-value", "get"),
+            {"value": "token-value"},
+        )
+
+    def test_an_empty_stored_value_is_not_mistaken_for_success(self):
+        self.assertEqual(keychain._read_native_reply("ok\n", "get"), {"value": ""})
+        self.assertEqual(keychain._read_native_reply("ok\n", "set"), {"value": True})
+
+    def test_nothing_stored_reads_as_nothing(self):
+        self.assertEqual(keychain._read_native_reply("none\n", "get"), {"value": None})
+        self.assertEqual(
+            keychain._read_native_reply("none\n", "delete"), {"value": False}
+        )
+
+    def test_a_keychain_refusal_is_surfaced_not_swallowed(self):
+        answer = keychain._read_native_reply("err\nKeychain error -25293\n", "get")
+        self.assertIn("-25293", answer["error"])
+
+    def test_unparseable_output_is_rejected(self):
+        self.assertIsNone(keychain._read_native_reply("what?\n", "get"))
 
     def test_the_real_binary_is_copied_rather_than_the_stub(self):
         # bin/python3.x re-execs the binary inside Python.app, and it is the

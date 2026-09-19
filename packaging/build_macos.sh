@@ -29,6 +29,9 @@ case "$ARCH" in
   *) ARCH_LABEL="$ARCH" ;;
 esac
 DMG_PATH="$DIST_DIR/DataLink-Scanner-macOS-$ARCH_LABEL.dmg"
+# The oldest macOS this build may require. Used both to compile the Keychain
+# helper and, below, to refuse a bundle that asks for something newer.
+OLDEST_SUPPORTED="${DATALINK_MIN_MACOS:-13.0}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Missing Python environment: $PYTHON_BIN"
@@ -87,6 +90,15 @@ for key in CFBundleShortVersionString CFBundleVersion; do
     || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$INFO_PLIST"
 done
 
+# The Keychain records which program may read an item by file path, and
+# notices when the bytes there change — so the .app itself can never stay
+# trusted across an update. This little program is copied out to a fixed path
+# on first use and trusted once. See packaging/keychain_helper.c.
+KEYCHAIN_HELPER="$DIST_DIR/$APP_NAME.app/Contents/Helpers/keychain-helper"
+/bin/mkdir -p "$(/usr/bin/dirname "$KEYCHAIN_HELPER")"
+/usr/bin/clang -arch "$ARCH" -mmacosx-version-min="$OLDEST_SUPPORTED" -O2   -Wall -Wno-deprecated-declarations   -framework Security -framework CoreFoundation   -o "$KEYCHAIN_HELPER" "$PACKAGING_DIR/keychain_helper.c"
+/usr/bin/codesign --force --sign - "$KEYCHAIN_HELPER"
+
 # The paper pipeline shells out to pdftoppm and pdfinfo. A Mac that cannot
 # install Homebrew has neither, so they travel inside the bundle — and they
 # have to come from a build that runs on more than the newest macOS, which
@@ -101,7 +113,6 @@ fi
 # difference between finding out now and a teacher finding out on launch.
 # OpenCV's wheel is built for macOS 13, which sets the floor for the whole
 # bundle now that paper scanning ships inside it.
-OLDEST_SUPPORTED="${DATALINK_MIN_MACOS:-13.0}"
 HIGHEST=$(/usr/bin/find "$DIST_DIR/$APP_NAME.app/Contents" -type f \
     \( -name "*.so" -o -name "*.dylib" -o -name "Python" \) \
     -exec /usr/bin/otool -l {} \; 2>/dev/null \

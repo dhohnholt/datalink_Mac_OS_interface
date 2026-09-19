@@ -15,6 +15,14 @@ The teacher was therefore asked for their login password after every update.
 A 33 KB copy of the interpreter living at a path that does not change is
 trusted once and stays trusted. The token travels to it down a pipe, never as
 an argument.
+
+The frozen .app has the same problem for a different reason — it is re-signed
+on every build and replaced wholesale by every update — and no interpreter to
+copy, because the Python inside it is a shared library rather than an
+executable. It carries a 51 KB compiled helper instead, built from
+``packaging/keychain_helper.c``, which is copied to the same fixed directory
+under its own name. Both can be installed on one Mac without disturbing each
+other's trust.
 """
 
 from __future__ import annotations
@@ -154,6 +162,12 @@ def _delete_here(service: str, account: str) -> bool:
 # ------------------------------------------------------------ the helper
 
 HELPER_NAME = "keychain-helper"
+# The frozen .app has no interpreter to copy — the Python inside it is a
+# shared library, not an executable — so it carries a small compiled helper
+# instead. It gets its own name: a Mac with both builds installed would
+# otherwise have them overwrite each other's copy at the shared path, and
+# every overwrite is another password prompt.
+NATIVE_HELPER_NAME = "keychain-helper-native"
 HELPER_FLAG = "--keychain-helper"
 HELPER_TIMEOUT_SECONDS = 120.0
 
@@ -167,16 +181,38 @@ def support_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "DataLink Scanner" / "runtime"
 
 
-def helper_path() -> Path:
-    return support_dir() / HELPER_NAME
+def helper_path(kind: str = "python") -> Path:
+    return support_dir() / (NATIVE_HELPER_NAME if kind == "native" else HELPER_NAME)
+
+
+def _bundled_native_helper() -> Path | None:
+    """The compiled helper the frozen .app carries, in Contents/Helpers."""
+    if not getattr(sys, "frozen", False):
+        return None
+    bundled = (
+        Path(sys.executable).resolve().parent.parent / "Helpers" / HELPER_NAME
+    )
+    return bundled if bundled.is_file() else None
+
+
+def _helper_source() -> tuple[Path | None, str]:
+    """What to copy to the fixed path, and which kind of helper it is.
+
+    A frozen build carries a compiled one; everything else copies the running
+    interpreter. Both end up as a small binary at a path that survives
+    updates, which is the only thing the Keychain cares about.
+    """
+    if getattr(sys, "frozen", False):
+        return _bundled_native_helper(), "native"
+    return _interpreter(), "python"
 
 
 def _interpreter() -> Path | None:
     """The interpreter to copy, when there is a sensible one to copy.
 
     A PyInstaller build's sys.executable is the app itself; copying that would
-    start a second app rather than run a script. Such a build also lives at a
-    path the user chose and does not move, so it has no problem to solve.
+    start a second app rather than run a script, so a frozen build uses the
+    compiled helper from its own bundle instead — see _helper_source.
     """
     if getattr(sys, "frozen", False):
         return None
@@ -207,10 +243,10 @@ def ensure_helper(rebuild: bool = False) -> Path | None:
     their password again. `rebuild` is for the one case that matters: the
     helper stopped working, which _ask_helper notices by trying to use it.
     """
-    source = _interpreter()
+    source, kind = _helper_source()
     if source is None:
         return None
-    destination = helper_path()
+    destination = helper_path(kind)
     # Re-signing changes the bytes, so the copy never matches its source and
     # comparing the two directly would rebuild the helper on every call — and
     # every rebuild is another file for the Keychain to be unsure about. The
@@ -235,8 +271,10 @@ def ensure_helper(rebuild: bool = False) -> Path | None:
         shutil.copy2(source, staged)
         staged.chmod(0o755)
         # Order matters: rewriting the load command invalidates any signature,
-        # so it happens before signing, not after.
-        _pin_to_stable_framework(staged)
+        # so it happens before signing, not after. The compiled helper links
+        # only against system frameworks, so it has nothing to repoint.
+        if kind == "python":
+            _pin_to_stable_framework(staged)
         _resign(staged)
         staged.replace(destination)
         stamp.write_text(digest)
@@ -313,27 +351,70 @@ def _ask_helper(request: dict) -> dict | None:
     # copy — would otherwise send every call back to asking in-process, which
     # is a password prompt each time. Trying it is how that gets noticed, so a
     # failure earns exactly one rebuild and one retry.
+    native = getattr(sys, "frozen", False)
     for rebuild in (False, True):
         helper = ensure_helper(rebuild=rebuild)
         if helper is None:
             return None
+        # A compiled helper cannot import this module, so it speaks a plain
+        # line protocol instead of JSON. Either way the secret goes down
+        # stdin and never appears in `ps`.
+        command = (
+            [str(helper)] if native
+            else [str(helper), str(Path(__file__).resolve()), HELPER_FLAG]
+        )
+        payload = (
+            "\n".join([
+                str(request.get("action") or ""),
+                str(request.get("service") or ""),
+                str(request.get("account") or ""),
+            ]) + "\n" + str(request.get("password") or "")
+            if native else json.dumps(request)
+        )
         try:
             finished = subprocess.run(
-                [str(helper), str(Path(__file__).resolve()), HELPER_FLAG],
-                # The secret goes down stdin, so it never appears in `ps`.
-                input=json.dumps(request),
+                command,
+                input=payload,
                 capture_output=True,
                 text=True,
                 timeout=HELPER_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.SubprocessError):
             continue
-        if finished.returncode != 0 or not finished.stdout.strip():
+        if not native and finished.returncode != 0:
             continue
+        if not finished.stdout:
+            continue
+        if native:
+            answer = _read_native_reply(
+                finished.stdout, str(request.get("action") or "")
+            )
+            if answer is None:
+                continue
+            return answer
         try:
             return json.loads(finished.stdout)
         except ValueError:
             return None
+    return None
+
+
+def _read_native_reply(output: str, action: str) -> dict | None:
+    """Turn the compiled helper's answer into the shape callers expect.
+
+    "ok" means different things depending on what was asked: the stored value
+    for a read, and simply "done" for a write or a delete. Reading a token
+    that happens to be empty must not come back as True.
+    """
+    status, _, body = output.partition("\n")
+    status = status.strip()
+    if status == "ok":
+        return {"value": body if action == "get" else True}
+    if status == "none":
+        # Nothing stored, or nothing to delete.
+        return {"value": None if action == "get" else False}
+    if status == "err":
+        return {"error": body.strip() or "The Keychain refused the request"}
     return None
 
 

@@ -143,5 +143,14 @@ fi
   -format UDZO \
   "$DMG_PATH"
 
-echo "Built app: $DIST_DIR/$APP_NAME.app"
+# The loose .app existed only to be copied into the disk image, and leaving it
+# behind is not free: macOS registers every bundle it finds, so the build
+# output showed up beside the installed app in Launchpad and the Dock as a
+# second, identical DataLink Scanner. Worse, it is re-signed ad-hoc on every
+# build, so launching that copy asks for the Keychain password every time.
+# The .dmg is the artefact worth keeping; unpack it if the bundle is wanted.
+# "$DIST_DIR/$APP_NAME" is PyInstaller's intermediate COLLECT folder — 179 MB
+# that is already inside the bundle, and inside the image after that.
+/bin/rm -rf "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/$APP_NAME" "$DMG_ROOT"
+
 echo "Built installer: $DMG_PATH"

@@ -144,10 +144,15 @@ different engine changed 2 of 450 responses. With conda-forge's build the disk
 image scored a real batch identically to the Homebrew install — 0 of 450
 responses different, same scores, same item statistics.
 
-Check a finished build with:
+Check a finished build by mounting the disk image — the loose `.app` is
+deleted once the `.dmg` is written, because macOS registers every bundle it
+finds and a copy sitting in `dist/` shows up in Launchpad beside the installed
+app:
 
 ```bash
-otool -l "dist/DataLink Scanner.app/Contents/Frameworks/Python.framework/Versions/*/Python" | grep minos
+hdiutil attach -nobrowse -mountpoint /tmp/dl "dist/DataLink-Scanner-macOS-Apple-Silicon.dmg"
+otool -l "/tmp/dl/DataLink Scanner.app/Contents/Frameworks/Python.framework/Versions/"*/Python | grep minos
+hdiutil detach /tmp/dl
 ```
 
 ## The DMG

@@ -335,3 +335,74 @@ class StorageTests(unittest.TestCase):
         self.store.add_scan(session_id, self.scan(1))
         self.assertFalse(self.store.update_scan(session_id, 1))
         self.addCleanup(self.store.close)
+
+
+class NameMissingStudentsTests(unittest.TestCase):
+    """A roster imported after a batch was filed still names its students."""
+
+    def setUp(self):
+        self.store = Store(":memory:")
+        self.addCleanup(self.store.close)
+
+    def session_with_sheets(self, class_name="Period 4"):
+        session_id = self.store.create_session("Unit 1", class_name, 3)
+        self.store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                         "answered_count": 3, "responses": ["A", "B", "C"]})
+        self.store.add_scan(session_id, {"number": 2, "role": "student",
+                                         "student_id": "566940", "student_name": None,
+                                         "received_at": "x", "answered_count": 3,
+                                         "responses": ["A", "B", "C"]})
+        return session_id
+
+    def named(self, session_id, number):
+        return next(s for s in self.store.session_scans(session_id)
+                    if s["number"] == number)["student_name"]
+
+    def test_a_roster_imported_afterwards_still_names_the_sheets(self):
+        session_id = self.session_with_sheets()
+        self.assertIsNone(self.named(session_id, 2))
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+        self.assertEqual(self.store.name_missing_students(session_id), 1)
+        self.assertEqual(self.named(session_id, 2), "Ada Lovelace")
+
+    def test_running_it_again_changes_nothing(self):
+        session_id = self.session_with_sheets()
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+        self.store.name_missing_students(session_id)
+        self.assertEqual(self.store.name_missing_students(session_id), 0)
+
+    def test_a_name_already_there_is_left_alone(self):
+        session_id = self.store.create_session("Unit 1", "Period 4", 3)
+        self.store.add_scan(session_id, {"number": 2, "role": "student",
+                                         "student_id": "566940",
+                                         "student_name": "Called Something Else",
+                                         "received_at": "x", "answered_count": 3,
+                                         "responses": ["A", "B", "C"]})
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+        self.assertEqual(self.store.name_missing_students(session_id), 0)
+        self.assertEqual(self.named(session_id, 2), "Called Something Else")
+
+    def test_leading_zeros_on_a_typed_roster_still_match(self):
+        session_id = self.session_with_sheets()
+        self.store.save_class("Period 4", [{"id": "0566940", "name": "Ada Lovelace"}])
+        self.assertEqual(self.store.name_missing_students(session_id), 1)
+
+    def test_an_id_the_roster_does_not_have_stays_unnamed(self):
+        session_id = self.session_with_sheets()
+        self.store.save_class("Period 4", [{"id": "999999", "name": "Someone Else"}])
+        self.assertEqual(self.store.name_missing_students(session_id), 0)
+        self.assertIsNone(self.named(session_id, 2))
+
+    def test_a_session_with_no_class_is_left_alone(self):
+        session_id = self.session_with_sheets(class_name="")
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+        self.assertEqual(self.store.name_missing_students(session_id), 0)
+
+    def test_the_answer_key_is_never_given_a_name(self):
+        session_id = self.store.create_session("Unit 1", "Period 4", 3)
+        self.store.add_scan(session_id, {"number": 1, "role": "key",
+                                         "student_id": "566940", "student_name": None,
+                                         "received_at": "x", "answered_count": 3,
+                                         "responses": ["A", "B", "C"]})
+        self.store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+        self.assertEqual(self.store.name_missing_students(session_id), 0)

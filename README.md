@@ -172,7 +172,13 @@ The **Review** tab lists every sheet that could not be read cleanly. Each row
 carries the student ID and the name, both editable, so a sheet whose ID grid
 was left blank or read wrong can be put right there and the analysis rescored.
 Typing an ID fills the name from the roster the test was scanned against — and
-leaves a name you typed yourself alone.
+leaves a name you typed yourself alone. Where the ID is one the roster does not
+have, the name is a dropdown of the class instead: picking a student says the
+sheet is theirs and takes their roster ID with it.
+
+Names are looked up again every time a session is opened, scored or exported,
+not only when it was filed. A roster imported or corrected after a batch was
+read therefore reaches the sheets already saved.
 
 For a batch read from a PDF, the sheet number opens the page it was read from,
 so the printed name can be read off the paper while it is being typed in. A

@@ -1213,11 +1213,7 @@ function renderAnalysisReview(report) {
                 class="cell-input" data-edit="student_id" data-sheet="${row.sheet}"
                 value="${escapeHtml(idValue)}">`
       : "";
-    const named = owns
-      ? `<input type="text" placeholder="Student name"
-                class="cell-input" data-edit="student_name" data-sheet="${row.sheet}"
-                value="${escapeHtml(student.student_name || "")}">`
-      : "";
+    const named = owns ? nameControl(report.class_name, student, row.sheet) : "";
     const control = row.kind === "note"
       ? "—"
       : row.kind === "student_id"
@@ -1239,6 +1235,9 @@ function renderAnalysisReview(report) {
 
   for (const button of document.querySelectorAll("#reviewRows [data-sheet-view]")) {
     button.addEventListener("click", () => showSheet(Number(button.dataset.sheetView)));
+  }
+  for (const select of document.querySelectorAll("#reviewRows [data-pick]")) {
+    select.addEventListener("change", () => chooseStudent(select, report.class_name));
   }
   for (const field of document.querySelectorAll('#reviewRows [data-edit="student_id"]')) {
     // While the digits are still going in, a half-typed ID is not yet a
@@ -1264,12 +1263,21 @@ function fillNameFromRoster(idField, className, announce = false) {
   const ours = nameField.dataset.fromRoster === "1";
   if (nameField.value.trim() && !ours) return;
 
+  const picker = row.querySelector("[data-pick]");
   const match = list.find(student => sameStudentId(student.id, idField.value));
   if (match) {
     nameField.value = match.name;
     nameField.dataset.fromRoster = "1";
     nameField.placeholder = "Student name";
+    if (picker) {
+      picker.value = String(match.id);
+      nameField.classList.add("hidden");
+    }
     return;
+  }
+  if (picker) {
+    picker.value = "";
+    nameField.classList.remove("hidden");
   }
   if (ours) {
     nameField.value = "";
@@ -1278,6 +1286,48 @@ function fillNameFromRoster(idField, className, announce = false) {
   nameField.placeholder = announce && className && idField.value.trim()
     ? `Not on ${className} — type the name`
     : "Student name";
+}
+
+function nameControl(className, student, sheet) {
+  // With a roster, the name is a choice from the class rather than something
+  // to retype: an ID the reader got wrong cannot be looked up, and the
+  // teacher knows who the sheet belongs to by looking at it.
+  const list = (classes.find(item => item.name === className) || {}).students || [];
+  const chosen = list.find(entry => entry.name === student.student_name);
+  // The box is what gets saved, so it is always there — but while a roster
+  // student is chosen it would only repeat the dropdown, so it is kept out of
+  // the way until the answer is someone the roster does not have.
+  const input = `<input type="text" placeholder="Student name"
+            class="cell-input ${list.length && chosen ? "hidden" : ""}"
+            data-edit="student_name" data-sheet="${sheet}"
+            value="${escapeHtml(student.student_name || "")}">`;
+  if (!list.length) return input;
+  const options = list.map(entry =>
+    `<option value="${escapeHtml(entry.id)}" ${chosen === entry ? "selected" : ""}>${escapeHtml(entry.name)}</option>`
+  ).join("");
+  return `<div class="name-cell"><select class="cell-input" data-pick="student" data-sheet="${sheet}">
+      <option value="">${student.student_name ? escapeHtml(student.student_name) + " \u2014 not on this roster" : "Choose a student\u2026"}</option>
+      ${options}
+    </select>${input}</div>`;
+}
+
+// Picking a student says this sheet is theirs, so it takes their roster ID
+// with it. The ID box changes in view and nothing is saved until Apply.
+function chooseStudent(select, className) {
+  const row = select.closest("tr");
+  const nameField = row?.querySelector('[data-edit="student_name"]');
+  const idField = row?.querySelector('[data-edit="student_id"]');
+  if (!nameField || !idField) return;
+  const list = (classes.find(item => item.name === className) || {}).students || [];
+  const student = list.find(entry => String(entry.id) === select.value);
+  nameField.classList.toggle("hidden", Boolean(student));
+  if (!student) {
+    nameField.focus();
+    return;
+  }
+  nameField.value = student.name;
+  nameField.dataset.fromRoster = "1";
+  if (!sameStudentId(idField.value, student.id)) idField.value = student.id;
 }
 
 function showSheet(sheet) {

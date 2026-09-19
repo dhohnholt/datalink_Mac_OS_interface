@@ -363,3 +363,8 @@ td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }
   border-radius: 12px; background: #f3f5f4;
 }
 .sheet-view img { display: block; width: 100%; height: auto; }
+
+/* The name cell offers the roster and the typed name together: the dropdown
+   fills the box, and the box is what gets saved. */
+.name-cell { display: grid; gap: 6px; }
+.name-cell select { background: #fff; }

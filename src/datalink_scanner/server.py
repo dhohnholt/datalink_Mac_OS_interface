@@ -70,6 +70,10 @@ def scored_session(store: Store, session_id: int) -> tuple[dict, dict]:
     session = store.session(session_id)
     if session is None:
         raise AnalysisError("No such session")
+    # A roster imported or corrected after a batch was filed still names its
+    # students. Names do not enter the fingerprint, so this cannot invalidate
+    # a run_id on its own.
+    store.name_missing_students(session_id)
     scans = store.session_scans(session_id)
     fingerprint = scan_fingerprint(session, scans)
     run_id = session.get("analysis_run_id")
@@ -825,6 +829,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             if session is None:
                 self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                 return
+            self.store.name_missing_students(session_id)
             body = records_to_csv(
                 self.store.session_scans(session_id),
                 session["class_name"],
@@ -838,6 +843,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             if session is None:
                 self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                 return
+            self.store.name_missing_students(session_id)
             scans = self.store.session_scans(session_id)
             session["scans"] = scans
             # The browser only needs to know whether a sheet can be looked at,
@@ -1052,6 +1058,8 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                         responses=responses,
                     ):
                         applied += 1
+                # A corrected ID may be one the roster can name.
+                self.store.name_missing_students(session_id)
                 scans = self.store.session_scans(session_id)
                 payload = {"applied": applied}
                 try:

@@ -70,6 +70,11 @@ CREATE INDEX IF NOT EXISTS students_by_class ON students(class_id, position);
 """
 
 
+def _bare_id(value: object) -> str:
+    """A student ID with the leading zeros a hand-typed roster can carry."""
+    return str(value or "").strip().lstrip("0")
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -390,6 +395,54 @@ class Store:
                 (session_id,),
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def name_missing_students(self, session_id: int) -> int:
+        """Fill in names the roster knows, for sheets that have an ID but none.
+
+        A name used to be looked up once, as a batch was filed, and never
+        again. A roster imported or corrected afterwards therefore never
+        reached the sheets already on disk, and they stayed as a bare ID on
+        every screen. Looking again each time a session is opened or scored
+        costs nothing and cannot go stale.
+        """
+        session = self.session(session_id)
+        if session is None or not session.get("class_name"):
+            return 0
+        entry = self.get_class(session["class_name"])
+        if entry is None:
+            return 0
+        # Matched the way the scan path matches: a roster typed by hand can
+        # carry leading zeros that a bubbled ID does not.
+        by_id = {
+            _bare_id(student.get("id")): student.get("name") or ""
+            for student in entry.get("students") or []
+            if _bare_id(student.get("id"))
+        }
+        if not by_id:
+            return 0
+
+        filled = 0
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT number, student_id FROM scans "
+                "WHERE session_id = ? AND role != 'key' "
+                "AND student_id IS NOT NULL AND student_id != '' "
+                "AND (student_name IS NULL OR student_name = '')",
+                (session_id,),
+            ).fetchall()
+            for row in rows:
+                name = by_id.get(_bare_id(row["student_id"]))
+                if not name:
+                    continue
+                self._connection.execute(
+                    "UPDATE scans SET student_name = ? "
+                    "WHERE session_id = ? AND number = ?",
+                    (name, session_id, row["number"]),
+                )
+                filled += 1
+            if filled:
+                self._connection.commit()
+        return filled
 
     def session_scans(self, session_id: int) -> list[dict]:
         with self._lock:

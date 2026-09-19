@@ -281,6 +281,25 @@ class HttpApiTests(unittest.TestCase):
         self.assertNotIn("class_name", download)
         self.assertNotIn("has_pages", download)
 
+    def test_opening_a_session_names_students_the_roster_learned_later(self):
+        # The one that bit us: a batch filed before its roster existed kept
+        # showing a bare ID on Student scores for good.
+        store = self.controller_store()
+        session_id = store.create_session("Unit 6", "Period 4", 3)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        store.add_scan(session_id, {"number": 2, "role": "student", "student_id": "566940",
+                                    "student_name": None, "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        store.save_class("Period 4", [{"id": "566940", "name": "Ada Lovelace"}])
+
+        detail = self.get(f"/api/sessions/{session_id}")
+        sheet = next(s for s in detail["scans"] if s["number"] == 2)
+        self.assertEqual(sheet["student_name"], "Ada Lovelace")
+
+        report = self.get(f"/api/sessions/{session_id}/analysis")
+        self.assertEqual(report["students"][0]["student_name"], "Ada Lovelace")
+
     def test_a_datalink_session_offers_no_sheet_images(self):
         # The scanner sends letters, never a picture, so there is nothing to
         # show and the Review tab must not offer a link to it.

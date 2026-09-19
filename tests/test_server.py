@@ -333,6 +333,85 @@ class HttpApiTests(unittest.TestCase):
         report = self.get(f"/api/sessions/{session_id}/analysis")
         self.assertEqual(report["students"][0]["student_name"], "Ada Lovelace")
 
+    def flagged_session(self):
+        store = self.controller_store()
+        session_id = store.create_session("Unit 7", "P4", 3)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        store.add_scan(session_id, {"number": 2, "role": "student", "student_id": None,
+                                    "received_at": "x", "answered_count": 3,
+                                    "responses": ["A", "AB", "C"]})
+        return session_id
+
+    def test_a_checked_item_stops_being_reported(self):
+        session_id = self.flagged_session()
+        before = self.get(f"/api/sessions/{session_id}/analysis")
+        self.assertEqual(len(before["review_items"]), 2)
+        self.assertEqual(before["dismissed_count"], 0)
+
+        result = self.post("/api/sessions/review/dismiss", {
+            "session_id": session_id, "items": ["2:answer:2:multiple"],
+        })
+        self.assertEqual(result["dismissed"], 1)
+
+        after = self.get(f"/api/sessions/{session_id}/analysis")
+        self.assertEqual(len(after["review_items"]), 1)
+        self.assertEqual(after["dismissed_count"], 1)
+
+    def test_checking_items_off_is_a_complete_answer_on_its_own(self):
+        # "Keep as read" on every row used to mean the press did nothing and
+        # the warnings came straight back.
+        session_id = self.flagged_session()
+        result = self.post("/api/sessions/correct", {
+            "session_id": session_id,
+            "corrections": [],
+            "dismiss": ["2:answer:2:multiple", "2:student_id:0:"],
+        })
+        self.assertEqual(result["applied"], 0)
+        self.assertEqual(result["dismissed"], 2)
+        self.assertEqual(result["analysis"]["review_items"], [])
+
+    def test_a_correction_with_nothing_to_do_is_still_refused(self):
+        session_id = self.flagged_session()
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/sessions/correct", {
+                "session_id": session_id, "corrections": [], "dismiss": [],
+            })
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_the_uploaded_report_leaves_out_checked_items_too(self):
+        # What the teacher settled must not be sent to the website as an
+        # outstanding warning.
+        session_id = self.flagged_session()
+        self.post("/api/sessions/review/dismiss", {
+            "session_id": session_id, "items": ["2:answer:2:multiple"],
+        })
+        with urllib.request.urlopen(
+            self.base + f"/api/sessions/{session_id}/analysis.json", timeout=5
+        ) as response:
+            payload = json.loads(response.read())
+        self.assertEqual(len(payload["review_items"]), 1)
+        # …and the schema the website reads is not widened by any of this.
+        self.assertNotIn("dismissed_count", payload)
+
+    def test_they_can_all_be_brought_back(self):
+        session_id = self.flagged_session()
+        self.post("/api/sessions/review/dismiss", {
+            "session_id": session_id,
+            "items": ["2:answer:2:multiple", "2:student_id:0:"],
+        })
+        restored = self.post("/api/sessions/review/restore", {"session_id": session_id})
+        self.assertEqual(restored["restored"], 2)
+        self.assertEqual(
+            len(self.get(f"/api/sessions/{session_id}/analysis")["review_items"]), 2
+        )
+
+    def test_checking_off_on_a_session_that_is_gone_is_refused(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/sessions/review/dismiss",
+                      {"session_id": 99999, "items": ["1:answer:1:faint"]})
+        self.assertEqual(caught.exception.code, 404)
+
     def test_a_datalink_session_offers_no_sheet_images(self):
         # The scanner sends letters, never a picture, so there is nothing to
         # show and the Review tab must not offer a link to it.

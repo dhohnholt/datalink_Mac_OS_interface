@@ -473,3 +473,43 @@ class PruneEmptySessionsTests(unittest.TestCase):
                                          "answered_count": 3, "responses": ["A", "B", "C"]})
         self.assertEqual(self.store.prune_empty_sessions(session_id), 0)
         self.assertIsNotNone(self.store.session(session_id))
+
+
+class ReviewDismissalTests(unittest.TestCase):
+    """A decision about a review item has to outlive the next scoring run."""
+
+    def setUp(self):
+        self.store = Store(":memory:")
+        self.addCleanup(self.store.close)
+        self.session_id = self.store.create_session("Unit 1", "P4", 3)
+
+    def test_nothing_is_settled_to_begin_with(self):
+        self.assertEqual(self.store.dismissed_reviews(self.session_id), set())
+
+    def test_settling_the_same_item_twice_counts_once(self):
+        self.assertEqual(
+            self.store.dismiss_reviews(self.session_id, ["6:answer:2:faint"]), 1
+        )
+        self.assertEqual(
+            self.store.dismiss_reviews(self.session_id, ["6:answer:2:faint"]), 0
+        )
+
+    def test_blank_keys_are_ignored(self):
+        self.assertEqual(self.store.dismiss_reviews(self.session_id, ["", "  "]), 0)
+
+    def test_one_session_does_not_settle_another(self):
+        other = self.store.create_session("Unit 2", "P4", 3)
+        self.store.dismiss_reviews(self.session_id, ["6:answer:2:faint"])
+        self.assertEqual(self.store.dismissed_reviews(other), set())
+
+    def test_restoring_brings_them_all_back(self):
+        self.store.dismiss_reviews(
+            self.session_id, ["6:answer:2:faint", "9:answer:14:faint"]
+        )
+        self.assertEqual(self.store.restore_reviews(self.session_id), 2)
+        self.assertEqual(self.store.dismissed_reviews(self.session_id), set())
+
+    def test_deleting_the_session_takes_its_decisions_with_it(self):
+        self.store.dismiss_reviews(self.session_id, ["6:answer:2:faint"])
+        self.store.delete_sessions([self.session_id])
+        self.assertEqual(self.store.dismissed_reviews(self.session_id), set())

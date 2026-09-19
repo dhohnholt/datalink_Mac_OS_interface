@@ -166,6 +166,20 @@ that jammed afterwards; it was never recorded.
 The test name, class, form length and matching mode are remembered between
 launches.
 
+### Clearing the review list
+
+A warning is worked out from the marks every time a test is scored, so leaving
+a row on **Keep as read** never made it go away. Tick **Checked** on anything
+you have looked at and are happy with, then **Apply corrections** — those rows
+go for good, and the count on the tab drops with them. Changing an answer
+counts as checking it: having decided what a mark says, you are not asking to
+be warned about it again.
+
+**Mark all checked** ticks the lot, for a list you have been through on paper.
+Anything checked off can be brought back with **Show them again**, and what
+you settled is left out of the report sent to T-TESS as well as the one on
+screen.
+
 ### Moving around
 
 The address bar is the app's memory of where you are, so Back and Forward work

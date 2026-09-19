@@ -462,21 +462,28 @@
               <h2>Review</h2>
               <p>Sheets the scanner could not read cleanly. Fixing one here updates the saved session and the analysis.</p>
             </div>
-            <button id="applyReviewButton" class="primary">Apply corrections</button>
+            <div class="button-row">
+              <button id="dismissAllButton" class="secondary" title="Tick every row as checked">Mark all checked</button>
+              <button id="applyReviewButton" class="primary">Apply corrections</button>
+            </div>
           </div>
           <div id="reviewEmpty" class="empty-state">
             <div class="sheet-icon">✓</div>
             <h3>Nothing to review</h3>
             <p>Every sheet in this test has a student ID and an unambiguous answer for each question.</p>
           </div>
+          <p id="reviewDismissedLine" class="safety hidden">
+            <span id="reviewDismissedCount"></span>
+            <button type="button" id="restoreReviewButton" class="link-button">Show them again</button>
+          </p>
           <div id="reviewWrap" class="hidden">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Sheet</th><th>Student ID</th><th>Name</th><th>Problem</th><th>Read as</th><th>Correction</th></tr></thead>
+                <thead><tr><th>Sheet</th><th>Student ID</th><th>Name</th><th>Problem</th><th>Read as</th><th>Correction</th><th>Checked</th></tr></thead>
                 <tbody id="reviewRows"></tbody>
               </table>
             </div>
-            <p class="safety">Leave a field as it is to keep a sheet unchanged. Where a batch was read from a PDF, the sheet number opens the scan so a name can be read off the paper.</p>
+            <p class="safety">Leave a field as it is to keep a sheet unchanged. Tick <strong>Checked</strong> for anything you have looked at and are happy with — applying clears it from the list for good. Changing an answer counts as checking it. Where a batch was read from a PDF, the sheet number opens the scan so a name can be read off the paper.</p>
           </div>
         </section>
 

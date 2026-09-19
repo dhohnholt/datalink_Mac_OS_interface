@@ -1287,6 +1287,11 @@ for (const button of document.querySelectorAll("#analysisTabs button")) {
 
 /* ------------------------------------------------------------------ review */
 
+// Must match review_key() in analysis.py: page, field, question, reason.
+function reviewKey(item) {
+  return [item.page, item.field, item.question || 0, item.reason || ""].join(":");
+}
+
 function reviewProblems(report) {
   // One row per thing a human has to decide, keyed to the sheet it came from.
   const bySheet = new Map(report.students.map(row => [row.page, row]));
@@ -1297,6 +1302,7 @@ function reviewProblems(report) {
       rows.push({
         sheet: item.page,
         student,
+        key: reviewKey(item),
         kind: "student_id",
         problem: "No student ID was read",
         read: student?.student_id_read || "—",
@@ -1310,6 +1316,7 @@ function reviewProblems(report) {
       rows.push({
         sheet: item.page,
         student,
+        key: reviewKey(item),
         kind: "answer",
         question: item.question,
         problem: faint
@@ -1323,6 +1330,7 @@ function reviewProblems(report) {
       rows.push({
         sheet: item.page,
         student,
+        key: reviewKey(item),
         kind: "note",
         problem: `Every mark on this sheet is light (${item.value} of them). Worth checking the sheet against the screen.`,
         read: "faint",
@@ -1342,6 +1350,13 @@ function renderAnalysisReview(report) {
   $("#reviewEmpty").classList.toggle("hidden", rows.length > 0);
   $("#reviewWrap").classList.toggle("hidden", rows.length === 0);
   $("#applyReviewButton").disabled = rows.length === 0;
+  $("#dismissAllButton").disabled = rows.length === 0;
+
+  // Settling an item hides it, so say so and offer the way back.
+  const settled = Number(report.dismissed_count || 0);
+  $("#reviewDismissedLine").classList.toggle("hidden", settled === 0);
+  $("#reviewDismissedCount").textContent =
+    `${settled} item${settled === 1 ? "" : "s"} checked off and hidden. `;
 
   // One sheet can raise several problems. Its ID and name are the sheet's, not
   // the problem's, so they are edited once and sent once however many rows it
@@ -1391,6 +1406,8 @@ function renderAnalysisReview(report) {
       <td>${escapeHtml(row.problem)}</td>
       <td><code>${escapeHtml(row.read)}</code></td>
       <td>${control}</td>
+      <td><input type="checkbox" class="review-check" data-done="${escapeHtml(row.key)}"
+                 aria-label="Checked — clear this from the list"></td>
     </tr>`;
   }).join("");
 
@@ -1507,6 +1524,27 @@ $("#sheetImage").addEventListener("error", () => {
   $("#sheetDialogNote").textContent = "That page is not in the cache any more. Read the batch again to bring the images back.";
 });
 
+$("#dismissAllButton").addEventListener("click", () => {
+  const boxes = [...document.querySelectorAll("#reviewRows .review-check")];
+  const turningOn = boxes.some(box => !box.checked);
+  for (const box of boxes) box.checked = turningOn;
+  $("#dismissAllButton").textContent = turningOn ? "Untick all" : "Mark all checked";
+});
+
+$("#restoreReviewButton").addEventListener("click", async () => {
+  const sessionId = $("#analysisSession").value;
+  try {
+    const result = await post("/api/sessions/review/restore", {
+      session_id: Number(sessionId),
+    });
+    toast(`Brought back ${result.restored} item(s)`);
+    await loadAnalysis(sessionId);
+    showAnalysisPane("review");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
 $("#applyReviewButton").addEventListener("click", async () => {
   if (!analysisReport) return;
   const sessionId = $("#analysisSession").value;
@@ -1535,6 +1573,15 @@ $("#applyReviewButton").addEventListener("click", async () => {
     bySheet.set(sheet, entry);
   }
 
+  // A row the teacher ticked is settled, and so is one whose answer they
+  // actually changed — having decided what it should say, they are not
+  // asking to be warned about it again.
+  const dismiss = new Set(
+    [...document.querySelectorAll("#reviewRows .review-check")]
+      .filter(box => box.checked)
+      .map(box => box.dataset.done)
+  );
+
   for (const field of document.querySelectorAll("#reviewRows [data-fix]")) {
     const value = field.value.trim();
     if (!value) continue;
@@ -1545,18 +1592,24 @@ $("#applyReviewButton").addEventListener("click", async () => {
     responses[Number(field.dataset.question) - 1] = value === "BLANK" ? "" : value;
     entry.responses = responses.map(r => (r === "BLANK" ? "" : r));
     bySheet.set(sheet, entry);
+    const row = field.closest("tr")?.querySelector(".review-check");
+    if (row?.dataset.done) dismiss.add(row.dataset.done);
   }
 
-  if (!bySheet.size) {
-    toast("Change an ID, a name or an answer first");
+  if (!bySheet.size && !dismiss.size) {
+    toast("Change something, or tick what you have checked");
     return;
   }
   try {
     const result = await post("/api/sessions/correct", {
       session_id: Number(sessionId),
       corrections: [...bySheet.values()],
+      dismiss: [...dismiss],
     });
-    toast(`Applied ${result.applied} correction(s)`);
+    const parts = [];
+    if (result.applied) parts.push(`${result.applied} correction(s)`);
+    if (result.dismissed) parts.push(`${result.dismissed} checked off`);
+    toast(`Applied ${parts.join(" · ") || "nothing"}`);
     await loadAnalysis(sessionId);
     showAnalysisPane("review");
   } catch (error) {

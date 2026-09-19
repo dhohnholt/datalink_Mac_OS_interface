@@ -57,6 +57,23 @@ class AnalysisError(ValueError):
     """Raised when a session cannot be scored, with a reason for the user."""
 
 
+def review_key(item: dict) -> str:
+    """One stable name for a review item, so a decision about it can be kept.
+
+    Page, what is wrong, and which question — the reason as well, because the
+    same answer can be questioned for two different things and settling one
+    is not settling the other.
+    """
+    return ":".join(
+        str(part) for part in (
+            item.get("page"),
+            item.get("field"),
+            item.get("question") or 0,
+            item.get("reason") or "",
+        )
+    )
+
+
 def normalize_response(value: object) -> str:
     text = str(value or "").strip().upper()
     if not text:
@@ -110,8 +127,14 @@ def build_session_analysis(
     exam_name: str | None = None,
     flag_thresholds: tuple[int, ...] = DEFAULT_FLAG_THRESHOLDS,
     run_id: str | None = None,
+    dismissed: set[str] | frozenset[str] = frozenset(),
 ) -> dict:
-    """Score one session and return the upload payload."""
+    """Score one session and return the upload payload.
+
+    `dismissed` names review items the teacher has already settled. They are
+    left out of the report entirely, so the count on screen and the warnings
+    sent to the website agree with what was actually decided.
+    """
     question_count = int(session.get("question_count") or 0)
     if question_count < 1:
         raise AnalysisError("This session has no question count recorded")
@@ -185,6 +208,11 @@ def build_session_analysis(
                     }
                 )
         review_items.extend(faint_marks(number, row))
+
+    if dismissed:
+        review_items = [
+            item for item in review_items if review_key(item) not in dismissed
+        ]
 
     key_number = int(keys[0].get("number") or 1)
     source_name = session.get("log_path") or f"{session.get('name') or 'session'}.jsonl"

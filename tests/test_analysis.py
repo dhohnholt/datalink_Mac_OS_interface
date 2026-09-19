@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from datalink_scanner import analysis
 from datalink_scanner.analysis import (
     AnalysisError,
     analysis_filename,
@@ -428,3 +429,85 @@ class RunIdStabilityTests(unittest.TestCase):
         self.store.update_scan(self.session_id, 2, student_name="Renamed")
         after = scan_fingerprint(session, self.store.session_scans(self.session_id))
         self.assertNotEqual(before, after)
+
+
+class ReviewKeyTests(unittest.TestCase):
+    """The key is the contract between the report and the stored decision."""
+
+    def test_it_names_page_field_question_and_reason(self):
+        self.assertEqual(
+            analysis.review_key(
+                {"page": 6, "field": "answer", "question": 2, "reason": "faint"}
+            ),
+            "6:answer:2:faint",
+        )
+
+    def test_an_item_with_no_question_still_has_a_key(self):
+        self.assertEqual(
+            analysis.review_key({"page": 4, "field": "student_id"}),
+            "4:student_id:0:",
+        )
+
+    def test_two_reasons_on_one_answer_are_separate_decisions(self):
+        faint = analysis.review_key(
+            {"page": 6, "field": "answer", "question": 2, "reason": "faint"}
+        )
+        multiple = analysis.review_key(
+            {"page": 6, "field": "answer", "question": 2, "reason": "multiple"}
+        )
+        self.assertNotEqual(faint, multiple)
+
+
+class DismissedReviewTests(unittest.TestCase):
+    """Settled items leave the report, so the count and the upload agree."""
+
+    def session(self):
+        return {"question_count": 3, "name": "Unit 1"}
+
+    def scans(self):
+        return [
+            {"number": 1, "role": "key", "responses": ["A", "B", "C"]},
+            # No student ID, and an unresolved double mark: two review items.
+            {"number": 2, "role": "student", "student_id": None,
+             "responses": ["A", "AB", "C"]},
+        ]
+
+    def test_every_item_is_reported_when_nothing_is_settled(self):
+        report = analysis.build_session_analysis(self.session(), self.scans())
+        self.assertEqual(
+            sorted(analysis.review_key(item) for item in report["review_items"]),
+            ["2:answer:2:multiple", "2:student_id:0:"],
+        )
+
+    def test_a_settled_item_is_left_out(self):
+        report = analysis.build_session_analysis(
+            self.session(), self.scans(), dismissed={"2:answer:2:multiple"}
+        )
+        self.assertEqual(
+            [analysis.review_key(item) for item in report["review_items"]],
+            ["2:student_id:0:"],
+        )
+
+    def test_settling_everything_empties_the_list(self):
+        report = analysis.build_session_analysis(
+            self.session(), self.scans(),
+            dismissed={"2:answer:2:multiple", "2:student_id:0:"},
+        )
+        self.assertEqual(report["review_items"], [])
+
+    def test_a_key_for_something_else_changes_nothing(self):
+        report = analysis.build_session_analysis(
+            self.session(), self.scans(), dismissed={"99:answer:1:faint"}
+        )
+        self.assertEqual(len(report["review_items"]), 2)
+
+    def test_scores_are_untouched_by_settling_a_warning(self):
+        # Dismissing a warning is not a correction; nothing about the marks
+        # or the statistics may move.
+        plain = analysis.build_session_analysis(self.session(), self.scans())
+        settled = analysis.build_session_analysis(
+            self.session(), self.scans(), dismissed={"2:student_id:0:"}
+        )
+        self.assertEqual(plain["students"], settled["students"])
+        self.assertEqual(plain["summary"], settled["summary"])
+        self.assertEqual(plain["items"], settled["items"])

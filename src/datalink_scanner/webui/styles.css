@@ -431,3 +431,9 @@ td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }
    instead of scrolling inside their own card — the header, tabs and context
    bar slid out of reach with them. Pre-dates the navigation work. */
 #analysisBody, #analysisBody > [data-pane], main > * { min-width: 0; }
+
+/* Checking an item off is a decision, so the box is a real target rather than
+   the 13px default. */
+.review-check { width: 18px; height: 18px; min-height: 0; accent-color: var(--green); cursor: pointer; }
+#reviewDismissedLine { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+#reviewDismissedLine .link-button { min-width: 0; padding: 2px 8px; }

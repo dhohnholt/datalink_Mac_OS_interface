@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS sessions (
     page_cache     TEXT
 );
 
+-- Review items a teacher has looked at and is happy with. They are derived
+-- from the marks on each read, so without somewhere to record the decision
+-- the same warning came back every time the test was scored, and "Keep as
+-- read" could never mean "I checked this".
+CREATE TABLE IF NOT EXISTS review_dismissals (
+    id         INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    item_key   TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(session_id, item_key)
+);
+
 CREATE TABLE IF NOT EXISTS scans (
     id             INTEGER PRIMARY KEY,
     session_id     INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -476,6 +488,49 @@ class Store:
         with self._lock:
             self._connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
             self._connection.commit()
+
+    # ------------------------------------------------- reviewed and dismissed
+
+    def dismissed_reviews(self, session_id: int) -> set[str]:
+        """Which review items this session's teacher has already settled."""
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT item_key FROM review_dismissals WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+        return {row["item_key"] for row in rows}
+
+    def dismiss_reviews(self, session_id: int, item_keys: list[str]) -> int:
+        """Settle review items. Doing it twice is not an error."""
+        wanted = [str(key) for key in item_keys if str(key).strip()]
+        if not wanted:
+            return 0
+        now = _now()
+        with self._lock:
+            before = self._connection.execute(
+                "SELECT COUNT(*) AS n FROM review_dismissals WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()["n"]
+            self._connection.executemany(
+                "INSERT OR IGNORE INTO review_dismissals(session_id, item_key, "
+                "created_at) VALUES(?, ?, ?)",
+                [(session_id, key, now) for key in wanted],
+            )
+            self._connection.commit()
+            after = self._connection.execute(
+                "SELECT COUNT(*) AS n FROM review_dismissals WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()["n"]
+        return after - before
+
+    def restore_reviews(self, session_id: int) -> int:
+        """Bring every settled item on this session back for another look."""
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM review_dismissals WHERE session_id = ?", (session_id,)
+            )
+            self._connection.commit()
+            return cursor.rowcount
 
     def prune_empty_sessions(self, session_id: int | None = None) -> int:
         """Drop sessions that never received a sheet. Connecting to check the

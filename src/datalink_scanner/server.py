@@ -80,7 +80,9 @@ def scored_session(store: Store, session_id: int) -> tuple[dict, dict]:
     run_id = session.get("analysis_run_id")
     if not run_id or session.get("analysis_fingerprint") != fingerprint:
         run_id = None
-    report = build_session_analysis(session, scans, run_id=run_id)
+    report = build_session_analysis(
+        session, scans, run_id=run_id, dismissed=store.dismissed_reviews(session_id)
+    )
     if run_id != report["run_id"]:
         store.remember_run_id(session_id, report["run_id"], fingerprint)
     return session, report
@@ -788,6 +790,7 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             # pull the right name. The session's class, not whichever one the
             # Scan tab happens to have selected now.
             report["class_name"] = session.get("class_name") or ""
+            report["dismissed_count"] = len(self.store.dismissed_reviews(session_id))
             self._send_json(report)
             return
         session_id = self._session_id_from(path, "/analysis.json")
@@ -840,7 +843,10 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             cache = session.pop("page_cache", None)
             session["has_pages"] = bool(cache) and Path(cache).is_dir()
             try:
-                build_session_analysis(session, scans)
+                build_session_analysis(
+                    session, scans,
+                    dismissed=self.store.dismissed_reviews(session_id),
+                )
                 session["analysis_available"] = True
                 session["analysis_error"] = None
             except AnalysisError as exc:
@@ -1002,6 +1008,23 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 PAPER_JOB.reset()
                 self._send_json({"job": PAPER_JOB.snapshot()})
                 return
+            elif path == "/api/sessions/review/dismiss":
+                session_id = int(body.get("session_id", 0))
+                if self.store.session(session_id) is None:
+                    self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                    return
+                added = self.store.dismiss_reviews(
+                    session_id, list(body.get("items", []))
+                )
+                self._send_json({"dismissed": added})
+                return
+            elif path == "/api/sessions/review/restore":
+                session_id = int(body.get("session_id", 0))
+                if self.store.session(session_id) is None:
+                    self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                    return
+                self._send_json({"restored": self.store.restore_reviews(session_id)})
+                return
             elif path == "/api/sessions/correct":
                 session_id = int(body.get("session_id", 0))
                 session = self.store.session(session_id)
@@ -1009,7 +1032,23 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                     return
                 corrections = list(body.get("corrections", []))
+                settled = self.store.dismiss_reviews(
+                    session_id, list(body.get("dismiss", []))
+                )
                 if not corrections:
+                    if settled:
+                        # Nothing was read wrong; the teacher checked the
+                        # sheets and said so. That is a complete answer.
+                        scans = self.store.session_scans(session_id)
+                        self._send_json({
+                            "applied": 0,
+                            "dismissed": settled,
+                            "analysis": build_session_analysis(
+                                session, scans,
+                                dismissed=self.store.dismissed_reviews(session_id),
+                            ),
+                        })
+                        return
                     raise DataLinkError("No corrections were supplied")
                 applied = 0
                 for correction in corrections:
@@ -1046,9 +1085,12 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 # A corrected ID may be one the roster can name.
                 self.store.name_missing_students(session_id)
                 scans = self.store.session_scans(session_id)
-                payload = {"applied": applied}
+                payload = {"applied": applied, "dismissed": settled}
                 try:
-                    payload["analysis"] = build_session_analysis(session, scans)
+                    payload["analysis"] = build_session_analysis(
+                        session, scans,
+                        dismissed=self.store.dismissed_reviews(session_id),
+                    )
                 except AnalysisError as exc:
                     payload["analysis"] = None
                     payload["analysis_error"] = str(exc)

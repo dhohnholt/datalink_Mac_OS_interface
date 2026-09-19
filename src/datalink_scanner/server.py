@@ -783,9 +783,15 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
                 return
             try:
-                self._send_json(scored_session(self.store, session_id)[1])
+                report = scored_session(self.store, session_id)[1]
             except AnalysisError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            # Only on the inline report the Review tab reads. The downloadable
+            # one and the T-TESS upload keep the schema the site expects.
+            cache = session.get("page_cache")
+            report["has_pages"] = bool(cache) and Path(cache).is_dir()
+            self._send_json(report)
             return
         session_id = self._session_id_from(path, "/analysis.json")
         if session_id is not None:
@@ -830,6 +836,10 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 return
             scans = self.store.session_scans(session_id)
             session["scans"] = scans
+            # The browser only needs to know whether a sheet can be looked at,
+            # not where on disk it lives.
+            cache = session.pop("page_cache", None)
+            session["has_pages"] = bool(cache) and Path(cache).is_dir()
             try:
                 build_session_analysis(session, scans)
                 session["analysis_available"] = True
@@ -838,6 +848,32 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                 session["analysis_available"] = False
                 session["analysis_error"] = str(exc)
             self._send_json(session)
+            return
+        if path.startswith("/api/sessions/") and "/page/" in path:
+            # /api/sessions/<id>/page/<n> — the sheet as it was scanned, for
+            # reading a name off the paper while correcting it.
+            head, _, tail = path.partition("/page/")
+            session_id = self._session_id_from(head)
+            session = self.store.session(session_id) if session_id else None
+            if session is None:
+                self._send_json({"error": "No such session"}, HTTPStatus.NOT_FOUND)
+                return
+            page = tail.split(".")[0]
+            if not page.isdigit():
+                self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                body, content_type = paper.page_image(
+                    session.get("page_cache"), int(page)
+                )
+            except paper.PaperError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path == "/api/status":
             snapshot = self.controller.snapshot()

@@ -241,6 +241,58 @@ class HttpApiTests(unittest.TestCase):
             self.post("/api/scanner/reset", {})
         self.assertEqual(caught.exception.code, 400)
 
+    def test_a_name_can_be_corrected_alongside_an_id(self):
+        store = self.controller_store()
+        session_id = store.create_session("Unit 3", "P4", 3)
+        store.add_scan(session_id, {"number": 1, "role": "key", "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        store.add_scan(session_id, {"number": 2, "role": "student", "student_id": None,
+                                    "student_name": None, "received_at": "x",
+                                    "answered_count": 3, "responses": ["A", "B", "C"]})
+        result = self.post("/api/sessions/correct", {
+            "session_id": session_id,
+            "corrections": [
+                {"number": 2, "student_id": "900011", "student_name": "Ada Lovelace"}
+            ],
+        })
+        self.assertEqual(result["applied"], 1)
+        saved = next(s for s in store.session_scans(session_id) if s["number"] == 2)
+        self.assertEqual(saved["student_id"], "900011")
+        self.assertEqual(saved["student_name"], "Ada Lovelace")
+
+    def test_a_datalink_session_offers_no_sheet_images(self):
+        # The scanner sends letters, never a picture, so there is nothing to
+        # show and the Review tab must not offer a link to it.
+        store = self.controller_store()
+        session_id = store.create_session("Unit 4", "P4", 3)
+        detail = self.get(f"/api/sessions/{session_id}")
+        self.assertFalse(detail["has_pages"])
+        self.assertNotIn("page_cache", detail)
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(
+                self.base + f"/api/sessions/{session_id}/page/2", timeout=5
+            )
+        self.assertEqual(caught.exception.code, 404)
+
+    def test_a_paper_session_serves_the_page_it_was_read_from(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed in this environment")
+        store = self.controller_store()
+        cache = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(cache, ignore_errors=True))
+        Image.new("RGB", (1700, 2200), "white").save(cache / "page-000002.png")
+        session_id = store.create_session(
+            "Paper batch", "P4", 3, source="paper", page_cache=str(cache)
+        )
+        self.assertTrue(self.get(f"/api/sessions/{session_id}")["has_pages"])
+        with urllib.request.urlopen(
+            self.base + f"/api/sessions/{session_id}/page/2", timeout=5
+        ) as response:
+            self.assertEqual(response.headers["Content-Type"], "image/jpeg")
+            self.assertGreater(len(response.read()), 100)
+
     def test_index_is_served(self):
         with urllib.request.urlopen(self.base + "/", timeout=5) as response:
             body = response.read().decode()

@@ -453,11 +453,11 @@
           <div id="reviewWrap" class="hidden">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Sheet</th><th>Student</th><th>Problem</th><th>Read as</th><th>Correction</th></tr></thead>
+                <thead><tr><th>Sheet</th><th>Student ID</th><th>Name</th><th>Problem</th><th>Read as</th><th>Correction</th></tr></thead>
                 <tbody id="reviewRows"></tbody>
               </table>
             </div>
-            <p class="safety">Leave a correction blank to keep a sheet as it is.</p>
+            <p class="safety">Leave a field as it is to keep a sheet unchanged. Where a batch was read from a PDF, the sheet number opens the scan so a name can be read off the paper.</p>
           </div>
         </section>
 
@@ -595,6 +595,20 @@
         <button type="submit" class="primary">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="sheetDialog" class="sheet-dialog">
+    <div class="section-title row">
+      <div>
+        <h2 id="sheetDialogTitle">Sheet</h2>
+        <p id="sheetDialogNote" class="dialog-copy">The page as it was scanned.</p>
+      </div>
+      <div class="button-row">
+        <a id="sheetFullLink" class="button ghost" href="#" target="_blank" rel="noopener">Open full size</a>
+        <button id="sheetDialogClose" class="secondary" type="button">Close</button>
+      </div>
+    </div>
+    <div class="sheet-view"><img id="sheetImage" alt="The scanned sheet"></div>
   </dialog>
 
   <dialog id="reviewDialog">

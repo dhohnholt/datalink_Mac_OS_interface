@@ -21,6 +21,8 @@ Three things are deliberate here:
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
@@ -87,6 +89,91 @@ def support_dir() -> Path:
     if override:
         return Path(override).expanduser()
     return paths.APP_SUPPORT_DIR / SUPPORT_DIRNAME
+
+
+# The pipeline's own rendering resolution. `analyze()` never passes --dpi, so
+# this is the default from vendor/omr/analyze_exam.py, and it is part of the
+# cache key below.
+RENDER_DPI = 400
+
+# The widest a page is served at. A 400dpi letter page is about 3400x4400 and
+# 6.5 MB; nobody needs that to read a name off the top of a sheet, and a
+# dialog that takes seconds to fill is a dialog that does not get used.
+PAGE_VIEW_WIDTH = 1100
+
+
+def page_cache_dir(pdf, capture_dir=None, dpi: int = RENDER_DPI) -> Path:
+    """Where the pipeline caches the rendered pages of one PDF.
+
+    This mirrors `cache_directory` in vendor/omr/analyze_exam.py, which is a
+    verbatim copy from omr_final and must not be edited. It cannot simply be
+    imported: that module pulls in OpenCV at import time, and the server is
+    expected to answer without it. `test_paper.py` guards the two against
+    drifting apart.
+    """
+    pdf = Path(pdf).expanduser().resolve()
+    stat = pdf.stat()
+    identity = f"{pdf}:{stat.st_size}:{stat.st_mtime_ns}:{dpi}"
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
+    return cache_root(capture_dir) / digest
+
+
+def page_image(cache_dir, page: int, max_width: int = PAGE_VIEW_WIDTH) -> tuple[bytes, str]:
+    """One rendered page, shrunk to something a dialog can show at once.
+
+    Pillow lives in the app's support directory, which is on the path only
+    while the pipeline runs. If it cannot be reached the full-resolution PNG
+    is served as it is — slower, but the teacher still sees the sheet.
+    """
+    if not cache_dir:
+        raise PaperError("This session has no page images.")
+    source = Path(cache_dir) / f"page-{int(page):06d}.png"
+    if not source.is_file():
+        raise PaperError(f"Page {page} is not in the cache any more.")
+    image_module = _pillow()
+    if image_module is None:
+        return source.read_bytes(), "image/png"
+    try:
+        Image = image_module
+        with Image.open(source) as image:
+            if image.width > max_width:
+                height = round(image.height * max_width / image.width)
+                image = image.convert("RGB").resize((max_width, height))
+            else:
+                image = image.convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=82)
+        return buffer.getvalue(), "image/jpeg"
+    except OSError:
+        # A truncated or half-written page. The original is still on disk and
+        # the browser may make more sense of it than Pillow did.
+        return source.read_bytes(), "image/png"
+
+
+def _pillow():
+    """Pillow, from wherever this interpreter can actually load it.
+
+    The support directory holds packages built for whichever interpreter
+    installed them, so putting it ahead of sys.path can shadow a working
+    Pillow with one whose C extension will not load. The already-importable
+    one is therefore tried first, and the support directory only as a
+    fallback — appended, never prepended.
+    """
+    try:
+        from PIL import Image
+
+        return Image
+    except ImportError:
+        pass
+    support = str(support_dir())
+    if support not in sys.path:
+        sys.path.append(support)
+    try:
+        from PIL import Image
+
+        return Image
+    except ImportError:
+        return None
 
 
 def cache_root(capture_dir=None) -> Path:
@@ -406,6 +493,9 @@ def analyze(
     finally:
         shutil.rmtree(out, ignore_errors=True)
     report["_log"] = transcript
+    # Where the pages this batch was read from are cached, so the session can
+    # show a sheet later when its ID or name has to be corrected by eye.
+    report["_page_cache"] = str(page_cache_dir(pdf, capture_dir))
     return report
 
 
@@ -463,6 +553,7 @@ def session_from_report(store, report: dict, name: str = "", class_name: str = "
         class_name,
         question_count,
         source="paper",
+        page_cache=report.get("_page_cache") or None,
     )
     key_page = int(exam.get("key_page") or 1)
     store.add_scan(

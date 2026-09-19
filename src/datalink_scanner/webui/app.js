@@ -1190,31 +1190,73 @@ function renderAnalysisReview(report) {
   $("#reviewWrap").classList.toggle("hidden", rows.length === 0);
   $("#applyReviewButton").disabled = rows.length === 0;
 
+  // One sheet can raise several problems. Its ID and name are the sheet's, not
+  // the problem's, so they are edited once and sent once however many rows it
+  // has — otherwise two rows for the same sheet would fight over the value.
+  const firstRowForSheet = new Map();
+  for (const row of rows) {
+    if (!firstRowForSheet.has(row.sheet)) firstRowForSheet.set(row.sheet, row);
+  }
+
   $("#reviewRows").innerHTML = rows.map(row => {
-    const who = row.student?.student_name
-      ? escapeHtml(row.student.student_name)
-      : row.student?.student_id
-        ? escapeHtml(row.student.student_id)
-        : "—";
+    const owns = firstRowForSheet.get(row.sheet) === row;
+    const student = row.student || {};
+    const sheet = report.has_pages
+      ? `<button type="button" class="link-button" data-sheet-view="${row.sheet}"
+                 title="Open the page this sheet was read from">${row.sheet}</button>`
+      : `<strong>${row.sheet}</strong>`;
+    // The ID the reader saw, even when it was not sure enough to use it: that
+    // is the likeliest starting point for a correction, not an empty box.
+    const idValue = student.student_id || student.student_id_read || "";
+    const who = owns
+      ? `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Student ID"
+                class="cell-input" data-edit="student_id" data-sheet="${row.sheet}"
+                value="${escapeHtml(idValue)}">`
+      : "";
+    const named = owns
+      ? `<input type="text" placeholder="Student name"
+                class="cell-input" data-edit="student_name" data-sheet="${row.sheet}"
+                value="${escapeHtml(student.student_name || "")}">`
+      : "";
     const control = row.kind === "note"
       ? "—"
       : row.kind === "student_id"
-      ? `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Student ID"
-                data-fix="student_id" data-sheet="${row.sheet}">`
+      ? "—"
       : `<select data-fix="answer" data-sheet="${row.sheet}" data-question="${row.question}">
            <option value="">Keep as read</option>
            ${[..."ABCDE"].map(letter => `<option value="${letter}">${letter}</option>`).join("")}
            <option value="BLANK">Blank</option>
          </select>`;
     return `<tr>
-      <td><strong>${row.sheet}</strong></td>
+      <td>${sheet}</td>
       <td>${who}</td>
+      <td>${named}</td>
       <td>${escapeHtml(row.problem)}</td>
       <td><code>${escapeHtml(row.read)}</code></td>
       <td>${control}</td>
     </tr>`;
   }).join("");
+
+  for (const button of document.querySelectorAll("#reviewRows [data-sheet-view]")) {
+    button.addEventListener("click", () => showSheet(Number(button.dataset.sheetView)));
+  }
 }
+
+function showSheet(sheet) {
+  const sessionId = $("#analysisSession").value;
+  const url = `/api/sessions/${sessionId}/page/${sheet}`;
+  $("#sheetDialogTitle").textContent = `Sheet ${sheet}`;
+  $("#sheetDialogNote").textContent = "The page as it was scanned. Read the printed name and ID from it, then type them into the row behind this.";
+  $("#sheetImage").src = url;
+  $("#sheetFullLink").href = url;
+  const dialog = $("#sheetDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+$("#sheetDialogClose").addEventListener("click", () => $("#sheetDialog").close());
+$("#sheetImage").addEventListener("error", () => {
+  $("#sheetDialogNote").textContent = "That page is not in the cache any more. Read the batch again to bring the images back.";
+});
 
 $("#applyReviewButton").addEventListener("click", async () => {
   if (!analysisReport) return;
@@ -1224,28 +1266,40 @@ $("#applyReviewButton").addEventListener("click", async () => {
     analysisReport.students.map(row => [row.page, row.answers.map(a => a.response)])
   );
 
+  // The ID and name boxes are prefilled with what was read, so only a box the
+  // teacher actually changed counts as a correction.
+  const byPage = new Map(analysisReport.students.map(row => [row.page, row]));
+  for (const field of document.querySelectorAll("#reviewRows [data-edit]")) {
+    const sheet = Number(field.dataset.sheet);
+    const student = byPage.get(sheet) || {};
+    const value = field.value.trim();
+    const was = field.dataset.edit === "student_id"
+      ? String(student.student_id || student.student_id_read || "")
+      : String(student.student_name || "");
+    if (value === was.trim()) continue;
+    if (field.dataset.edit === "student_id" && value && !/^\d+$/.test(value)) {
+      toast(`Student ID for sheet ${sheet} must be digits only`);
+      return;
+    }
+    const entry = bySheet.get(sheet) || {number: sheet};
+    entry[field.dataset.edit] = value;
+    bySheet.set(sheet, entry);
+  }
+
   for (const field of document.querySelectorAll("#reviewRows [data-fix]")) {
     const value = field.value.trim();
     if (!value) continue;
     const sheet = Number(field.dataset.sheet);
     const entry = bySheet.get(sheet) || {number: sheet};
-    if (field.dataset.fix === "student_id") {
-      if (!/^\d+$/.test(value)) {
-        toast(`Student ID for sheet ${sheet} must be digits only`);
-        return;
-      }
-      entry.student_id = value;
-    } else {
-      const responses = entry.responses || [...sheetAnswers.get(sheet)];
-      // The stored sheet uses "" for a blank, not the analysis label.
-      responses[Number(field.dataset.question) - 1] = value === "BLANK" ? "" : value;
-      entry.responses = responses.map(r => (r === "BLANK" ? "" : r));
-    }
+    const responses = entry.responses || [...sheetAnswers.get(sheet)];
+    // The stored sheet uses "" for a blank, not the analysis label.
+    responses[Number(field.dataset.question) - 1] = value === "BLANK" ? "" : value;
+    entry.responses = responses.map(r => (r === "BLANK" ? "" : r));
     bySheet.set(sheet, entry);
   }
 
   if (!bySheet.size) {
-    toast("Enter at least one correction first");
+    toast("Change an ID, a name or an answer first");
     return;
   }
   try {

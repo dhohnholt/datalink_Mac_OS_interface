@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     log_path       TEXT,
     analysis_run_id      TEXT,
     analysis_fingerprint TEXT,
-    source         TEXT NOT NULL DEFAULT 'datalink'
+    source         TEXT NOT NULL DEFAULT 'datalink',
+    page_cache     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scans (
@@ -113,6 +114,11 @@ class Store:
                 "ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL "
                 "DEFAULT 'datalink'"
             )
+        # Where the rendered page images for a paper batch live, so a sheet can
+        # be looked at while its student ID is being corrected. A DataLink
+        # session has none: the scanner sends letters, never a picture.
+        if "page_cache" not in columns:
+            self._connection.execute("ALTER TABLE sessions ADD COLUMN page_cache TEXT")
         # How sure the reader was about each mark. Only a paper batch has it;
         # the scanner reports letters, not strengths. Kept so a faint mark can
         # be put in front of the teacher instead of being scored silently.
@@ -249,11 +255,12 @@ class Store:
         question_count: int,
         log_path: str | None = None,
         source: str = "datalink",
+        page_cache: str | None = None,
     ) -> int:
         with self._lock:
             cursor = self._connection.execute(
                 "INSERT INTO sessions(name, class_name, question_count, started_at, "
-                "log_path, source) VALUES(?, ?, ?, ?, ?, ?)",
+                "log_path, source, page_cache) VALUES(?, ?, ?, ?, ?, ?, ?)",
                 (
                     name or "",
                     class_name or "",
@@ -261,6 +268,7 @@ class Store:
                     _now(),
                     log_path,
                     source or "datalink",
+                    page_cache,
                 ),
             )
             self._connection.commit()
@@ -376,7 +384,8 @@ class Store:
         with self._lock:
             row = self._connection.execute(
                 "SELECT id, name, class_name, question_count, started_at, ended_at, "
-                "       log_path, analysis_run_id, analysis_fingerprint, source "
+                "       log_path, analysis_run_id, analysis_fingerprint, source, "
+                "       page_cache "
                 "FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()

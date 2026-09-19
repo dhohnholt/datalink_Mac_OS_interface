@@ -166,6 +166,20 @@ that jammed afterwards; it was never recorded.
 The test name, class, form length and matching mode are remembered between
 launches.
 
+### Correcting a sheet
+
+The **Review** tab lists every sheet that could not be read cleanly. Each row
+carries the student ID and the name, both editable, so a sheet whose ID grid
+was left blank or read wrong can be put right there and the analysis rescored.
+
+For a batch read from a PDF, the sheet number opens the page it was read from,
+so the printed name can be read off the paper while it is being typed in. A
+DataLink session has no such picture — the scanner sends letters, never an
+image — so the sheet number stays plain text.
+
+Page images live in the paper cache and go when it is purged from **Settings**.
+Reading the batch again brings them back.
+
 ### Matching sheets to students
 
 **Student matching** decides who a sheet belongs to:

@@ -340,3 +340,26 @@ body.native .shell { padding-top: 18px; }
    be changed say so rather than hiding it behind a menu. */
 td.response { cursor: pointer; }
 td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }
+
+/* Correcting a sheet in Review: the ID and the name are edited in the row,
+   and the sheet number opens the page they were read from. */
+.cell-input {
+  width: 100%; min-width: 120px; padding: 0 9px;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff;
+}
+/* A single digit is an 8px click target. Padding and a border make it
+   something that can actually be hit, and say it does something. */
+.link-button {
+  border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  padding: 6px 12px; font: inherit; font-weight: 700; color: var(--green);
+  cursor: pointer; min-width: 40px;
+}
+.link-button:hover { background: var(--green-soft); border-color: #aed7c5; }
+.link-button:active { background: #dcebe2; }
+.sheet-dialog { width: min(900px, calc(100vw - 32px)); padding: 24px; }
+.sheet-dialog .section-title { margin-bottom: 16px; }
+.sheet-view {
+  max-height: 68vh; overflow: auto; border: 1px solid var(--line);
+  border-radius: 12px; background: #f3f5f4;
+}
+.sheet-view img { display: block; width: 100%; height: auto; }

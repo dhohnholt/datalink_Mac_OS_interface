@@ -6,7 +6,9 @@ environment the subprocess is handed, how its answers become scans, and that
 the page cache is reported and emptied without touching a saved session.
 """
 
+import io
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,6 +50,78 @@ def report(students=2, question_count=3, key="ABC"):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_the_cache_key_still_matches_the_vendored_reader(self):
+        # page_cache_dir() reimplements cache_directory() from the vendored
+        # analyze_exam.py, which cannot be imported here because it pulls in
+        # OpenCV. If that function's identity string ever changes, the two
+        # stop agreeing and every stored page path goes stale silently.
+        source = (paper.vendor_root() / "omr" / "analyze_exam.py").read_text()
+        self.assertIn(
+            'identity = f"{os.path.abspath(pdf_path)}:{stat.st_size}:'
+            '{stat.st_mtime_ns}:{dpi}"',
+            source,
+        )
+        self.assertIn(
+            'digest = hashlib.sha256(identity.encode()).hexdigest()[:16]', source
+        )
+        self.assertIn("ap.add_argument(\"--dpi\", type=int, default=400)", source)
+        self.assertEqual(paper.RENDER_DPI, 400)
+
+    def test_the_cache_key_is_stable_for_one_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4 not really")
+            first = paper.page_cache_dir(pdf, directory)
+            second = paper.page_cache_dir(pdf, directory)
+            self.assertEqual(first, second)
+            self.assertEqual(len(first.name), 16)
+            # A different file is a different batch.
+            other = Path(directory) / "other.pdf"
+            other.write_bytes(b"%PDF-1.4 not really either, and longer")
+            self.assertNotEqual(paper.page_cache_dir(other, directory), first)
+
+    def test_a_session_with_no_pages_says_so_rather_than_guessing(self):
+        with self.assertRaises(paper.PaperError):
+            paper.page_image(None, 1)
+
+    def test_a_page_that_is_no_longer_cached_says_so(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(paper.PaperError) as caught:
+                paper.page_image(directory, 3)
+        self.assertIn("not in the cache", str(caught.exception))
+
+    def test_the_support_directory_never_shadows_a_working_pillow(self):
+        # Its packages are built for whichever interpreter installed them, so
+        # putting it first can replace a Pillow that loads with one that does
+        # not. This is exactly what broke the first version of the viewer.
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow is not installed in this environment")
+        before = list(sys.path)
+        try:
+            self.assertIsNotNone(paper._pillow())
+            support = str(paper.support_dir())
+            self.assertNotIn(support, sys.path[: len(before)] or [None])
+            if support in sys.path:
+                self.assertEqual(sys.path.index(support), len(sys.path) - 1)
+        finally:
+            sys.path[:] = before
+
+    def test_a_page_is_shrunk_for_viewing(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed in this environment")
+        with tempfile.TemporaryDirectory() as directory:
+            Image.new("RGB", (3400, 4400), "white").save(
+                Path(directory) / "page-000002.png"
+            )
+            body, content_type = paper.page_image(directory, 2, max_width=800)
+        self.assertEqual(content_type, "image/jpeg")
+        with Image.open(io.BytesIO(body)) as shrunk:
+            self.assertEqual(shrunk.width, 800)
+
     def test_the_subprocess_can_find_the_vendored_modules(self):
         entries = paper.environment()["PYTHONPATH"].split(":")
         # analyze_exam.py imports its siblings AND analysis_core, which sits a

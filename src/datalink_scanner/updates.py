@@ -341,13 +341,23 @@ LSREGISTER = (
 )
 
 
-def stale_registrations(runner=subprocess.run) -> list[Path]:
-    """Copies macOS still lists that are not on disk any more.
+def in_trash(path: Path) -> bool:
+    """Whether a copy is sitting in a Trash folder, anywhere on any volume."""
+    return any(part in (".Trash", ".Trashes") for part in Path(path).parts)
 
-    Homebrew deletes the old keg on every upgrade, and LaunchServices keeps
-    the registration. Launchpad and Spotlight read that list, so the old
-    versions pile up as entries pointing at nothing — fourteen of them had
-    collected before anybody noticed.
+
+def stale_registrations(runner=subprocess.run) -> list[Path]:
+    """Copies macOS lists that should not be offered to anyone.
+
+    Two kinds, both of which put a duplicate DataLink Scanner in Launchpad:
+
+    Gone — Homebrew deletes the old keg on every upgrade and LaunchServices
+    keeps the registration, so old versions pile up as entries pointing at
+    nothing. Fourteen had collected before anybody noticed.
+
+    Thrown away — a copy still exists but is in the Trash, which is where the
+    sweep below puts the duplicates it finds. Moving one there does not
+    unregister it, so tidying up left the duplicate exactly where it is seen.
     """
     if not Path(LSREGISTER).is_file():
         return []
@@ -366,9 +376,11 @@ def stale_registrations(runner=subprocess.run) -> list[Path]:
         candidate = re.sub(r"\s*\(0x[0-9a-f]+\)$", "", stripped[5:].strip())
         if not candidate.endswith("/" + APP_BUNDLE_NAME):
             continue
-        # Only ones that are gone. Anything still on disk is a real copy and
-        # belongs to the Trash sweep, not to this.
-        if candidate in stale or Path(candidate).exists():
+        if candidate in stale:
+            continue
+        # A copy that is still on disk and not in the Trash is a real one:
+        # the sweep decides what to do with it, not this.
+        if Path(candidate).exists() and not in_trash(candidate):
             continue
         stale[candidate] = Path(candidate)
     return sorted(stale.values(), key=lambda item: str(item).lower())
@@ -397,7 +409,8 @@ def sweep(extra: list[Path]) -> list[Path]:
             # moved; skipping it is better than abandoning the whole sweep.
             continue
     # Tidying the copies on disk without tidying the list macOS keeps leaves
-    # the duplicates in Launchpad, which is where they are actually seen.
+    # the duplicates in Launchpad, which is where they are actually seen —
+    # including the ones this sweep has just moved to the Trash.
     forget_stale_registrations()
     return moved
 

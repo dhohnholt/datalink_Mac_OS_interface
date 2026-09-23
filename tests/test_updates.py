@@ -266,6 +266,34 @@ class StaleRegistrationTests(unittest.TestCase):
             stale = updates.stale_registrations(self.dump(self.real))
         self.assertEqual(stale, [])
 
+    def test_a_copy_in_the_trash_is_forgotten_even_though_it_exists(self):
+        # The sweep puts duplicates in the Trash, which does not unregister
+        # them — so tidying up left the duplicate in Launchpad regardless.
+        trashed = Path.home() / ".Trash" / updates.APP_BUNDLE_NAME
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(self.dump(trashed))
+        self.assertEqual(stale, [trashed])
+
+    def test_a_trash_on_another_volume_counts_too(self):
+        trashed = Path("/Volumes/Backup/.Trashes/501") / updates.APP_BUNDLE_NAME
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(self.dump(trashed))
+        self.assertEqual(stale, [trashed])
+
+    def test_a_folder_merely_named_like_the_trash_is_not_one(self):
+        # "Trashed drafts" is somebody's folder, not a Trash.
+        kept = Path(self.temporary.name) / "Trashed drafts" / updates.APP_BUNDLE_NAME
+        kept.parent.mkdir(parents=True)
+        kept.mkdir()
+        with mock.patch.object(Path, "is_file", return_value=True):
+            stale = updates.stale_registrations(self.dump(kept))
+        self.assertEqual(stale, [])
+
+    def test_in_trash_recognises_both_layouts(self):
+        self.assertTrue(updates.in_trash(Path.home() / ".Trash" / "X.app"))
+        self.assertTrue(updates.in_trash(Path("/Volumes/D/.Trashes/501/X.app")))
+        self.assertFalse(updates.in_trash(Path("/Applications/X.app")))
+
     def test_other_applications_are_not_touched(self):
         with mock.patch.object(Path, "is_file", return_value=True):
             stale = updates.stale_registrations(

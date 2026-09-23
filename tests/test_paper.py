@@ -7,6 +7,7 @@ the page cache is reported and emptied without touching a saved session.
 """
 
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -121,6 +122,97 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(content_type, "image/jpeg")
         with Image.open(io.BytesIO(body)) as shrunk:
             self.assertEqual(shrunk.width, 800)
+
+    def test_an_unreadable_key_carries_the_way_out(self):
+        # The reader writes down what it could not settle before giving up.
+        # Without reading that file the batch was simply stranded.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            out.mkdir()
+            (out / "answer_key_review.json").write_text(json.dumps({
+                "key_page": 1,
+                "validation": {"valid": False, "missing": [7],
+                               "invalid": {"14": "MULTIPLE"}},
+            }))
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            review = paper._answer_key_review(out, pdf, directory)
+        self.assertEqual(review["key_page"], 1)
+        # Both kinds: one read as two marks, one not seen at all.
+        self.assertEqual(review["unresolved"], {"7": "", "14": "MULTIPLE"})
+
+    def test_questions_come_back_in_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            out.mkdir()
+            (out / "answer_key_review.json").write_text(json.dumps({
+                "key_page": 1,
+                "validation": {"invalid": {"22": "MULTIPLE", "3": "MULTIPLE"}},
+            }))
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            review = paper._answer_key_review(out, pdf, directory)
+        self.assertEqual(list(review["unresolved"]), ["3", "22"])
+
+    def test_a_failure_with_no_review_file_is_left_alone(self):
+        # Some other failure — a missing PDF, a crash — must not be dressed
+        # up as an answer-key problem the teacher can solve.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            out.mkdir()
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            self.assertIsNone(paper._answer_key_review(out, pdf, directory))
+
+    def test_a_review_that_resolved_itself_is_not_raised(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            out.mkdir()
+            (out / "answer_key_review.json").write_text(
+                json.dumps({"key_page": 1, "validation": {"valid": True}})
+            )
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            self.assertIsNone(paper._answer_key_review(out, pdf, directory))
+
+    def test_an_answer_key_error_is_a_paper_error(self):
+        # So every existing caller keeps catching it.
+        self.assertTrue(issubclass(paper.AnswerKeyError, paper.PaperError))
+        error = paper.AnswerKeyError("stuck", {"unresolved": {"14": "MULTIPLE"}})
+        self.assertEqual(error.review["unresolved"], {"14": "MULTIPLE"})
+
+    def test_overrides_reach_the_reader_as_a_file(self):
+        seen = {}
+
+        def fake_stream(command, on_line=None, timeout=None, cwd=None):
+            seen["command"] = list(command)
+            index = command.index("--key-overrides")
+            seen["overrides"] = json.loads(Path(command[index + 1]).read_text())
+            return 2, "ERROR: stopped on purpose"
+
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            with mock.patch.object(paper, "_stream", fake_stream):
+                with self.assertRaises(paper.PaperError):
+                    paper.analyze(pdf, key_page=1, question_count=30,
+                                  capture_dir=directory, key_overrides={"14": "c"})
+        # Question numbers as strings, answers upper-cased: what the reader
+        # accepts, not what the browser happened to send.
+        self.assertEqual(seen["overrides"], {"14": "C"})
+
+    def test_no_overrides_means_no_flag(self):
+        def fake_stream(command, on_line=None, timeout=None, cwd=None):
+            self.assertNotIn("--key-overrides", command)
+            return 2, "ERROR: stopped on purpose"
+
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "batch.pdf"
+            pdf.write_bytes(b"%PDF-1.4")
+            with mock.patch.object(paper, "_stream", fake_stream):
+                with self.assertRaises(paper.PaperError):
+                    paper.analyze(pdf, key_page=1, question_count=30,
+                                  capture_dir=directory)
 
     def test_the_subprocess_can_find_the_vendored_modules(self):
         entries = paper.environment()["PYTHONPATH"].split(":")

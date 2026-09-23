@@ -166,6 +166,16 @@ that jammed afterwards; it was never recorded.
 The test name, class, form length and matching mode are remembered between
 launches.
 
+### When the answer key cannot be read
+
+The reader will not score anything against a key it could not make out, and
+it says which questions stopped it — two marks on one, or none at all. The
+Paper tab now asks for those answers instead of leaving the batch stranded:
+**Look at the key sheet** opens the page as it was scanned, you pick the right
+answer for each question, and **Use these and read the batch** runs it again.
+
+The second run is quick, because the pages are already rendered and cached.
+
 ### Clearing the review list
 
 A warning is worked out from the marks every time a test is scored, so leaving

@@ -67,6 +67,20 @@ class PaperError(RuntimeError):
     """A failure worth showing the teacher, in their words."""
 
 
+class AnswerKeyError(PaperError):
+    """The key sheet could not be read cleanly, and nothing else can proceed.
+
+    This one is recoverable and carries what is needed to recover: which page
+    the key was on and, for each question it could not settle, what it saw.
+    The reader offers `--key-overrides` for exactly this, so the teacher
+    supplies the missing answers and the batch is read again.
+    """
+
+    def __init__(self, message: str, review: dict) -> None:
+        super().__init__(message)
+        self.review = review
+
+
 # ------------------------------------------------------------------ places
 
 
@@ -460,8 +474,13 @@ def analyze(
     exam_name: str | None = None,
     capture_dir=None,
     on_line=None,
+    key_overrides: dict | None = None,
 ) -> dict:
-    """Run the batch and return the pipeline's own analysis JSON."""
+    """Run the batch and return the pipeline's own analysis JSON.
+
+    `key_overrides` maps a question number to the answer the teacher says the
+    key sheet carries, for the questions the reader could not settle itself.
+    """
     pdf = Path(pdf).expanduser()
     if not pdf.is_file():
         raise PaperError(f"There is no file at {pdf}")
@@ -484,10 +503,31 @@ def analyze(
     ]
     if exam_name:
         command += ["--exam-name", exam_name]
+    if key_overrides:
+        overrides = out / "key_overrides.json"
+        overrides.write_text(json.dumps(
+            {str(int(question)): str(answer).upper()
+             for question, answer in key_overrides.items()}
+        ))
+        command += ["--key-overrides", str(overrides)]
     try:
         code, transcript = _stream(command, on_line, timeout=RUN_TIMEOUT_SECONDS)
         report_path = out / "analysis_result.json"
         if code != 0 or not report_path.is_file():
+            # The reader writes down what it could not settle about the key
+            # before giving up. That file is the way back, so it is read
+            # before the working directory goes.
+            review = _answer_key_review(out, pdf, capture_dir)
+            if review:
+                raise AnswerKeyError(
+                    "The answer key could not be read on "
+                    + ", ".join(
+                        f"question {question}"
+                        for question in review["unresolved"]
+                    )
+                    + ".",
+                    review,
+                )
             raise PaperError(_pipeline_message(transcript))
         report = json.loads(report_path.read_text())
     finally:
@@ -497,6 +537,33 @@ def analyze(
     # show a sheet later when its ID or name has to be corrected by eye.
     report["_page_cache"] = str(page_cache_dir(pdf, capture_dir))
     return report
+
+
+def _answer_key_review(out: Path, pdf, capture_dir) -> dict | None:
+    """What the reader could not settle about the key, in the app's words."""
+    path = Path(out) / "answer_key_review.json"
+    if not path.is_file():
+        return None
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    validation = saved.get("validation") or {}
+    # "invalid" is a question it read as something that is not one answer —
+    # two marks, or none. "missing" is one it did not see at all.
+    unresolved = {
+        str(question): str(value or "")
+        for question, value in (validation.get("invalid") or {}).items()
+    }
+    for question in validation.get("missing") or []:
+        unresolved.setdefault(str(question), "")
+    if not unresolved:
+        return None
+    return {
+        "key_page": int(saved.get("key_page") or 1),
+        "unresolved": dict(sorted(unresolved.items(), key=lambda item: int(item[0]))),
+        "pages": str(page_cache_dir(pdf, capture_dir)),
+    }
 
 
 def _pipeline_message(transcript: str) -> str:
@@ -633,6 +700,9 @@ class Job:
         self.message = ""
         self.detail = ""
         self.session_id: int | None = None
+        # Set when a run stopped on an unreadable answer key, so the page can
+        # ask for the missing answers instead of leaving the teacher stuck.
+        self.key_review: dict | None = None
 
     @property
     def busy(self) -> bool:
@@ -647,6 +717,7 @@ class Job:
                 "message": self.message,
                 "detail": self.detail,
                 "session_id": self.session_id,
+                "key_review": self.key_review,
             }
 
     def _set(self, **values) -> None:
@@ -659,7 +730,8 @@ class Job:
         if self.busy:
             raise PaperError("Something is already running; wait for it to finish.")
         self._set(
-            state=state, progress=0.0, message=message, detail="", session_id=None
+            state=state, progress=0.0, message=message, detail="", session_id=None,
+            key_review=None,
         )
 
         def report(progress: float | None = None, message: str | None = None) -> None:
@@ -674,6 +746,8 @@ class Job:
         def run() -> None:
             try:
                 result = work(report)
+            except AnswerKeyError as exc:
+                self._set(state="failed", message=str(exc), key_review=exc.review)
             except PaperError as exc:
                 self._set(state="failed", message=str(exc))
             except Exception as exc:  # never leave the page waiting forever
@@ -691,7 +765,10 @@ class Job:
 
     def reset(self) -> None:
         if not self.busy:
-            self._set(state="idle", progress=0.0, message="", session_id=None)
+            self._set(
+                state="idle", progress=0.0, message="", session_id=None,
+                key_review=None,
+            )
 
 
 # ----------------------------------------------------------------- storage

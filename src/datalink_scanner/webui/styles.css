@@ -437,3 +437,21 @@ td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }
 .review-check { width: 18px; height: 18px; min-height: 0; accent-color: var(--green); cursor: pointer; }
 #reviewDismissedLine { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 #reviewDismissedLine .link-button { min-width: 0; padding: 2px 8px; }
+
+/* Supplying the answers the reader could not settle on the key sheet. */
+.key-fix-rows { display: grid; gap: 10px; margin: 16px 0; }
+.key-fix-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.key-fix-row .key-fix-what { min-width: 230px; }
+.key-fix-row .key-fix-what strong { font-size: 15px; }
+.key-fix-row .key-fix-read { color: var(--muted); font-size: 13px; }
+.key-fix-choice { position: relative; cursor: pointer; }
+.key-fix-choice input { position: absolute; opacity: 0; }
+.key-fix-choice span {
+  display: grid; place-items: center; min-width: 42px; min-height: 38px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+  font-weight: 700;
+}
+.key-fix-choice input:checked + span {
+  background: var(--green); border-color: var(--green); color: #fff;
+}
+.key-fix-choice input:focus-visible + span { outline: 2px solid var(--green); outline-offset: 2px; }

@@ -200,6 +200,24 @@
 
         <p id="paperError" class="safety danger hidden"></p>
 
+        <!-- The reader refuses to score anything against a key it could not
+             read, and it is right to. This is the way out: say what the key
+             sheet actually carries and it reads the batch again. -->
+        <section id="paperKeyFix" class="callout warn hidden">
+          <div class="section-title row">
+            <div>
+              <h3 id="paperKeyFixTitle">The answer key needs a hand</h3>
+              <p id="paperKeyFixIntro" class="dialog-copy"></p>
+            </div>
+            <button type="button" id="paperKeyView" class="secondary">Look at the key sheet</button>
+          </div>
+          <div id="paperKeyQuestions" class="key-fix-rows"></div>
+          <div class="button-row">
+            <button type="button" id="paperKeyRetry" class="primary" disabled>Use these and read the batch</button>
+            <button type="button" id="paperKeyCancel" class="ghost">Start over</button>
+          </div>
+        </section>
+
         <div id="paperDone" class="hidden">
           <p class="callout success" id="paperDoneMessage"></p>
           <div class="button-row">

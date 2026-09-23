@@ -108,6 +108,13 @@ def _paper_run(store: Store, capture_root: Path, body: dict):
     skip_pages = str(body.get("skip_pages", "") or "")
     name = str(body.get("name", "") or "")
     class_name = str(body.get("class_name", "") or "")
+    # Answers the teacher supplied for key questions the reader could not
+    # settle on its own. The reader takes them as --key-overrides.
+    key_overrides = {
+        str(question): str(answer).upper()
+        for question, answer in dict(body.get("key_overrides") or {}).items()
+        if str(answer).upper() in {"A", "B", "C", "D", "E"}
+    }
 
     def work(report) -> dict:
         if key_page < 1:
@@ -130,6 +137,7 @@ def _paper_run(store: Store, capture_root: Path, body: dict):
             exam_name=name or None,
             capture_dir=capture_root,
             on_line=watch,
+            key_overrides=key_overrides or None,
         )
         report(progress=0.98, message="Filing the results…")
         session_id = paper.session_from_report(store, result, name=name, class_name=class_name)
@@ -902,6 +910,29 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     session.get("page_cache"), int(page)
                 )
             except paper.PaperError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/paper/page":
+            # One rendered page of a batch, by the cache the reader filled.
+            # There is no session yet — the run stopped on the answer key —
+            # so this goes by the PDF rather than by a session id.
+            query = parse_qs(parsed.query)
+            pdf = query.get("path", [""])[0]
+            page = query.get("page", [""])[0]
+            if not pdf or not page.isdigit():
+                self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                return
+            try:
+                body, content_type = paper.page_image(
+                    paper.page_cache_dir(pdf, self.controller.capture_root), int(page)
+                )
+            except (paper.PaperError, OSError) as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
                 return
             self.send_response(HTTPStatus.OK)

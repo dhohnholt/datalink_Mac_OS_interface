@@ -1934,6 +1934,56 @@ function renderPaperStorage(storage) {
   return storage;
 }
 
+// The reader will not score anything against a key it could not read, which
+// is right, but refusing without a way forward left the batch stranded. This
+// asks for the answers it could not settle and runs it again.
+let keyFixState = null;
+
+function renderKeyFix(review) {
+  keyFixState = review || null;
+  const panel = $("#paperKeyFix");
+  panel.classList.toggle("hidden", !review);
+  if (!review) return;
+
+  const questions = Object.keys(review.unresolved);
+  $("#paperKeyFixIntro").textContent =
+    `Nothing can be scored until the key is settled. The key was read from page ` +
+    `${review.key_page}; ${questions.length === 1 ? "one question" : `${questions.length} questions`} ` +
+    `could not be made out. Look at the sheet and say what each should be.`;
+
+  $("#paperKeyQuestions").innerHTML = questions.map(question => {
+    // What the reader saw: "MULTIPLE" for an erasure or a second mark, an
+    // empty value for a question it found nothing on.
+    const read = review.unresolved[question];
+    const saw = !read || read === "BLANK"
+      ? "nothing marked on the key"
+      : read === "MULTIPLE"
+        ? "two or more marks on the key"
+        : `read as <strong>${escapeHtml(read)}</strong>`;
+    const choices = [..."ABCDE"].map(letter =>
+      `<label class="key-fix-choice"><input type="radio" name="key-${escapeHtml(question)}"
+        value="${letter}" data-key-question="${escapeHtml(question)}"><span>${letter}</span></label>`
+    ).join("");
+    return `<div class="key-fix-row">
+      <span class="key-fix-what"><strong>Question ${escapeHtml(question)}</strong>
+        <span class="key-fix-read">${saw}</span></span>
+      ${choices}
+    </div>`;
+  }).join("");
+
+  // Nothing can be sent until every one of them has an answer; a partial set
+  // would simply be refused again by the reader.
+  const answered = () => new Set(
+    [...document.querySelectorAll("#paperKeyQuestions input:checked")]
+      .map(input => input.dataset.keyQuestion)
+  ).size === questions.length;
+  const retry = $("#paperKeyRetry");
+  retry.disabled = true;
+  for (const input of document.querySelectorAll("#paperKeyQuestions input")) {
+    input.addEventListener("change", () => { retry.disabled = !answered(); });
+  }
+}
+
 function renderPaperJob(job) {
   const running = job.state === "installing" || job.state === "reading";
   $("#paperProgressWrap").classList.toggle("hidden", !running);
@@ -1944,8 +1994,12 @@ function renderPaperJob(job) {
   $("#paperInstallButton").disabled = running;
 
   const failed = job.state === "failed";
-  $("#paperError").classList.toggle("hidden", !failed);
-  if (failed) $("#paperError").textContent = job.message;
+  const fixable = Boolean(failed && job.key_review);
+  // The fix panel restates the problem and offers the way out, so the bare
+  // red line above it would only say the same thing twice.
+  $("#paperError").classList.toggle("hidden", !failed || fixable);
+  if (failed && !fixable) $("#paperError").textContent = job.message;
+  renderKeyFix(fixable ? job.key_review : null);
 
   const finished = job.state === "done" && job.session_id;
   $("#paperDone").classList.toggle("hidden", !finished);
@@ -2051,7 +2105,7 @@ async function setPaperPdf(path) {
 
 window.datalinkPaper = {chosen: setPaperPdf};
 
-$("#paperRunButton").addEventListener("click", async () => {
+async function runPaperBatch(keyOverrides = null) {
   $("#paperError").classList.add("hidden");
   try {
     const {job} = await post("/api/paper/run", {
@@ -2060,6 +2114,7 @@ $("#paperRunButton").addEventListener("click", async () => {
       question_count: Number($("#paperQuestions").value),
       name: $("#paperName").value.trim(),
       class_name: $("#paperClass").value,
+      key_overrides: keyOverrides || {},
     });
     renderPaperJob(job);
     startPaperPolling();
@@ -2067,6 +2122,37 @@ $("#paperRunButton").addEventListener("click", async () => {
     $("#paperError").classList.remove("hidden");
     $("#paperError").textContent = error.message;
   }
+}
+
+$("#paperRunButton").addEventListener("click", () => runPaperBatch());
+
+$("#paperKeyRetry").addEventListener("click", () => {
+  const chosen = {};
+  for (const input of document.querySelectorAll("#paperKeyQuestions input:checked")) {
+    chosen[input.dataset.keyQuestion] = input.value;
+  }
+  renderKeyFix(null);
+  // The pages are already rendered and cached, so reading again is quick.
+  runPaperBatch(chosen);
+});
+
+$("#paperKeyCancel").addEventListener("click", () => {
+  renderKeyFix(null);
+  $("#paperError").classList.add("hidden");
+});
+
+$("#paperKeyView").addEventListener("click", () => {
+  if (!keyFixState) return;
+  const url = `/api/paper/page?path=${encodeURIComponent(paperPath)}` +
+              `&page=${keyFixState.key_page}`;
+  $("#sheetDialogTitle").textContent = `Answer key — page ${keyFixState.key_page}`;
+  $("#sheetDialogNote").textContent =
+    "The key sheet as it was scanned. Read off the answers it could not settle, " +
+    "then choose them behind this.";
+  $("#sheetImage").src = url;
+  $("#sheetFullLink").href = url;
+  const dialog = $("#sheetDialog");
+  if (!dialog.open) dialog.showModal();
 });
 
 $("#paperInstallButton").addEventListener("click", async () => {

@@ -3,15 +3,11 @@ class DatalinkScanner < Formula
 
   desc "macOS interface for the Apperson DataLink 1200 optical mark scanner"
   homepage "https://github.com/dhohnholt/datalink_Mac_OS_interface"
-  url "https://github.com/dhohnholt/datalink_Mac_OS_interface/archive/refs/tags/v1.8.5.tar.gz"
-  sha256 "d04c87cbd43794900b8ce2096992ff6e7769067c2fb4dfce342f5996ff357d23"
+  url "https://github.com/dhohnholt/datalink_Mac_OS_interface/archive/refs/tags/v1.8.6.tar.gz"
+  sha256 "22f2b3922afe4921df048236af18d5ff286ef3db22a3ca180d4b7f9c444427a4"
   license "MIT"
   head "https://github.com/dhohnholt/datalink_Mac_OS_interface.git", branch: "main"
 
-  bottle do
-    root_url "https://github.com/dhohnholt/datalink_Mac_OS_interface/releases/download/v1.8.5"
-    sha256 cellar: :any, arm64_tahoe: "9c2c0735a4ec0bba3746ab513f136cf9ebe6bce70c20c10efc28b1d344fbf5ef"
-  end
 
 
 

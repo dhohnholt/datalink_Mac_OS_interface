@@ -29,16 +29,32 @@ say "==> DataLink Scanner $VERSION, App Store edition"
 
 # ------------------------------------------------------------ prerequisites
 
+# Two certificates can sign a Mac app for the store and they are equivalent
+# here. "Apple Distribution" is the current unified type, one certificate for
+# every platform. "Mac App Distribution" is the older macOS-only one and
+# installs under its legacy keychain name, "3rd Party Mac Developer
+# Application". Either is accepted; whichever is present is used.
 APP_IDENTITY="${DATALINK_APPSTORE_IDENTITY:-$(
   /usr/bin/security find-identity -v 2>/dev/null \
     | /usr/bin/sed -n 's/.*"\(Apple Distribution:.*\)"/\1/p' | head -1
 )}"
+if [[ -z "$APP_IDENTITY" ]]; then
+  APP_IDENTITY="$(
+    /usr/bin/security find-identity -v 2>/dev/null \
+      | /usr/bin/sed -n 's/.*"\(3rd Party Mac Developer Application:.*\)"/\1/p' | head -1
+  )"
+fi
 [[ -n "$APP_IDENTITY" ]] || stop \
-  "no Apple Distribution certificate on this Mac" \
-  "Create one at developer.apple.com -> Certificates -> Apple Distribution,
-download it and double-click to install. 'Developer ID Application', which
-this Mac does have, signs apps for distribution OUTSIDE the store and the
-store will refuse it."
+  "no store signing certificate on this Mac" \
+  "Create either at developer.apple.com -> Certificates, download it and
+double-click to install:
+
+  Apple Distribution      one certificate for every platform (recommended)
+  Mac App Distribution    macOS only; installs as '3rd Party Mac Developer
+                          Application'
+
+Both are accepted here. 'Developer ID Application', which this Mac does have,
+signs apps for distribution OUTSIDE the store and the store will refuse it."
 
 INSTALLER_IDENTITY="${DATALINK_APPSTORE_INSTALLER:-$(
   /usr/bin/security find-identity -v 2>/dev/null \

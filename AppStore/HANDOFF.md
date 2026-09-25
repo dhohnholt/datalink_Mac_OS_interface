@@ -48,7 +48,9 @@ That is correct behaviour, not a bug. Step 1 of the plan clears it.
 
 ## What the owner must do, that you cannot
 
-- Create the Apple Distribution and Mac Installer Distribution certificates
+- Create the app-signing certificate — either **Apple Distribution** or
+  **Mac App Distribution**, the build takes whichever is there — and the
+  **Mac Installer Distribution** certificate
 - Create and download the provisioning profile
 - Create the app record in App Store Connect
 - Any step that needs their Apple ID password or an app-specific password

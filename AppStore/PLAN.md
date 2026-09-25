@@ -43,10 +43,18 @@ refusal costs nothing but time.
 
 `AppStore/build_appstore.sh` refuses to start without these and names each one.
 
-1. **Apple Distribution** certificate — developer.apple.com → Certificates.
+1. A certificate to sign the **app**. Either of these works and the build
+   accepts whichever is present:
+   - **Apple Distribution** — the current unified type, one certificate for
+     every platform. Recommended, because distribution certificates are
+     limited per account and this one is not spent on macOS alone.
+   - **Mac App Distribution** — macOS only, and installs under its legacy
+     keychain name `3rd Party Mac Developer Application`.
+
    Not "Developer ID Application", which this Mac already has and which is
    for distribution *outside* the store.
-2. **Mac Installer Distribution** certificate — signs the `.pkg`.
+2. **Mac Installer Distribution** certificate — signs the `.pkg`. Installs
+   under its legacy keychain name, `3rd Party Mac Developer Installer`.
 3. Register the App ID `org.davidhohnholt.datalink-scanner` if it is not
    already, then create a **Mac App Store provisioning profile** for it and
    save it as `AppStore/embedded.provisionprofile`.

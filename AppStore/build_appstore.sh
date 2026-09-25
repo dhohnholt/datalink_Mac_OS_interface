@@ -21,6 +21,7 @@ PROFILE="$APPSTORE_DIR/embedded.provisionprofile"
 
 VERSION=$(/usr/bin/sed -n 's/^__version__ = "\(.*\)"/\1/p' \
   "$PROJECT_DIR/src/datalink_scanner/__init__.py")
+BUILD_NUMBER="${DATALINK_APPSTORE_BUILD_NUMBER:-$VERSION}"
 
 say() { print -r -- "$@"; }
 stop() { say ""; say "STOPPED: $1"; say ""; say "$2"; exit 1; }
@@ -114,10 +115,10 @@ say "==> Building the bundle"
   "$PROJECT_DIR/packaging/pyinstaller_entry.py"
 
 INFO="$APP/Contents/Info.plist"
-for key in CFBundleShortVersionString CFBundleVersion; do
-  /usr/libexec/PlistBuddy -c "Set :$key $VERSION" "$INFO" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$INFO"
-done
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$INFO"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$INFO" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$INFO"
 # The store requires a category; without it the upload is refused.
 /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.education" "$INFO" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.education" "$INFO"
@@ -175,6 +176,19 @@ plist_set DTXcode "$DTXCODE"
 plist_set DTXcodeBuild "$XCODE_BUILD"
 plist_set DTCompiler com.apple.compilers.llvm.clang.1_0
 plist_set BuildMachineOSBuild "$MACHINE_BUILD"
+# Export compliance, so App Store Connect stops asking on every upload. This
+# has to be a real boolean; the string "false" is not the same answer.
+#
+# The owner made this declaration on 2026-09-25. It is a legal statement under
+# the US export regulations, not a build setting, so it is not to be changed
+# here without them saying so. Note for whoever revisits it: this bundle
+# carries its OWN OpenSSL (libssl/libcrypto, plus mbedcrypto from OpenCV and
+# libk5crypto from poppler), so the narrow "only Apple's encryption" exemption
+# is not the one that applies. What the app actually does is standard TLS to
+# an address the teacher enters, and nothing at all until they enter one.
+/usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$INFO" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO"
+
 # An array, so PlistBuddy needs telling twice.
 /usr/libexec/PlistBuddy -c "Delete :CFBundleSupportedPlatforms" "$INFO" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$INFO"
@@ -190,6 +204,17 @@ if [[ -z "${DATALINK_POPPLER_PREFIX:-}" && -x "$PROJECT_DIR/.poppler-prefix/bin/
   export DATALINK_POPPLER_PREFIX="$PROJECT_DIR/.poppler-prefix"
 fi
 "$PYTHON_BIN" "$PROJECT_DIR/packaging/bundle_poppler.py" "$APP"
+
+# Finder and browsers attach com.apple.quarantine to downloaded files. That
+# attribute survives PyInstaller and productbuild, and App Store processing
+# rejects the entire package if even one bundled resource still carries it
+# (ITMS-91109). Strip it after every input has been copied into the bundle and
+# before signing, then make the absence an enforced build invariant.
+/usr/bin/xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+if /usr/bin/xattr -lr "$APP" 2>/dev/null | /usr/bin/grep -q 'com.apple.quarantine:'; then
+  stop "the app bundle still contains quarantined files" \
+    "Remove com.apple.quarantine from the reported inputs and build again."
+fi
 
 # ---------------------------------------------------------------- signing
 
@@ -297,6 +322,7 @@ say "==> Building the installer, signed as $INSTALLER_IDENTITY"
 
 say ""
 say "Built: $PKG"
+say "Version: $VERSION ($BUILD_NUMBER)"
 say ""
 if [[ -z "${DATALINK_APPSTORE_TESTABLE:-}" ]]; then
   say "This build will NOT open on this Mac, by design: it carries the store"

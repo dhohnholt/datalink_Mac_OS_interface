@@ -122,6 +122,66 @@ done
 /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.education" "$INFO" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.education" "$INFO"
 
+# Xcode writes a block of build metadata that PyInstaller does not, and
+# App Store Connect will not take a package without it. The first symptom is
+# blunt and does not name the real problem:
+#
+#   ERROR: Unable to detect platform from Info.plist. Valid platforms are:
+#          appletvos, ios, osx, xros.
+#
+# and passing --platform osx does not help, because it is the bundle that has
+# to say what it is. Every value below is read from the toolchain that is
+# actually doing the building rather than written down here, so it cannot
+# drift when Xcode is updated.
+SDK_VERSION=$(/usr/bin/xcrun --sdk macosx --show-sdk-version)
+SDK_BUILD=$(/usr/bin/xcrun --sdk macosx --show-sdk-build-version)
+XCODE_VERSION=$(/usr/bin/xcodebuild -version | /usr/bin/sed -n '1s/Xcode //p')
+XCODE_BUILD=$(/usr/bin/xcodebuild -version | /usr/bin/sed -n '2s/Build version //p')
+MACHINE_BUILD=$(/usr/bin/sw_vers -buildVersion)
+# "27.0" becomes "2700", which is the form Xcode writes.
+DTXCODE=$(printf '%d%02d' "${XCODE_VERSION%%.*}" "$(print -r -- ${XCODE_VERSION#*.} | cut -d. -f1)")
+# What the built executable actually requires, rather than a hopeful guess.
+MIN_OS=$(/usr/bin/otool -l "$APP/Contents/MacOS/$APP_NAME" \
+  | /usr/bin/awk '/LC_BUILD_VERSION/{found=1} found && /minos/{print $2; exit}')
+[[ -n "$MIN_OS" ]] || stop "could not read the deployment target from the binary" \
+  "LSMinimumSystemVersion has to match what the executable was built for."
+
+plist_set() {
+  /usr/libexec/PlistBuddy -c "Set :$1 $2" "$INFO" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$INFO"
+}
+# Apple refuses an arm64 only bundle that claims to run on macOS 11:
+#
+#   ERROR ITMS-90869: ... supports arm64 but not Intel-based Mac computers.
+#   ... To support arm64 only, your macOS deployment target must be 12.0 or
+#   higher.
+#
+# Either ship a universal binary or say 12.0. PyInstaller here produces arm64
+# only, so the floor goes up. Raising it is honest: the app does run on 12.0
+# and up, and no Intel Mac can run this build at all.
+if ! /usr/bin/lipo -archs "$APP/Contents/MacOS/$APP_NAME" | /usr/bin/grep -q x86_64; then
+  if [[ "${MIN_OS%%.*}" -lt 12 ]]; then
+    say "    arm64 only, so the deployment target goes from $MIN_OS to 12.0"
+    MIN_OS=12.0
+  fi
+fi
+plist_set LSMinimumSystemVersion "$MIN_OS"
+plist_set DTPlatformName macosx
+plist_set DTPlatformVersion "$SDK_VERSION"
+plist_set DTSDKName "macosx$SDK_VERSION"
+plist_set DTSDKBuild "$SDK_BUILD"
+plist_set DTPlatformBuild "$XCODE_BUILD"
+plist_set DTXcode "$DTXCODE"
+plist_set DTXcodeBuild "$XCODE_BUILD"
+plist_set DTCompiler com.apple.compilers.llvm.clang.1_0
+plist_set BuildMachineOSBuild "$MACHINE_BUILD"
+# An array, so PlistBuddy needs telling twice.
+/usr/libexec/PlistBuddy -c "Delete :CFBundleSupportedPlatforms" "$INFO" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$INFO"
+/usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string MacOSX" "$INFO"
+
+say "    built for macOS $MIN_OS and up, SDK $SDK_VERSION ($SDK_BUILD), Xcode $XCODE_VERSION"
+
 /bin/cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 
 # The paper pipeline shells out to pdftoppm and pdfinfo, which must travel
@@ -132,6 +192,54 @@ fi
 "$PYTHON_BIN" "$PROJECT_DIR/packaging/bundle_poppler.py" "$APP"
 
 # ---------------------------------------------------------------- signing
+
+# The provisioning profile names an application identifier, and the signature
+# has to carry the same one or the build is not eligible for TestFlight:
+#
+#   WARN ITMS-90886: ... the signature for the bundle is missing an
+#   application identifier but has an application identifier in the
+#   provisioning profile ...
+#
+# The team prefix is read from the certificate rather than written down, so
+# this cannot go stale if the certificate is replaced.
+# This is an either/or, and there is no build that is both.
+#
+#   with the identifier     validates with zero warnings and is eligible for
+#                           TestFlight, but WILL NOT LAUNCH on this Mac: once
+#                           the signature carries it, macOS checks the
+#                           embedded profile, and a Mac App Store profile
+#                           provisions no devices at all. The failure is
+#                           "Launchd job spawn failed", which names nothing.
+#
+#   without it              runs here, so it can be tested, and validates with
+#                           one warning saying TestFlight is unavailable.
+#
+# The default is the one you upload. Set DATALINK_APPSTORE_TESTABLE=1 for a
+# copy you can actually open.
+TEAM_ID=$(print -r -- "$APP_IDENTITY" | /usr/bin/sed -n 's/.*(\(.*\))$/\1/p')
+[[ -n "$TEAM_ID" ]] || stop "could not read the team id from $APP_IDENTITY" \
+  "The signing identity should end with the team id in brackets."
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO")
+SIGNING_ENTITLEMENTS="$WORK/entitlements-signing.plist"
+/bin/cp "$ENTITLEMENTS" "$SIGNING_ENTITLEMENTS"
+/usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $TEAM_ID.$BUNDLE_ID" \
+  "$SIGNING_ENTITLEMENTS"
+/usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM_ID" \
+  "$SIGNING_ENTITLEMENTS"
+# Only the app itself gets the identifier. A nested binary that carries one
+# without a provisioning profile of its own is the next warning along:
+#
+#   WARN ITMS-90885: ... the executable is missing a provisioning profile but
+#   has an application identifier in its signature.
+#
+# so the inner passes below keep using the plain entitlements.
+APP_ENTITLEMENTS="$SIGNING_ENTITLEMENTS"
+
+if [[ -n "${DATALINK_APPSTORE_TESTABLE:-}" ]]; then
+  APP_ENTITLEMENTS="$ENTITLEMENTS"
+  say "==> TESTABLE build: no application identifier, so it opens on this Mac."
+  say "    Upload the default build instead, not this one."
+fi
 
 say "==> Signing as $APP_IDENTITY"
 # Inner-out, as in packaging/build_macos.sh, and for the same reasons.
@@ -151,7 +259,7 @@ for framework in "$APP/Contents/Frameworks/"*.framework; do
 done
 
 /usr/bin/codesign --force --timestamp --options runtime \
-  --entitlements "$ENTITLEMENTS" --sign "$APP_IDENTITY" "$APP"
+  --entitlements "$APP_ENTITLEMENTS" --sign "$APP_IDENTITY" "$APP"
 
 /usr/bin/codesign --verify --strict --deep --verbose=2 "$APP" 2>&1 | tail -2
 # `--entitlements :-` writes real plist XML; without the colon codesign
@@ -190,6 +298,13 @@ say "==> Building the installer, signed as $INSTALLER_IDENTITY"
 say ""
 say "Built: $PKG"
 say ""
+if [[ -z "${DATALINK_APPSTORE_TESTABLE:-}" ]]; then
+  say "This build will NOT open on this Mac, by design: it carries the store"
+  say "application identifier, and the Mac App Store profile provisions no"
+  say "devices. For a copy you can open and test, build again with:"
+  say "  DATALINK_APPSTORE_TESTABLE=1 ./AppStore/build_appstore.sh"
+  say ""
+fi
 say "DO NOT INSTALL THIS PACKAGE ON THIS MACHINE. It installs to /Applications,"
 say "where DataLink Scanner.app is a symlink into the Homebrew Cellar, so the"
 say "installer follows it as root and replaces the working everyday app with"

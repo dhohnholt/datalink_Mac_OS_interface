@@ -205,6 +205,43 @@ really `~/Library/Containers/org.davidhohnholt.datalink-scanner/Data/...`.
 
 ## Step 7 — build, validate, upload
 
+**Validation passes as of 2026-09-25**, with no errors and no warnings. Four
+things had to be fixed to get there, none of which the build or the signature
+complained about:
+
+1. PyInstaller writes almost no Info.plist. App Store Connect refused it with
+   "Unable to detect platform from Info.plist", which is not about the
+   platform flag on the command line: the bundle itself has to carry
+   `CFBundleSupportedPlatforms`, `LSMinimumSystemVersion` and the `DT*` build
+   metadata that Xcode normally writes. The build reads all of it from the
+   toolchain now.
+2. An arm64 only bundle may not claim macOS 11. Either ship a universal binary
+   or set the floor to 12.0; the build raises it automatically and says so.
+3. The signature had to carry `com.apple.application-identifier` matching the
+   provisioning profile, or the build is not eligible for TestFlight.
+4. Only the app may carry it. Nested binaries with an identifier and no
+   profile of their own are the same warning again.
+
+### The build you can test is not the build you upload
+
+Once the signature carries the application identifier, macOS checks the
+embedded profile before launching, and a Mac App Store profile provisions no
+devices. The app then fails to open with "Launchd job spawn failed", which
+names nothing. Both forms are built from the same script:
+
+    ./AppStore/build_appstore.sh                              # upload this
+    DATALINK_APPSTORE_TESTABLE=1 ./AppStore/build_appstore.sh # open this
+
+The testable one validates with a single warning saying TestFlight is
+unavailable, which is true of it and not of the other.
+
+### Credentials
+
+The API key belongs at `~/.appstoreconnect/private_keys/AuthKey_<id>.p8`.
+Transporter and altool both look there and neither says so when it is missing.
+
+
+
 ```bash
 ./AppStore/build_appstore.sh
 ```

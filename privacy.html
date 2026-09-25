@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · DataLink Scanner</title>
+<meta name="description" content="Privacy policy for DataLink Scanner, a macOS app for the Apperson DataLink 1200 optical mark scanner.">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<main class="wrap">
+  <p class="eyebrow">DataLink Scanner for macOS</p>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated 25 September 2026</p>
+
+  <div class="headline">
+    <strong>DataLink Scanner collects nothing.</strong>
+    It has no accounts, no analytics, no advertising and no tracking of any kind.
+    Scanned answer sheets, student names, student ID numbers and scores stay on
+    the Mac the app is installed on, and are not sent anywhere unless you set up
+    a destination yourself.
+  </div>
+
+  <section class="card">
+    <h2>What the developer receives</h2>
+    <p>
+      Nothing. The app sends no usage data, no diagnostics, no crash reports and
+      no device identifiers to the developer or to anyone else. There is no
+      account to create and no sign-in.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>What the app stores, and where</h2>
+    <p>
+      Everything the app records is written to its own storage on your Mac:
+    </p>
+    <ul>
+      <li>Scanned sheets and the answers read from them.</li>
+      <li>Class rosters you enter, including student names and ID numbers.</li>
+      <li>Scores, statistics and the answer key for each test.</li>
+      <li>Your settings.</li>
+    </ul>
+    <p>
+      In the Mac App Store version this lives inside the app's sandbox container.
+      Nothing in it is uploaded, backed up to the developer, or shared between
+      users. It is covered by whatever backup and disk encryption you have set up
+      on that Mac, and by nothing else.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Sending a report to your own site</h2>
+    <p>
+      The app can send a scored report to a website <strong>you</strong> choose.
+      This is off until you enter an address, and no address is set when the app
+      is installed.
+    </p>
+    <p>If you turn it on, then each time you choose to send a report:</p>
+    <ul>
+      <li>
+        The report goes over HTTPS to the address you entered, and to nowhere
+        else. It contains student ID numbers, student names, per-question
+        responses, scores and per-question statistics for that one test.
+      </li>
+      <li>
+        A connection token you paste in is kept in the macOS Keychain. It is sent
+        only as an authorization header, is never written to the app's files or
+        logs, and never appears in an error message.
+      </li>
+      <li>
+        The developer does not operate, see or receive anything sent this way.
+        Once a report reaches your site it is governed by that site's policies,
+        not this one.
+      </li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Other connections</h2>
+    <ul>
+      <li>
+        <strong>The scanner.</strong> The app talks to an Apperson DataLink 1200
+        over USB. That is a local cable, not a network.
+      </li>
+      <li>
+        <strong>Update checks.</strong> The Mac App Store version never checks for
+        updates; the App Store does that. The version distributed directly from
+        GitHub asks GitHub once a day for the latest published release number, and
+        sends nothing with the request. It can be switched off in Settings.
+      </li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Student information and children</h2>
+    <p>
+      The app is a tool for teachers and school staff. It is not directed to
+      children, has no child-facing features, and asks no one to create an
+      account.
+    </p>
+    <p>
+      It does handle information that identifies students, because that is what
+      is printed and bubbled on an answer sheet. That information is entered by
+      the teacher, stays on the teacher's Mac, and is disclosed to no one by the
+      app. Teachers and schools remain responsible for handling student records
+      under their own obligations, including FERPA in the United States.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Deleting your data</h2>
+    <ul>
+      <li>Individual tests can be deleted in the app, under <strong>Sessions</strong>.</li>
+      <li>
+        Removing the app removes its container and everything in it. Files you
+        exported yourself, such as CSV files, stay where you saved them.
+      </li>
+      <li>
+        A connection token is removed from the Keychain with
+        <strong>Disconnect</strong> in Settings.
+      </li>
+    </ul>
+    <p>
+      Because the developer never receives your data, there is nothing to request
+      or delete from anyone else.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Changes</h2>
+    <p>
+      If this policy changes, the new version will be posted here with a new date
+      above. The app's behaviour, not this page, is the thing being described:
+      the source code is public, so any claim here can be checked against it.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Contact</h2>
+    <p>
+      Questions about this policy or about the app can be raised at
+      <a href="https://github.com/dhohnholt/datalink_Mac_OS_interface/issues">the project's issue tracker</a>.
+    </p>
+  </section>
+
+  <footer>
+    <a href="./">DataLink Scanner</a> ·
+    <a href="https://github.com/dhohnholt/datalink_Mac_OS_interface">Source code</a>
+    <br>
+    An independent project. Not affiliated with or endorsed by Apperson.
+  </footer>
+</main>
+</body>
+</html>

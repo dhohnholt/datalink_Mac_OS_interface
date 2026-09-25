@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DataLink Scanner · Support</title>
+<meta name="description" content="Support and privacy for DataLink Scanner, a macOS app for the Apperson DataLink 1200 optical mark scanner.">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<main class="wrap">
+  <p class="eyebrow">Designed to work with Apperson DataLink 1200</p>
+  <h1>DataLink Scanner</h1>
+  <p class="lede">
+    A macOS app that reads answer sheets from an Apperson DataLink 1200 over USB,
+    scores them against an answer key, and shows which questions a class actually
+    struggled with.
+  </p>
+
+  <div class="headline">
+    <strong>Everything stays on your Mac.</strong>
+    No account, no analytics, nothing uploaded unless you set up a destination
+    yourself. See the <a href="privacy.html">privacy policy</a>.
+  </div>
+
+  <section class="card">
+    <h2>Getting help</h2>
+    <p>
+      Questions, problems and requests all go to
+      <a href="https://github.com/dhohnholt/datalink_Mac_OS_interface/issues">the issue tracker</a>.
+      It helps to say which version you are running, shown under
+      <strong>Settings</strong>, and what the scanner's own display said at the
+      time.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Before the scanner will read anything</h2>
+    <p>
+      Press <strong>Reset</strong> on the DataLink until its display reads
+      <strong>Scan Mode Ready</strong>. The mode is chosen with that button, and
+      nothing the app sends can change it. In the wrong mode the scanner holds
+      the sheet, asks for its other side, and tells the app nothing at all, which
+      looks from the Mac like the app has stopped working.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Common things</h2>
+    <ul>
+      <li>
+        <strong>No serial port listed.</strong> The DataLink uses a USB-to-serial
+        chip. Unplug it, plug it back in, and reopen the port menu.
+      </li>
+      <li>
+        <strong>Sheets feed but nothing is recorded.</strong> A session has to be
+        running. Name the test, pick the class, then press Start.
+      </li>
+      <li>
+        <strong>A sheet came through with no name.</strong> Open
+        <strong>Review</strong>. The ID and name can be corrected there, and the
+        roster fills the name in once the ID is right.
+      </li>
+      <li>
+        <strong>No scanner to hand.</strong> The <strong>Paper</strong> tab reads
+        a PDF of scanned sheets instead.
+      </li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>About the project</h2>
+    <p>
+      DataLink Scanner is an independent project, built by a teacher, and its
+      source code is public. It is not affiliated with or endorsed by Apperson.
+    </p>
+    <p>
+      <a href="https://github.com/dhohnholt/datalink_Mac_OS_interface">Source code on GitHub</a>
+    </p>
+  </section>
+
+  <footer>
+    <a href="privacy.html">Privacy policy</a> ·
+    <a href="https://github.com/dhohnholt/datalink_Mac_OS_interface">Source code</a>
+  </footer>
+</main>
+</body>
+</html>

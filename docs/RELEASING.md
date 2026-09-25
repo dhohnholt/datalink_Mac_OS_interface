@@ -134,9 +134,18 @@ The app-specific password comes from appleid.apple.com → Sign-In and Security
 `DATALINK_NOTARY_PROFILE` names a different profile. Without one the build
 still signs, says the image is not notarized, and prints the command above.
 
-Apple usually answers in a few minutes. The result is stapled to the image so
-it works on a Mac with no network, which a school Mac often is. If it is
-refused:
+Notarization happens twice, and both are needed. The app is submitted and
+stapled before the image is built, and then the image is submitted and
+stapled in turn. Stapling only the image covers downloading it; it does not
+cover the app once it has been dragged to /Applications on a Mac that has
+never seen it and has no network to ask Apple. That is a school Mac, which is
+what this app is for. Each pass takes a few minutes.
+
+`ditto`, not `zip`, makes the archive for the app's submission: a bundle is
+made of symlinks and extended attributes, and an archive that loses them is
+refused.
+
+If it is refused:
 
 ```bash
 xcrun notarytool log <submission-id> --keychain-profile datalink-notary

@@ -204,6 +204,31 @@ else
   /usr/bin/codesign --force --deep --sign - "$APP"
 fi
 
+# The ticket has to be on the .app, not only on the image. Stapling the image
+# covers downloading it; it does not cover the app after it has been dragged
+# to /Applications on a Mac that has never seen it and has no network to ask
+# Apple. That is a school Mac, and this app is for school Macs — so the app
+# is notarized and stapled first, and then packed.
+NOTARY_PROFILE="${DATALINK_NOTARY_PROFILE:-datalink-notary}"
+HAVE_NOTARY=0
+if [[ -n "$SIGN_IDENTITY" ]] && /usr/bin/xcrun notarytool history \
+     --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  HAVE_NOTARY=1
+  echo "==> Notarizing the app — Apple usually answers within a few minutes"
+  APP_ZIP="$DIST_DIR/$APP_NAME.zip"
+  /bin/rm -f "$APP_ZIP"
+  # ditto, not zip: it preserves the symlinks and extended attributes a
+  # bundle is made of, and a zip that loses them is refused.
+  /usr/bin/ditto -c -k --keepParent "$APP" "$APP_ZIP"
+  if /usr/bin/xcrun notarytool submit "$APP_ZIP" \
+       --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m; then
+    /usr/bin/xcrun stapler staple "$APP"
+  else
+    echo "The app was not notarized; the image will still be signed."
+  fi
+  /bin/rm -f "$APP_ZIP"
+fi
+
 /bin/cp -R "$DIST_DIR/$APP_NAME.app" "$DMG_ROOT/"
 /bin/ln -s /Applications "$DMG_ROOT/Applications"
 /bin/cp "$PACKAGING_DIR/INSTALL.md" "$DMG_ROOT/Read Me.md"
@@ -247,9 +272,7 @@ fi
 # `xcrun notarytool store-credentials`; nothing secret is kept in this repo
 # or passed on a command line. Without the profile the disk image is still
 # signed and still works, it just asks for the Control-click.
-NOTARY_PROFILE="${DATALINK_NOTARY_PROFILE:-datalink-notary}"
-if [[ -n "$SIGN_IDENTITY" ]] && /usr/bin/xcrun notarytool history \
-     --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+if [[ $HAVE_NOTARY -eq 1 ]]; then
   echo "==> Signing the disk image"
   /usr/bin/codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
 
@@ -257,8 +280,8 @@ if [[ -n "$SIGN_IDENTITY" ]] && /usr/bin/xcrun notarytool history \
   if /usr/bin/xcrun notarytool submit "$DMG_PATH" \
        --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m; then
     /usr/bin/xcrun stapler staple "$DMG_PATH"
-    echo "==> Notarized and stapled"
-    /usr/bin/spctl -a -vvv -t install "$DMG_PATH" 2>&1 | tail -2
+    echo "==> Notarized and stapled, both the app and the image"
+    /usr/sbin/spctl -a -vvv -t install "$DMG_PATH" 2>&1 | tail -2
   else
     echo
     echo "Notarization was refused. The disk image is signed and will still"

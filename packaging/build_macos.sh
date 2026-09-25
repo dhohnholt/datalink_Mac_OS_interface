@@ -139,9 +139,70 @@ if [[ -n "$HIGHEST" && "$HIGHEST" != "$OLDEST_SUPPORTED" ]] \
   exit 1
 fi
 
-# Ad-hoc signature: this build is not Apple notarized, so macOS still asks the
-# user to confirm the first launch. See packaging/INSTALL.md.
-/usr/bin/codesign --force --deep --sign - "$DIST_DIR/$APP_NAME.app"
+# ---------------------------------------------------------------- signing
+#
+# With a Developer ID certificate the app is signed for real and notarized,
+# and it opens by double-clicking like anything else. Without one it falls
+# back to an ad-hoc signature, which still runs but makes macOS demand a
+# Control-click on the first launch — see packaging/INSTALL.md.
+#
+# DATALINK_SIGN_IDENTITY names the certificate; the default is whatever
+# Developer ID Application certificate this Mac holds.
+APP="$DIST_DIR/$APP_NAME.app"
+ENTITLEMENTS="$PACKAGING_DIR/entitlements.plist"
+SIGN_IDENTITY="${DATALINK_SIGN_IDENTITY:-$(
+  /usr/bin/security find-identity -v -p codesigning 2>/dev/null     | /usr/bin/sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1
+)}"
+
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  echo "==> Signing as $SIGN_IDENTITY"
+  # Inner-out. --deep is deprecated and, more to the point, wrong here: it
+  # applies one set of entitlements to everything it touches and signs
+  # nested code in an order Apple does not guarantee. Every Mach-O gets its
+  # own signature first, then the bundle that contains them.
+  #
+  # --timestamp contacts Apple's timestamp server, so signing needs the
+  # network. Without it the signature expires with the certificate.
+  /usr/bin/find "$APP/Contents" -type f \
+      \( -name "*.so" -o -name "*.dylib" -o -perm -u+x \) -print0 2>/dev/null \
+    | while IFS= read -r -d '' inner; do
+        # Skip anything that is not Mach-O: scripts, data, the odd text file
+        # that happens to carry the executable bit.
+        /usr/bin/file -b "$inner" | grep -q "Mach-O" || continue
+        /usr/bin/codesign --force --timestamp --options runtime \
+          --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$inner" \
+          >/dev/null 2>&1 || {
+            echo "Could not sign ${inner##*/Contents/}"; exit 1; }
+      done || exit 1
+
+  # The framework is a bundle in its own right and is signed as one.
+  for framework in "$APP/Contents/Frameworks/"*.framework; do
+    [[ -d "$framework" ]] || continue
+    /usr/bin/codesign --force --timestamp --options runtime \
+      --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$framework"
+  done
+
+  /usr/bin/codesign --force --timestamp --options runtime \
+    --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP"
+
+  # Verify before anything is packed: a bundle that fails here will fail
+  # notarization too, and finding out now costs seconds rather than minutes.
+  /usr/bin/codesign --verify --strict --deep --verbose=2 "$APP" 2>&1 | tail -2
+  # Read into a variable rather than piping: `grep -q` stops at the first
+  # match and closes the pipe, codesign takes SIGPIPE, and `pipefail` turns
+  # that into a failure — so the check reported a problem it had caused.
+  SIGNED_FLAGS=$(/usr/bin/codesign -dvv "$APP" 2>&1 || true)
+  if [[ "$SIGNED_FLAGS" != *"(runtime)"* ]]; then
+    echo "The bundle is signed but not with the hardened runtime, which"
+    echo "notarization requires. Signing must have partly failed."
+    exit 1
+  fi
+  echo "    $(printf '%s\n' "$SIGNED_FLAGS" | /usr/bin/grep '^TeamIdentifier')"
+else
+  echo "==> No Developer ID certificate found; signing ad-hoc"
+  echo "    macOS will ask the user to Control-click on first launch."
+  /usr/bin/codesign --force --deep --sign - "$APP"
+fi
 
 /bin/cp -R "$DIST_DIR/$APP_NAME.app" "$DMG_ROOT/"
 /bin/ln -s /Applications "$DMG_ROOT/Applications"
@@ -174,5 +235,47 @@ if [[ -x "$LSREGISTER" ]]; then
   "$LSREGISTER" -u "$DMG_ROOT/$APP_NAME.app" 2>/dev/null || true
 fi
 /bin/rm -rf "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/$APP_NAME" "$DMG_ROOT"
+
+# ----------------------------------------------------------- notarization
+#
+# Signing says who built it. Notarization is Apple confirming they have seen
+# it and found no malware, and it is what lets the app open by double-click
+# instead of demanding a Control-click. Stapling attaches that result to the
+# file so it works on a Mac with no network — a school Mac, often enough.
+#
+# The credentials live in a keychain profile the owner stores themselves with
+# `xcrun notarytool store-credentials`; nothing secret is kept in this repo
+# or passed on a command line. Without the profile the disk image is still
+# signed and still works, it just asks for the Control-click.
+NOTARY_PROFILE="${DATALINK_NOTARY_PROFILE:-datalink-notary}"
+if [[ -n "$SIGN_IDENTITY" ]] && /usr/bin/xcrun notarytool history \
+     --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  echo "==> Signing the disk image"
+  /usr/bin/codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
+
+  echo "==> Notarizing — Apple usually answers within a few minutes"
+  if /usr/bin/xcrun notarytool submit "$DMG_PATH" \
+       --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m; then
+    /usr/bin/xcrun stapler staple "$DMG_PATH"
+    echo "==> Notarized and stapled"
+    /usr/bin/spctl -a -vvv -t install "$DMG_PATH" 2>&1 | tail -2
+  else
+    echo
+    echo "Notarization was refused. The disk image is signed and will still"
+    echo "run, but macOS will ask for a Control-click on first launch."
+    echo "Ask Apple why with:"
+    echo "  xcrun notarytool log <submission-id> --keychain-profile $NOTARY_PROFILE"
+  fi
+elif [[ -n "$SIGN_IDENTITY" ]]; then
+  echo "==> Signing the disk image"
+  /usr/bin/codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
+  echo
+  echo "No notarization profile called '$NOTARY_PROFILE', so this build is"
+  echo "signed but not notarized: macOS will ask for a Control-click on the"
+  echo "first launch. Store credentials once with:"
+  echo "  xcrun notarytool store-credentials $NOTARY_PROFILE \\"
+  echo "    --apple-id <your-apple-id> --team-id <team> --password <app-specific>"
+  echo "See docs/RELEASING.md."
+fi
 
 echo "Built installer: $DMG_PATH"

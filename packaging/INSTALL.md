@@ -15,9 +15,9 @@ the Mac. Saved sessions are stored in:
 
 `~/Library/Application Support/DataLink Scanner/captures`
 
-This build is for Apple-silicon Macs. It is ad-hoc signed rather than Apple
-notarized. If macOS blocks the first launch, Control-click the app, choose
-**Open**, and confirm **Open** once.
+This build is for Apple-silicon Macs and is signed with an Apple Developer ID.
+If macOS still blocks the first launch, the build was not notarized —
+Control-click the app, choose **Open**, and confirm **Open** once.
 
 If no USB serial port appears after connecting the scanner, install the
 Silicon Labs CP210x VCP driver for that Mac and reconnect the scanner.

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The hardened runtime is required for notarization, and it forbids
+       things CPython does as a matter of course. Only what is actually
+       needed is here: every entitlement is a weakening, and Apple reviews
+       them.
+
+       Python builds and runs code objects at runtime, which the hardened
+       runtime treats as unsigned executable memory. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+
+  <!-- The paper pipeline installs OpenCV, NumPy and Pillow into Application
+       Support on first use and imports them from there. Those are somebody
+       else's binaries, signed by somebody else or not at all, so without
+       this the reader cannot load at all. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

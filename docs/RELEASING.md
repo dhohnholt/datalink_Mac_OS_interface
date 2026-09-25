@@ -99,6 +99,49 @@ the app without rebuilding it, and the `/Applications` symlink created by
 brew update-python-resources datalink-scanner
 ```
 
+## Signing and notarization
+
+The disk image is signed with a Developer ID Application certificate and
+notarized, which is what lets a teacher open it by double-clicking instead of
+Control-clicking and confirming a warning about an unidentified developer.
+
+The build finds the certificate on its own. `DATALINK_SIGN_IDENTITY` names a
+different one. With no certificate at all it falls back to an ad-hoc signature
+and says so, and the app still runs.
+
+Signing happens inner-out — every Mach-O, then each framework, then the
+bundle — rather than with `--deep`, which is deprecated and applies one set of
+entitlements to everything it touches. `packaging/entitlements.plist` carries
+only two: unsigned executable memory, which CPython needs, and disabled
+library validation, because the paper reader loads OpenCV, NumPy and Pillow
+from Application Support and those are not signed by this team.
+
+`--timestamp` contacts Apple, so signing needs the network.
+
+### Notarization credentials
+
+Stored once, by the owner, in a keychain profile. Nothing secret goes in this
+repo or on a command line in it:
+
+```bash
+xcrun notarytool store-credentials datalink-notary   --apple-id <apple-id> --team-id 6BA6YTBG7Z --password <app-specific-password>
+```
+
+The app-specific password comes from appleid.apple.com → Sign-In and Security
+→ App-Specific Passwords. An App Store Connect API key works too, with
+`--key`, `--key-id` and `--issuer`, and avoids a password entirely.
+
+`DATALINK_NOTARY_PROFILE` names a different profile. Without one the build
+still signs, says the image is not notarized, and prints the command above.
+
+Apple usually answers in a few minutes. The result is stapled to the image so
+it works on a Mac with no network, which a school Mac often is. If it is
+refused:
+
+```bash
+xcrun notarytool log <submission-id> --keychain-profile datalink-notary
+```
+
 ## The Keychain helper
 
 `packaging/keychain_helper.c` is compiled and signed into

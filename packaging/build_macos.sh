@@ -248,16 +248,17 @@ PKG_PATH="$DIST_DIR/DataLink-Scanner-$VERSION.pkg"
 PKG_WORK="$PROJECT_DIR/build/pkg"
 /bin/rm -rf "$PKG_WORK"; /bin/mkdir -p "$PKG_WORK"
 
+# Developer ID Installer, and only that. This script builds what is
+# distributed outside the store, and the store's installer certificate
+# cannot be notarized — Apple refuses it with "the binary is not signed with
+# a valid Developer ID certificate". Preferring the store one here, as this
+# first did, produced a package that built, signed, and then failed
+# notarization at the very end of a fifteen-minute build. The store
+# certificate belongs to AppStore/build_appstore.sh and nowhere else.
 INSTALLER_IDENTITY="${DATALINK_INSTALLER_IDENTITY:-$(
   /usr/bin/security find-identity -v 2>/dev/null \
-    | /usr/bin/sed -n 's/.*"\(3rd Party Mac Developer Installer:.*\)"/\1/p' | head -1
+    | /usr/bin/sed -n 's/.*"\(Developer ID Installer:.*\)"/\1/p' | head -1
 )}"
-if [[ -z "$INSTALLER_IDENTITY" ]]; then
-  INSTALLER_IDENTITY="$(
-    /usr/bin/security find-identity -v 2>/dev/null \
-      | /usr/bin/sed -n 's/.*"\(Developer ID Installer:.*\)"/\1/p' | head -1
-  )"
-fi
 
 /usr/bin/pkgbuild \
   --component "$DIST_DIR/$APP_NAME.app" \
@@ -274,8 +275,9 @@ else
   echo "==> Building the installer (unsigned — no installer certificate here)"
   echo "    A .pkg nobody has signed cannot be asked of anybody else."
   echo "    Create one at developer.apple.com → Certificates:"
-  echo "      Developer ID Installer            for deploying it yourself"
-  echo "      Mac Installer Distribution        for the App Store"
+  echo "      Developer ID Installer            what this build needs"
+  echo "    Mac Installer Distribution signs for the store instead, and is"
+  echo "    used by AppStore/build_appstore.sh. It cannot be notarized."
   /usr/bin/productbuild --package "$PKG_WORK/component.pkg" "$PKG_PATH" >/dev/null
 fi
 /bin/rm -rf "$PKG_WORK"

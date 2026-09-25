@@ -42,6 +42,7 @@ from .interface import (
     append_jsonl,
     describe_message,
     discover_port,
+    other_readers,
     validate_question_count,
 )
 
@@ -260,6 +261,16 @@ class ScannerController:
         scanner: DirectDataLinkScanner | None = None
         try:
             port = requested_port or discover_port()
+            # Two readers on one port take each other's bytes and neither is
+            # told. Saying so beats losing a character in the middle of a
+            # sheet, which is what happened before this check existed.
+            competing = other_readers(port)
+            if competing:
+                raise DataLinkError(
+                    f"{' and '.join(competing)} already has the scanner open. "
+                    "Close it first — two programs reading the same port lose "
+                    "characters from each other."
+                )
             scanner = DirectDataLinkScanner(port, question_count=question_count)
             scanner.open()
             initialization = scanner.initialize()

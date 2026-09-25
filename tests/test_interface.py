@@ -1,10 +1,15 @@
 """Offline tests for the record parser — no scanner required."""
 
 import json
+import os
+import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
+
+from datalink_scanner import interface
 
 from datalink_scanner.interface import (
     DEFAULT_ANSWER_COUNT,
@@ -12,6 +17,7 @@ from datalink_scanner.interface import (
     DataLinkError,
     DataLinkFormRecord,
     DataLinkStreamParser,
+    DirectDataLinkScanner,
     append_jsonl,
     describe_message,
 )
@@ -245,3 +251,89 @@ class AppendJsonlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VersionRetryTests(unittest.TestCase):
+    """The first exchanges after the port opens are not reliable.
+
+    Measured on hardware: twelve of the first forty-one replies to V lost a
+    character, and on another occasion sixty in a row got no answer at all —
+    then a hundred and eighty were clean. Failing the connection on the first
+    of those is what put "Unexpected version response" on screen.
+    """
+
+    def scanner(self, replies):
+        scanner = DirectDataLinkScanner.__new__(DirectDataLinkScanner)
+        scanner._answers = list(replies)
+
+        def transact(command):
+            answer = scanner._answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        scanner.transact = transact
+        return scanner
+
+    def test_a_clean_first_answer_is_taken(self):
+        scanner = self.scanner(["ADV 1200OK"])
+        self.assertEqual(scanner.version(), "ADV 1200OK")
+
+    def test_a_dropped_character_is_retried(self):
+        scanner = self.scanner(["AV 1200OK", "ADV 1200OK"])
+        self.assertEqual(scanner.version(), "ADV 1200OK")
+
+    def test_silence_is_retried(self):
+        scanner = self.scanner([DataLinkError("No response to V"), "ADV 1200OK"])
+        self.assertEqual(scanner.version(), "ADV 1200OK")
+
+    def test_it_gives_up_eventually_and_says_what_it_heard(self):
+        scanner = self.scanner(["rubbish"] * 4)
+        with self.assertRaises(DataLinkError) as caught:
+            scanner.version(attempts=4)
+        message = str(caught.exception)
+        self.assertIn("rubbish", message)
+        # And points at the cause we actually found.
+        self.assertIn("another program", message.lower())
+
+
+class OtherReadersTests(unittest.TestCase):
+    """macOS lets two processes open one /dev/cu.* and they take each other's
+    bytes, silently. An evening of lost characters was exactly this."""
+
+    def lsof(self, stdout, expect_args=None):
+        def runner(command, **kwargs):
+            if expect_args is not None:
+                expect_args.extend(command)
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+        return runner
+
+    def test_another_program_is_named(self):
+        out = "p321\ncDataLink\nn/dev/cu.usbserial-1200\n"
+        with mock.patch.object(interface.subprocess, "run", self.lsof(out)):
+            self.assertEqual(interface.other_readers("/dev/cu.usbserial-1200"),
+                             ["DataLink"])
+
+    def test_we_are_never_reported(self):
+        out = f"p{os.getpid()}\ncpython\nn/dev/cu.usbserial-1200\n"
+        with mock.patch.object(interface.subprocess, "run", self.lsof(out)):
+            self.assertEqual(interface.other_readers("/dev/cu.usbserial-1200"), [])
+
+    def test_nobody_else_means_nothing_to_report(self):
+        with mock.patch.object(interface.subprocess, "run", self.lsof("")):
+            self.assertEqual(interface.other_readers("/dev/cu.usbserial-1200"), [])
+
+    def test_it_asks_lsof_for_parseable_output(self):
+        # -t means "pids only" and silently cancels -F, which is how this
+        # check first shipped detecting nothing at all.
+        seen = []
+        with mock.patch.object(interface.subprocess, "run", self.lsof("", seen)):
+            interface.other_readers("/dev/cu.usbserial-1200")
+        self.assertIn("-F", seen)
+        self.assertNotIn("-t", seen)
+
+    def test_a_missing_lsof_is_not_an_error(self):
+        def explode(command, **kwargs):
+            raise OSError("no lsof here")
+        with mock.patch.object(interface.subprocess, "run", explode):
+            self.assertEqual(interface.other_readers("/dev/cu.usbserial-1200"), [])

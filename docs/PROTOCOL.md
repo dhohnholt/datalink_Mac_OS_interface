@@ -325,3 +325,37 @@ Both our read loop and `serial.read_until` lost bytes at the same rate, so it
 is below the application. It has not been reproduced since and no form record
 has ever been seen short: all four sheets fed that evening arrived with 211
 fields. Worth remembering if a version check ever fails on connect.
+
+Header checkboxes are invisible to the host — CONFIRMED 2026-09-24
+
+The answer sheet carries Key / Verify / Rescore checkboxes in its header, and
+the natural guess was that field 2 (`0289` on every record ever seen) encoded
+them. It does not.
+
+An answer key was fed with Key bubbled, and all 211 fields came back byte for
+byte identical to the same sheet fed with nothing bubbled. The same sheet was
+then fed with Key and Verify both bubbled: again identical, all 211 fields.
+
+So the scanner reads those boxes off the paper and acts on them itself —
+loading the key, in the Key case — without reporting the fact. A host cannot
+tell from the record whether a sheet was a key, a verify or an ordinary
+sheet. The app's "the first sheet is the answer key" convention therefore has
+to stay a convention; there is no flag to check it against.
+
+`0289` remains unexplained. It is constant across a 50-question form, a
+30-question form, a Key sheet and a Key+Verify sheet.
+
+Two processes on one port — EXPLAINED 2026-09-24
+
+The intermittent single-character losses recorded above were a second reader.
+macOS allows more than one process to open a /dev/cu.* device, and the two
+take bytes from each other with no error on either side. The app had been
+left connected while these probes were running.
+
+With the port held exclusively: 180 consecutive replies to V, none wrong.
+While sharing it with the app: 12 of the first 41 wrong. `other_readers()`
+now looks for this before connecting and says who to close.
+
+Separately, the first exchanges after opening are not dependable — on one
+occasion sixty consecutive V's got no answer at all, then everything was
+clean. `version()` retries rather than failing the connection.

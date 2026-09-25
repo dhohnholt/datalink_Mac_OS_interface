@@ -11,6 +11,8 @@ from __future__ import annotations
 import csv
 import glob
 import json
+import os
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -242,6 +244,36 @@ class DataLinkStreamParser:
         return bytes(self._buffer)
 
 
+def other_readers(port: str) -> list[str]:
+    """Programs that already have this port open, by name.
+
+    macOS lets more than one process open a /dev/cu.* device, and they take
+    each other's bytes without either being told. An evening of intermittent
+    single-character losses turned out to be exactly this: the app was
+    connected while something else was probing the same port. Better to say
+    so than to lose a character in the middle of a sheet.
+    """
+    try:
+        found = subprocess.run(
+            # -F asks for parseable output, one field per line: p<pid>,
+            # c<command>. Not with -t, which means "pids only" and silently
+            # cancels -F — which is how this check first shipped detecting
+            # nothing at all.
+            ["/usr/sbin/lsof", "-F", "pcn", port],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    mine = str(os.getpid())
+    names, current = [], None
+    for line in (found.stdout or "").splitlines():
+        if line.startswith("p"):
+            current = line[1:].strip()
+        elif line.startswith("c") and current and current != mine:
+            names.append(line[1:].strip())
+    return sorted(set(names))
+
+
 def discover_port() -> str:
     candidates = sorted(
         set(glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/tty.usbserial*"))
@@ -328,16 +360,40 @@ class DirectDataLinkScanner:
             raise DataLinkError(f"No response to {command.decode('ascii')}")
         return reply.decode("ascii", errors="replace").rstrip("\r\n")
 
+    def version(self, attempts: int = 4) -> str:
+        """Ask who is there, allowing for a connection that has not settled.
+
+        The first exchanges after the port opens are not reliable. Measured on
+        hardware: twelve of the first forty-one replies to V lost a character
+        at a random position, and on another occasion sixty consecutive V's
+        got no answer at all — then a hundred and eighty in a row were clean.
+        Failing the whole connection on the first of those is why a teacher
+        sees "Unexpected version response" and has to try again.
+        """
+        last = ""
+        for attempt in range(attempts):
+            try:
+                last = self.transact(b"V")
+            except DataLinkError as exc:
+                last = str(exc)
+            else:
+                if "ADV 1200OK" in last:
+                    return last
+            time.sleep(0.25 * (attempt + 1))
+        raise DataLinkError(
+            f"The scanner did not identify itself after {attempts} tries; "
+            f"the last answer was {last!r}. If another program has the "
+            f"scanner open, close it and try again."
+        )
+
     def initialize(self) -> list[tuple[str, str]]:
-        transcript = []
-        for command in INITIALIZATION_COMMANDS:
+        transcript = [("V", self.version())]
+        for command in INITIALIZATION_COMMANDS[1:]:
             reply = self.transact(command)
             transcript.append((command.decode("ascii"), reply))
             # Match the spacing visible in the official application's capture.
             # Back-to-back diagnostic queries can make the scanner drop X7.
             time.sleep(0.06)
-        if "ADV 1200OK" not in transcript[0][1]:
-            raise DataLinkError(f"Unexpected version response: {transcript[0][1]!r}")
         return transcript
 
     def enter_data_collection(self) -> list[tuple[str, str]]:

@@ -68,7 +68,7 @@ from WebKit import (
     WKWebViewConfiguration,
 )
 
-from . import __version__, paths, updates
+from . import __version__, edition, paths, updates
 from .server import build_server
 
 
@@ -292,11 +292,15 @@ class DataLinkAppDelegate(NSObject):
         app_menu = _submenu(menubar, APP_NAME)
         app_menu.addItem_(_item(f"About {APP_NAME}", "showAbout:", target=self))
         app_menu.addItem_(_separator())
-        self._update_item = _item(
-            "Check for Updates…", "checkForUpdates:", target=self
-        )
-        app_menu.addItem_(self._update_item)
-        app_menu.addItem_(_separator())
+        # The store edition updates through the store. Offering the item and
+        # then refusing it would be worse than not offering it at all; the
+        # attribute stays None, which every user of it already checks for.
+        if not edition.sandboxed():
+            self._update_item = _item(
+                "Check for Updates…", "checkForUpdates:", target=self
+            )
+            app_menu.addItem_(self._update_item)
+            app_menu.addItem_(_separator())
         app_menu.addItem_(
             _item("Open Session Folder", "openSessionFolder:", target=self)
         )

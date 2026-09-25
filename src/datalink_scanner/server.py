@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__, paths
+from . import edition
 from . import paper
 from . import ttess
 from . import updates
@@ -785,6 +786,8 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                         "student_matching", "id"
                     ),
                     "auto_update_check": updates.auto_check_enabled(self.store),
+                    # The page hides the things this edition may not do.
+                    "sandboxed": edition.sandboxed(),
                     "last_update_check": (
                         datetime.fromtimestamp(checked).isoformat() if checked else None
                     ),

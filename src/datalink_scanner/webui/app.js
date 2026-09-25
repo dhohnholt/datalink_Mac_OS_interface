@@ -1909,6 +1909,9 @@ async function migrateBrowserStorage() {
 /* ---------------------------------------------------------------- paper */
 
 let paperPath = "";
+// True in the Mac App Store build. It updates through the store and reaches
+// no file it was not handed by an Open panel, so the page hides both.
+let storeEdition = false;
 let paperPollTimer = null;
 let paperWarnedOverLimit = false;
 
@@ -2103,6 +2106,12 @@ $("#paperChooseButton").addEventListener("click", async () => {
     window.webkit.messageHandlers.datalink.postMessage({action: "choosePdf"});
     return;
   }
+  if (storeEdition) {
+    // A sandboxed app can open only what an Open panel handed it, so a typed
+    // path is refused by the system however right it looks.
+    toast("Open the app itself to choose a PDF");
+    return;
+  }
   const typed = prompt("Full path to the scanned PDF:", paperPath || "");
   if (typed) setPaperPdf(typed.trim());
 });
@@ -2219,6 +2228,11 @@ $("#paperOpenAnalysis").addEventListener("click", async () => {
 });
 
 function renderUpdateSettings(settings) {
+  storeEdition = settings.sandboxed === true;
+  // A store app that offers to update itself is a rejection, and the controls
+  // would do nothing: every entry point in updates.py refuses in this edition.
+  $("#updatesCard").classList.toggle("hidden", storeEdition);
+  if (storeEdition) return;
   $("#autoUpdateCheck").checked = settings.auto_update_check !== false;
   const version = `Running version ${settings.app_version || "—"}`;
   $("#updateVersionLine").textContent = settings.last_update_check

@@ -35,6 +35,7 @@ import urllib.request
 from pathlib import Path
 
 from . import __version__
+from . import edition
 from .cli import (
     APP_BUNDLE_NAME,
     BUNDLE_IDENTIFIER,
@@ -76,8 +77,28 @@ class UpdateError(RuntimeError):
 # ------------------------------------------------------- the daily check
 
 
+STORE_EDITION_REFUSAL = (
+    "The App Store edition updates through the App Store."
+)
+
+
+def _refuse_in_sandbox(what: str) -> None:
+    """Nothing in this module may run in the store build.
+
+    A store app does not update itself, and two of the things here are
+    outright forbidden inside the sandbox: moving other applications to the
+    Trash, and editing the LaunchServices database. This raises rather than
+    quietly doing nothing so that a caller added later fails loudly in
+    testing instead of silently in a teacher's hands.
+    """
+    if edition.sandboxed():
+        raise UpdateError(f"{what} is not available here. {STORE_EDITION_REFUSAL}")
+
+
 def auto_check_enabled(store) -> bool:
     """On unless the teacher has turned it off in Settings."""
+    if edition.sandboxed():
+        return False
     return store.get_setting(AUTO_CHECK_KEY, "1") != "0"
 
 
@@ -127,6 +148,7 @@ def is_newer(candidate: str, current: str = __version__) -> bool:
 
 def latest_release(opener=urllib.request.urlopen) -> dict:
     """Ask GitHub what the newest published release is."""
+    _refuse_in_sandbox("Checking for updates")
     if not RELEASES_API.lower().startswith("https://"):
         raise UpdateError("The update check must use https.")
     request = urllib.request.Request(
@@ -388,6 +410,7 @@ def stale_registrations(runner=subprocess.run) -> list[Path]:
 
 def forget_stale_registrations(runner=subprocess.run) -> list[Path]:
     """Tell macOS about the copies that are gone. Returns what was forgotten."""
+    _refuse_in_sandbox("Editing the LaunchServices database")
     forgotten = []
     for path in stale_registrations(runner):
         try:
@@ -400,6 +423,7 @@ def forget_stale_registrations(runner=subprocess.run) -> list[Path]:
 
 def sweep(extra: list[Path]) -> list[Path]:
     """Move the extra copies to the Trash, and report what actually moved."""
+    _refuse_in_sandbox("Moving other copies to the Trash")
     moved = []
     for app in extra:
         try:
@@ -473,6 +497,7 @@ def upgrade(on_progress=None, runner=_run_step) -> str:
     It always advances and never runs ahead of itself, and the line underneath
     is Homebrew's own words rather than a guess.
     """
+    _refuse_in_sandbox("Upgrading through Homebrew")
     brew = brew_path()
     if brew is None:
         raise UpdateError(
@@ -544,6 +569,7 @@ def relaunch_command(bundle: Path, pid: int) -> list[str]:
 
 
 def relaunch(bundle: Path, pid: int | None = None, spawn=subprocess.Popen) -> None:
+    _refuse_in_sandbox("Relaunching a different copy")
     spawn(
         relaunch_command(bundle, os.getpid() if pid is None else pid),
         start_new_session=True,

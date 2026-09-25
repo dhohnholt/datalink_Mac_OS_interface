@@ -71,8 +71,15 @@ Nothing in the repo should hold a certificate, a key or a profile's contents.
 Application Support on first use and imports them from there. Downloading and
 executing code is refused by App Review outright.
 
-**Do:** `build_appstore.sh` already passes `--collect-all cv2 --collect-all
-numpy --collect-all PIL`. What remains is the runtime half:
+**DONE 2026-09-25.** `build_appstore.sh` bundles the three with
+`--collect-all`, and the runtime half now asks `edition.sandboxed()`:
+`pip_available()` returns False, `install_packages()` raises, and `_pillow()`
+no longer falls back to the support directory. The Paper tab's install button
+was already hidden by `can_install_packages`, which is now False there.
+`disable-library-validation` is gone from the entitlements.
+
+The original note follows. `build_appstore.sh` already passes `--collect-all
+cv2 --collect-all numpy --collect-all PIL`. What remains is the runtime half:
 
 - `src/datalink_scanner/paper.py` — `support_dir()`, `install_packages()`,
   `pip_available()` and the `sys.path` insertion in `run_pipeline()` and
@@ -103,8 +110,14 @@ def sandboxed() -> bool:
     return "/Library/Containers/" in str(Path.home())
 ```
 
-**Verify this on a real sandboxed build before relying on it.** It is the
-hinge every other step hangs on. `APP_SANDBOX_CONTAINER_ID` in the
+**DONE 2026-09-25.** `src/datalink_scanner/edition.py`, verified on a signed
+sandboxed build. Mind the trap it documents: the sandbox redirects the home
+directory that `pwd` reports, which is what `Path.home()` asks, but it leaves
+`HOME` in the environment pointing at the real home. Code that reads
+`os.environ["HOME"]` escapes the container and is then denied.
+`APP_SANDBOX_CONTAINER_ID` is **not set** in this bundle, so it is no use.
+
+The original note follows. `APP_SANDBOX_CONTAINER_ID` in the
 environment is the usual alternative; check both and keep whichever proves
 reliable.
 
@@ -121,13 +134,15 @@ shipping, but it is a different product and the listing must say so.
 Test this immediately after the first signed build. It is the second
 go/no-go.
 
-**Partly answered, 2026-09-25.** A signed sandboxed build lists both
-`/dev/cu.usbserial-1200` and `/dev/tty.usbserial-1200` from `/api/status`, so
-the sandbox does not hide the device node. That is enumeration only. Whether
-`open()` on it succeeds under `com.apple.security.device.serial` is still
-untested, because connecting drives the scanner's mode and the owner is
-testing the build himself. Run `/api/connect` with the scanner attached to
-finish this step.
+**ANSWERED 2026-09-25: GO.** A signed sandboxed build opened
+`/dev/cu.usbserial-1200`, ran the whole captured handshake and the scanner
+reported Data Collection active. `lsof` showed that pid holding the device on
+fd 15, and `codesign` confirmed the same bundle was sandboxed with
+`com.apple.security.device.serial`. Round trips seen on the wire included
+`V -> ADV 1200OK`, `T4 -> S32155` and `Q1 -> 4658`, so it is genuinely
+bidirectional and not merely an open that happened to succeed.
+
+The store edition can therefore scan. Steps 2, 5 and 6 are worth doing.
 
 ### Before testing anything in this bundle
 
@@ -149,6 +164,13 @@ traceback appears:
 
 ## Step 5 — remove what the sandbox forbids
 
+**DONE 2026-09-25**, with `tests/test_edition.py` asserting each one. Every
+entry point in `updates.py` raises `UpdateError`, and `auto_check_enabled()`
+returns False so the daily check never starts. `keychain.py` reports "not
+answered" and falls through to the in-process path it already had. The page
+hides the Updates card and refuses the typed-path fallback, and the app drops
+the Check for Updates menu item.
+
 Each of these must be inert when `sandboxed()`:
 
 | Where | What | Why |
@@ -167,10 +189,16 @@ Inside the sandbox `~/Library/Application Support/DataLink Scanner/` is
 really `~/Library/Containers/org.davidhohnholt.datalink-scanner/Data/...`.
 `paths.py` needs no change — `expanduser` does the right thing — but:
 
-- A teacher who has been using the Developer ID build will not see their old
-  sessions. Decide whether to migrate on first launch or to say so plainly in
-  the listing. Migrating means reading outside the container, which needs the
-  user to grant it through an open panel.
+- **Decided 2026-09-25: no migration.** A teacher who has been using the
+  Developer ID build will not see their old sessions in the store build, and
+  the listing must say so. Migrating means reading outside the container
+  through an open panel, which is a sandbox-escape-shaped feature to explain
+  at review, for the benefit of the few people who have both. Anyone who
+  needs their history can export CSV from the old app. The store build is for
+  people who do not have the Developer ID one.
+- Nothing in `paths.py` changes: `Path.home()` is redirected for us. Verified
+  on the signed build, where `capture_root` came back as
+  `~/Library/Containers/org.davidhohnholt.datalink-scanner/Data/...`.
 - `paths.py` has a `DATALINK_CAPTURE_DIR` override used by tests; leave it.
 
 ---

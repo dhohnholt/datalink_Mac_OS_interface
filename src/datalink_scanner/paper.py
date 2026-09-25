@@ -33,6 +33,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from . import edition
 from . import paths
 
 
@@ -179,6 +180,10 @@ def _pillow():
         return Image
     except ImportError:
         pass
+    if edition.sandboxed():
+        # Bundled, so the import above is the only one that can succeed. The
+        # support directory is not used by this edition at all.
+        return None
     support = str(support_dir())
     if support not in sys.path:
         sys.path.append(support)
@@ -316,7 +321,7 @@ def pip_available(runner=subprocess.run) -> bool:
     Asked without this guard it would run `<the app> -m pip`, which opens a
     second window rather than answering the question.
     """
-    if frozen():
+    if frozen() or edition.sandboxed():
         return False
     try:
         result = runner(
@@ -384,6 +389,14 @@ def _stream(command: list[str], on_line=None, timeout: float = 600.0, cwd=None) 
 
 def install_packages(on_line=None, runner=None) -> str:
     """Install OpenCV, NumPy and Pillow into the app's own support directory."""
+    if edition.sandboxed():
+        # The store build carries all three inside the bundle, so there is
+        # nothing to install. Downloading and running code is also the single
+        # thing App Review refuses most bluntly, so this must never be
+        # reachable there even by accident.
+        raise PaperError(
+            "This edition already includes everything paper scanning needs."
+        )
     if not pip_available():
         raise PaperError(
             "This build has no pip, so it cannot install the packages itself. "

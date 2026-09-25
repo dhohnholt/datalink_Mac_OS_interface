@@ -39,8 +39,10 @@ from pathlib import Path
 
 try:  # not importable when this file is run as the helper
     from . import paths as _paths
+    from . import edition as _edition
 except ImportError:  # pragma: no cover - only in helper mode
     _paths = None
+    _edition = None
 
 
 class KeychainError(RuntimeError):
@@ -419,6 +421,15 @@ def _read_native_reply(output: str, action: str) -> dict | None:
 
 
 def _through_helper(action: str, service: str, account: str, password: str = ""):
+    # The helper exists because an ad-hoc signed app is identified to the
+    # Keychain by its path and its bytes, so every rebuild looks like a
+    # different application and the ACL asks again. A store build is signed by
+    # one stable identity, which is the thing the helper works around, and
+    # writing an executable out and running it is forbidden in the sandbox
+    # regardless. Reporting "not answered" sends every caller down the
+    # in-process path, which is what the helper was standing in for.
+    if _edition is not None and _edition.sandboxed():
+        return None, False
     reply = _ask_helper(
         {"action": action, "service": service, "account": account, "password": password}
     )

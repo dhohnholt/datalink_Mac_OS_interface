@@ -65,6 +65,12 @@ class SandboxedBehaviourTests(unittest.TestCase):
         with self.assertRaises(paper.PaperError):
             paper.install_packages()
 
+    def test_it_does_not_claim_it_could_install_packages(self):
+        # True here would be a claim the edition cannot make good on, even
+        # though the button is hidden for a second reason.
+        status = paper.status()
+        self.assertFalse(status["can_install_packages"])
+
     def test_the_keychain_is_read_in_process(self):
         # Writing an executable out and running it is forbidden, and the
         # signature the helper works around is stable in this edition.

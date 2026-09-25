@@ -351,7 +351,15 @@ def status(runner=subprocess.run) -> dict:
         "packages": list(PACKAGES),
         "poppler_missing": tools,
         "support_dir": str(support_dir()),
-        "can_install_packages": pip_available(runner) if not ready else True,
+        # Never true in the store edition: the packages are in the bundle and
+        # installing anything at runtime is forbidden there. Saying "yes" when
+        # nothing is missing was harmless while the page also checked `ready`,
+        # but it is still an answer that is not true.
+        "can_install_packages": (
+            False
+            if edition.sandboxed()
+            else (pip_available(runner) if not ready else True)
+        ),
         "download_mb": 51,
         "installed_mb": 154,
     }

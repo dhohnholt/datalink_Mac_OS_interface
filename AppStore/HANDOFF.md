@@ -117,3 +117,38 @@ spctl -a -vvv -t exec "/tmp/dl/DataLink Scanner.app"     # expect: accepted, Not
 xcrun stapler validate "/tmp/dl/DataLink Scanner.app"    # expect: the validate action worked!
 hdiutil detach /tmp/dl
 ```
+
+## Do not install the App Store package on the owner's Mac
+
+`/Applications/DataLink Scanner.app` is a symlink into the Homebrew Cellar.
+The store package installs to `/Applications`, so `installer` follows that
+symlink as root and overwrites the everyday Developer ID app with the
+sandboxed one. It happened on 2026-09-25 and looked like the app had broken:
+every window opened blank, because the sandboxed build was missing
+`com.apple.security.network.client` at the time.
+
+Recover with `brew reinstall datalink-scanner` after quitting the app.
+
+## Two things about the sandbox that fail silently
+
+Neither breaks the build or the signature. Both look like a broken app.
+
+1. `com.apple.security.network.client` is required even though the server is
+   the app's own, on 127.0.0.1. WebKit connects from a helper process and the
+   sandbox counts loopback as outbound. Without it nothing reaches the server
+   and nothing is logged on either side.
+2. Python's `mimetypes` reads `/etc/apache2/mime.types`, which exists but
+   cannot be opened in the sandbox. `isfile()` says yes, `open()` raises, and
+   the exception kills the request. `server.py` empties `mimetypes.knownfiles`
+   before `init()` to avoid it. Note that `init(files=[])` does NOT do this --
+   it appends to knownfiles rather than replacing them.
+
+Expect more of this shape. Run the executable from a terminal to see the
+traceback; a double-clicked app has no stderr.
+
+## Notarization
+
+The store package is not notarized and does not need to be. App Store Connect
+notarizes during review. `notarytool` belongs only to the Developer ID disk
+image built by `packaging/build_macos.sh`, which is still notarized and
+stapled because Gatekeeper requires it for anything downloaded.

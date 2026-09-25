@@ -158,13 +158,27 @@ done
 # prints a human-readable dump that nothing can parse. And plutil is no use
 # here whatever the format, because it reads the dots in
 # com.apple.security.app-sandbox as a nested key path and finds nothing.
-SANDBOXED=$(/usr/bin/codesign -d --entitlements :- "$APP" 2>/dev/null \
+# Check the whole set, not just the sandbox flag. A missing entitlement here
+# does not fail the build or the signature: it fails silently at runtime, in a
+# way that looks like the app is broken. network.client is the one that cost a
+# session -- without it WKWebView cannot reach the app's own server on
+# 127.0.0.1, and the window opens blank with nothing logged anywhere.
+EXPECTED="app-sandbox cs.allow-unsigned-executable-memory device.serial
+files.user-selected.read-write network.client network.server"
+ACTUAL=$(/usr/bin/codesign -d --entitlements :- "$APP" 2>/dev/null \
   | /usr/bin/python3 -c 'import plistlib, sys
-print(plistlib.loads(sys.stdin.buffer.read()).get("com.apple.security.app-sandbox", False))' \
-  2>/dev/null || true)
-[[ "$SANDBOXED" == "True" ]] || stop \
-  "the signed bundle is not sandboxed" \
-  "The store will refuse it. Check AppStore/entitlements.plist was applied."
+d = plistlib.loads(sys.stdin.buffer.read())
+keys = sorted(k.removeprefix("com.apple.security.") for k, v in d.items() if v is True)
+print(" ".join(keys))' 2>/dev/null || true)
+if [[ "$ACTUAL" != "$(print -r -- ${EXPECTED} | tr -s '[:space:]' ' ' | sed 's/ $//')" ]]; then
+  stop "the signed bundle does not carry the entitlements it should" \
+"  expected: $(print -r -- ${EXPECTED} | tr -s '[:space:]' ' ')
+  actual:   $ACTUAL
+
+A missing one will not show up until the app misbehaves at runtime. Note that
+plutil will happily lint an entitlements file that codesign then rejects: a
+double hyphen inside an XML comment is illegal and AMFI stops on it."
+fi
 
 # -------------------------------------------------------------- the package
 
@@ -176,8 +190,17 @@ say "==> Building the installer, signed as $INSTALLER_IDENTITY"
 say ""
 say "Built: $PKG"
 say ""
-say "Validate and upload with the credentials already in the keychain:"
-say "  xcrun notarytool history --keychain-profile datalink-notary   # same key"
+say "DO NOT INSTALL THIS PACKAGE ON THIS MACHINE. It installs to /Applications,"
+say "where DataLink Scanner.app is a symlink into the Homebrew Cellar, so the"
+say "installer follows it as root and replaces the working everyday app with"
+say "this sandboxed one. That happened on 2026-09-25. Recover with:"
+say "  brew reinstall datalink-scanner"
+say ""
+say "This package is not notarized and does not need to be: App Store Connect"
+say "runs its own notarization during review. notarytool is only for the"
+say "Developer ID disk image in packaging/build_macos.sh."
+say ""
+say "Upload it with:"
 say "  /Applications/Transporter.app/Contents/itms/bin/iTMSTransporter \\"
 say "    -m upload -assetFile \"$PKG\" \\"
 say "    -apiKey KFBHF6LUP5 -apiIssuer <issuer-id>"

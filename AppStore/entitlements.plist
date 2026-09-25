@@ -14,8 +14,18 @@
   <true/>
 
   <!-- The workspace is a local HTTP server on 127.0.0.1 that the app's own
-       WKWebView loads. Listening needs this; the client side needs nothing. -->
+       WKWebView loads. Listening needs this one. -->
   <key>com.apple.security.network.server</key>
+  <true/>
+
+  <!-- And the WebView loading that server needs this one. 127.0.0.1 is still
+       an outbound connection as far as the sandbox is concerned, and WebKit
+       makes it from a helper process that inherits these entitlements. Without
+       it the app opens to a blank window: the server listens, the request is
+       never made, and nothing is logged on either side. Loopback only: the
+       app makes no other outbound connection, which is the honest answer if
+       App Review asks what this is for. -->
+  <key>com.apple.security.network.client</key>
   <true/>
 
   <!-- Paper batches are PDFs the teacher picks in an open panel. A sandboxed

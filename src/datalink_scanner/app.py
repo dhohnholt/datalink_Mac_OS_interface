@@ -373,7 +373,7 @@ class DataLinkAppDelegate(NSObject):
             )
         )
         scanner_menu.addItem_(_separator())
-        scanner_menu.addItem_(_item("Reset Scanner", "resetScanner:", target=self))
+        scanner_menu.addItem_(_item("Re-send Handshake", "resetScanner:", target=self))
         scanner_menu.addItem_(_item("Disconnect", "disconnectScanner:", target=self))
         scanner_menu.addItem_(_separator())
         scanner_menu.addItem_(_item("Skip Absent Student", "skipStudent:", target=self))

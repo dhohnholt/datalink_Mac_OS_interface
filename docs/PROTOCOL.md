@@ -359,3 +359,35 @@ now looks for this before connecting and says who to close.
 Separately, the first exchanges after opening are not dependable — on one
 occasion sixty consecutive V's got no answer at all, then everything was
 clean. `version()` retries rather than failing the connection.
+
+
+The Reset button and the sheet it holds — CONFIRMED 2026-09-24
+
+Three questions were put to the hardware directly.
+
+**Does the Reset button put anything on the serial line?** No. The port was
+opened and nothing was sent; the button was pressed several times; not one
+byte arrived, the port did not re-enumerate and the connection did not drop.
+The same test was repeated with the full handshake in force so the scanner
+was in Data Collection: silent again.
+
+**Can the host set the mode instead?** No. With the handshake already sent, a
+sheet was fed and the scanner held it and asked for its other side. Pressing
+the physical button cleared that, on the same connection, and the next three
+sheets went through and were scored. Nothing in the captured command set
+changes the mode; the button owns it.
+
+**What does the host see while a sheet is held?** Nothing whatsoever. No
+record, no status line, no error. The scanner keeps the sheet and waits. This
+is what a teacher reported as the app freezing after "insert the other side",
+and the app genuinely cannot tell that state apart from nobody feeding
+sheets.
+
+Consequences. `D1`/`D2` in SCANNER_MESSAGES were inferred from DataLink
+Connect's string table and have still never been seen on the wire — the exact
+condition has now been produced and observed, and nothing appeared, so treat
+that translation as unproven and probably unreachable in this mode. The
+"Reset scanner" button in the app was built believing it was the software
+equivalent of the device's button; it is not, and it now says so. The
+instructions tell the teacher to press Reset until the display reads Scan
+Mode Ready, because that is the only thing that works.

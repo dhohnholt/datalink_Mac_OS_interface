@@ -771,7 +771,7 @@ function render(state) {
     ? "Name the test, pick the class, then press Start. Nothing is recorded until a session is running."
     : hasKey
       ? next ? `Roster #${next.id} · Feed ${next.name}'s sheet now.` : roster.length ? "Every student on the roster has been handled." : "The session is ready for student sheets. Feed them one at a time."
-      : "After the scanner says Ready to scan, feed the marked answer key before any student sheets.";
+      : "Check the scanner's own display reads Scan Mode Ready — press Reset on the device to cycle to it — then feed the marked answer key before any student sheets.";
   $("#skipStudentButton").classList.toggle("hidden", !scanning || !hasKey || !next);
   $("#rosterSummary").textContent = roster.length
     ? `${selectedClassName} · ${roster.length} students · ${Math.min(rosterIndex, roster.length)} handled · ${Math.max(roster.length - rosterIndex, 0)} remaining`
@@ -915,7 +915,7 @@ $("#endSessionButton").addEventListener("click", async () => {
 $("#resetScannerButton").addEventListener("click", async () => {
   try {
     render(await post("/api/scanner/reset", {}));
-    toast("Scanner reset \u00b7 re-feed the sheet that jammed");
+    toast("Handshake re-sent \u00b7 for a held sheet, press Reset on the device");
   } catch (error) { toast(error.message); }
 });
 

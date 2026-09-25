@@ -388,10 +388,15 @@ class ScannerController:
         }
 
     def reset_scanner(self) -> None:
-        """Re-send the handshake to a scanner that has stopped taking sheets.
+        """Re-send the handshake on the open port.
 
-        The same recovery the teacher performs at the device when it is stuck
-        part-way through a form, without having to reach for it.
+        This was written believing it was the software equivalent of the
+        Reset button on the device. It is not, and measurement said so: with
+        the handshake already in force a sheet was still held for its other
+        side, and only a press of the physical button cleared it. The mode is
+        chosen at the device and nothing in the captured command set changes
+        it. What this does do is re-establish Data Collection when the
+        conversation itself has got out of step.
         """
         with self._lock:
             scanner = self._scanner
@@ -412,8 +417,10 @@ class ScannerController:
         for command, reply in transcript:
             self._log(f"{command} → {reply}", "protocol")
         self._log(
-            "Reset the scanner and put it back in Data Collection. "
-            "Feed the next sheet.",
+            "Re-sent the handshake and Data Collection is active again. This "
+            "does not change the mode the scanner is in: if it is holding a "
+            "sheet and asking for its other side, press Reset on the device "
+            "until its display reads Scan Mode Ready.",
             "success",
         )
 

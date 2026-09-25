@@ -62,7 +62,7 @@
           <div class="button-row">
             <button id="connectButton" class="primary">Start scanning session</button>
             <button id="endSessionButton" class="secondary" disabled>End session</button>
-            <button id="resetScannerButton" class="ghost" disabled title="Re-send the handshake when the scanner has stopped taking sheets">Reset scanner</button>
+            <button id="resetScannerButton" class="ghost" disabled title="Re-send the handshake. This does not change the mode the scanner is in — for that, use the Reset button on the device itself.">Re-send handshake</button>
             <button id="disconnectButton" class="ghost" disabled>Disconnect</button>
           </div>
         </div>
@@ -98,7 +98,7 @@
             <input id="questionCount" type="number" inputmode="numeric" min="1" max="100" step="1" value="50" aria-describedby="questionCountHint">
           </label>
         </div>
-        <p class="safety">Starting a session sends the command sequence recovered from DataLink Connect. Keep sheets out of the feeder until the status says Ready to scan. Each session gets its own answer key, its own numbering and its own file — end one and start the next for the following class.</p>
+        <p class="safety"><strong>Press Reset on the scanner until its display reads Scan Mode Ready before feeding anything.</strong> The mode is chosen with that button and nothing the app sends can change it — in the wrong mode the scanner holds the sheet, asks for its other side, and tells the app nothing at all. Starting a session sends the command sequence recovered from DataLink Connect. Each session gets its own answer key, its own numbering and its own file — end one and start the next for the following class.</p>
       </section>
 
       <section class="metrics">
@@ -111,7 +111,7 @@
         <div class="step-number">1</div>
         <div>
           <strong id="workflowTitle">Scan the answer key first</strong>
-          <p id="workflowDetail">After the scanner says Ready to scan, feed the marked answer key before any student sheets.</p>
+          <p id="workflowDetail">Check the scanner's own display reads Scan Mode Ready — press Reset on the device to cycle to it — then feed the marked answer key before any student sheets.</p>
           <p id="rosterSummary" class="roster-line">No saved roster. Student IDs will be entered manually.</p>
         </div>
         <div class="button-row">

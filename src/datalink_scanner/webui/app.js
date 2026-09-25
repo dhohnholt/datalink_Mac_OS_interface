@@ -1324,6 +1324,30 @@ function reviewProblems(report) {
           : `Question ${item.question} has more than one mark`,
         read: answer ? answer.response : "MULTIPLE",
       });
+    } else if (item.field === "session") {
+      // Not about one sheet: the scanner is marking against a different key
+      // from the one just fed, so every comparison below would be wrong.
+      rows.push({
+        sheet: "—",
+        student: null,
+        key: reviewKey(item),
+        kind: "note",
+        problem: `The scanner marked the answer key ${item.value} out of ` +
+          `${item.question_count}, so the key held in the machine is not the ` +
+          `one you fed. Re-key the scanner, or ignore its scores for this test.`,
+        read: "key",
+      });
+    } else if (item.field === "sheet" && item.reason === "score_disagreement") {
+      // The machine read the same bubbles and got a different answer.
+      rows.push({
+        sheet: item.page,
+        student,
+        key: reviewKey(item),
+        kind: "note",
+        problem: `The scanner marked this sheet ${item.value}; we make it ` +
+          `${item.ours}. One of the two read a mark the other did not.`,
+        read: `${item.value} vs ${item.ours}`,
+      });
     } else if (item.field === "sheet") {
       // Nothing to correct: the whole sheet read faint, so the point is that
       // every answer on it is worth a glance, not that one of them is wrong.

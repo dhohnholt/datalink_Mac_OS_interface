@@ -21,6 +21,16 @@ BAUD_RATE = 38_400
 EXPECTED_FIELD_COUNT = 211
 ANSWER_START = 10
 STUDENT_ID_FIELD = 0
+# The scanner marks each sheet itself against a key held in the device and
+# prints the result on the paper; field 1 is that same number. Confirmed
+# 2026-09-24 against four sheets whose printed scores were 18, 24, 26 and 30 —
+# the 30 being the key sheet, which scores full marks against itself.
+#
+# It reads 000 when the device has no key loaded, which is indistinguishable
+# from a sheet that genuinely scored nothing. Every record in the September
+# capture reads 000 for that reason. So a zero here means "no answer", not
+# "no key", and the caller has to work out which.
+SCANNER_SCORE_FIELD = 1
 DEFAULT_ANSWER_COUNT = 50
 MIN_ANSWER_COUNT = 1
 # A record carries EXPECTED_FIELD_COUNT fields with answers starting at
@@ -152,11 +162,14 @@ class DataLinkFormRecord:
 
     def public_dict(self, include_raw_fields: bool = False) -> dict[str, object]:
         scanner_id = self.fields[STUDENT_ID_FIELD].strip()
+        marked = self.fields[SCANNER_SCORE_FIELD].strip()
         result: dict[str, object] = {
             "received_at": self.received_at,
             "responses": self.responses,
             "answered_count": sum(bool(value) for value in self.responses),
             "scanner_id": scanner_id if scanner_id.isdigit() else None,
+            # The machine's own marking, to set beside ours.
+            "scanner_score": int(marked) if marked.isdigit() else None,
         }
         if include_raw_fields:
             result["fields"] = self.fields

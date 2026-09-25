@@ -511,3 +511,66 @@ class DismissedReviewTests(unittest.TestCase):
         self.assertEqual(plain["students"], settled["students"])
         self.assertEqual(plain["summary"], settled["summary"])
         self.assertEqual(plain["items"], settled["items"])
+
+
+class ScannerDisagreementTests(unittest.TestCase):
+    """The DataLink marks every sheet itself; that is a second opinion.
+
+    Field 1 of each record carries the number the scanner prints on the
+    paper, marked against a key held in the device. Where it and our own
+    scoring differ, one of them read a mark the other did not.
+    """
+
+    KEY = ["A"] * 30
+
+    def sheet(self, number, responses, scanner_score, role="student"):
+        return {"number": number, "role": role, "student_id": str(900000 + number),
+                "responses": responses, "scanner_score": scanner_score}
+
+    def reasons(self, scans):
+        report = analysis.build_session_analysis({"question_count": 30}, scans)
+        return [item.get("reason") for item in report["review_items"]]
+
+    def test_agreement_says_nothing(self):
+        theirs = self.sheet(2, ["A"] * 28 + ["B"] * 2, 28)
+        self.assertEqual(
+            self.reasons([self.sheet(1, self.KEY, 30, "key"), theirs]), []
+        )
+
+    def test_a_disagreement_is_raised_against_the_sheet(self):
+        # We make it 28; the machine says 26.
+        theirs = self.sheet(3, ["A"] * 28 + ["B"] * 2, 26)
+        report = analysis.build_session_analysis(
+            {"question_count": 30}, [self.sheet(1, self.KEY, 30, "key"), theirs]
+        )
+        item = report["review_items"][0]
+        self.assertEqual(item["reason"], "score_disagreement")
+        self.assertEqual(item["page"], 3)
+        self.assertEqual((item["value"], item["ours"]), (26, 28))
+
+    def test_a_device_with_no_key_marks_everything_zero_and_is_ignored(self):
+        # Zero and "no key loaded" are written the same way, so a batch of
+        # zeros must not become a warning against every student.
+        scans = [self.sheet(1, self.KEY, 0, "key"),
+                 self.sheet(2, ["A"] * 28 + ["B"] * 2, 0)]
+        self.assertEqual(self.reasons(scans), [])
+
+    def test_a_stale_key_in_the_device_is_reported_once(self):
+        # The key marked against itself must come out full. When it does not,
+        # every sheet disagrees for that one reason — so say the reason.
+        scans = [self.sheet(1, self.KEY, 21, "key"),
+                 self.sheet(3, ["A"] * 28 + ["B"] * 2, 26),
+                 self.sheet(4, ["A"] * 30, 19)]
+        self.assertEqual(self.reasons(scans), ["stale_device_key"])
+
+    def test_paper_batches_report_nothing_to_compare(self):
+        scans = [self.sheet(1, self.KEY, None, "key"),
+                 self.sheet(2, ["A"] * 28 + ["B"] * 2, None)]
+        self.assertEqual(self.reasons(scans), [])
+
+    def test_the_comparison_never_moves_a_score(self):
+        # It is a second opinion, not an authority: ours is what is recorded.
+        theirs = self.sheet(3, ["A"] * 28 + ["B"] * 2, 26)
+        scans = [self.sheet(1, self.KEY, 30, "key"), theirs]
+        report = analysis.build_session_analysis({"question_count": 30}, scans)
+        self.assertEqual(report["students"][0]["score"]["correct"], 28)

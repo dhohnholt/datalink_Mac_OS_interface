@@ -16,7 +16,7 @@ from datalink_scanner.interface import (
     describe_message,
 )
 
-from support import build_line
+from support import build_fields, build_line
 
 
 class FormRecordTests(unittest.TestCase):
@@ -110,6 +110,26 @@ class PublicDictTests(unittest.TestCase):
     def test_includes_raw_fields_on_request(self):
         record = DataLinkFormRecord.from_line(build_line(["A"] * 50))
         self.assertEqual(len(record.public_dict(True)["fields"]), EXPECTED_FIELD_COUNT)
+
+    def test_the_scanners_own_marking_is_read_from_field_one(self):
+        fields = build_fields(["A"] * 30)
+        fields[1] = "024"
+        line = ",".join(fields).encode("ascii")
+        record = DataLinkFormRecord.from_line(line, question_count=30)
+        self.assertEqual(record.public_dict()["scanner_score"], 24)
+
+    def test_a_scanner_with_no_key_reports_zero_not_nothing(self):
+        # 000 is what the device sends when it has no key to mark against,
+        # and it is indistinguishable from a sheet that scored nothing.
+        fields = build_fields(["A"] * 30)
+        fields[1] = "000"
+        line = ",".join(fields).encode("ascii")
+        record = DataLinkFormRecord.from_line(line, question_count=30)
+        self.assertEqual(record.public_dict()["scanner_score"], 0)
+
+    def test_a_blank_marking_field_is_not_a_score(self):
+        record = DataLinkFormRecord.from_line(build_line(["A"] * 50))
+        self.assertIsNone(record.public_dict()["scanner_score"])
 
     def test_non_numeric_scanner_id_becomes_none(self):
         record = DataLinkFormRecord.from_line(build_line(["A"] * 50, student_id=""))

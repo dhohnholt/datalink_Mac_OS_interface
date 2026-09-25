@@ -273,3 +273,55 @@ a session. This clears a stale pending-side state before a one-sided answer key
 is fed. Sessions created automatically after an already-arrived sheet do not
 reset the port, so that recovery path cannot discard the sheet that triggered
 it.
+
+Record field 1 is the scanner's own score — CONFIRMED 2026-09-24
+
+The DataLink marks each sheet against a key held inside the device and prints
+the result on the paper. Field 1 of the record carries that same number.
+
+Four sheets were fed with the scanner connected. Field 1 read `030`, `026`,
+`024`, `018` in feed order, and the scores printed on those four sheets were
+30, 26, 24 and 18. The `030` was the answer key, fed first, which scores full
+marks against itself and is what loads the key into the device for the sheets
+that follow.
+
+It reads `000` when the device has no key to mark against. Every record in
+`shark2.pcapng` reads `000` for that reason — those sheets had real scores of
+22, 25 and so on by software OMR, so the field is not simply the score of the
+sheet in isolation. This also means a zero is ambiguous: a sheet that
+genuinely scored nothing looks exactly like a device with no key.
+
+This answers the question the original packet analysis was chasing. The
+four-byte messages in the earlier passive captures do not have to be decoded
+to get a score out of the hardware; Data Collection mode reports it directly.
+
+Other fields, across a 50-question capture and a 30-question one:
+
+    0   student ID, in a 12-character slot
+    1   the scanner's score, as above
+    2   `0289` in both — not form-dependent, meaning unknown
+    3   `0000` in both
+    7   `000` in both
+    10..  the answers, one field per question
+
+176 of the 211 fields were empty in every record seen.
+
+Handshake replies, same two captures
+  T2  `5.5`                          firmware, unchanged
+  Q1  `4658`                         unchanged
+  P5  `0009654,0000387,0009654,` → `0009853,0000586,0009853,`
+                                     all three advanced by exactly 199, so
+                                     these are sheet counters; 199 sheets went
+                                     through the machine between the captures
+  X7  `11/22/11 Standard`            form definition, dated, unchanged
+  T4  `S32155`                       serial number, unchanged
+
+Intermittent byte loss — OBSERVED, NOT EXPLAINED
+
+Twelve of the first 41 replies to `V` lost a single character at a random
+position: `AV 1200OK`, `DV 1200OK`, `ADV1200OK`. The next 120 reads lost
+nothing, under four different timings including the one that had just failed.
+Both our read loop and `serial.read_until` lost bytes at the same rate, so it
+is below the application. It has not been reproduced since and no form record
+has ever been seen short: all four sheets fed that evening arrived with 211
+fields. Worth remembering if a version check ever fails on connect.

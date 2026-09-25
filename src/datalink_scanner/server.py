@@ -569,6 +569,10 @@ class ScannerController:
                 "answered_count": sum(bool(value) for value in corrected),
                 "student_id": student_id or None,
                 "student_name": student_name or None,
+                # Carried through the review, or the machine's own marking
+                # would be lost on every sheet that needed one — which is
+                # every student sheet.
+                "scanner_score": record.public_dict().get("scanner_score"),
             }
             self.store.update_scan(self._session_id, int(public["number"]),
                                    student_id=student_id, student_name=student_name,

@@ -170,6 +170,8 @@ def build_session_analysis(
             "answers": _answers(scan, question_count),
             # Keyed by question number the way the reader reports it; the
             # database keys JSON objects by string.
+            # The machine's own marking of this sheet, to set beside ours.
+            "scanner_score": scan.get("scanner_score"),
             "answer_confidence": {
                 int(question): value
                 for question, value in (scan.get("confidence") or {}).items()
@@ -209,6 +211,10 @@ def build_session_analysis(
                 )
         review_items.extend(faint_marks(number, row))
 
+    review_items.extend(
+        disagreements(parsed, scores, keys[0].get("scanner_score"), question_count)
+    )
+
     for scan in students:
         if scan.get("pending_review"):
             review_items.append({"page": scan["number"], "field": "sheet", "reason": "pending_review"})
@@ -246,6 +252,64 @@ def build_session_analysis(
             "pdf_scan" if session.get("source") == "paper" else "datalink_csv"
         ),
     )
+
+
+def disagreements(
+    parsed: dict[int, dict],
+    scores: dict[int, dict],
+    key_scanner_score: object,
+    question_count: int,
+) -> list[dict]:
+    """Where the scanner's own marking and ours do not agree.
+
+    The DataLink marks every sheet against a key held inside it and prints
+    the result on the paper; the same number arrives in the record. That is a
+    second opinion from different hardware reading the same bubbles, and it
+    is free. Where the two disagree, one of them read a mark the other did
+    not — which is worth a look in a way that no heuristic about faintness
+    can match.
+
+    Two things have to be ruled out first, or this produces nothing but noise.
+    """
+    marked = {
+        number: row.get("scanner_score")
+        for number, row in parsed.items()
+        if isinstance(row.get("scanner_score"), int)
+    }
+    if not marked:
+        # Read from paper, or from a scanner that reports nothing here.
+        return []
+    if not any(marked.values()):
+        # Every sheet zero means the device had no key to mark against, not a
+        # class that scored nothing: the two are written the same way.
+        return []
+
+    # The key sheet marked against itself must come out full. When it does
+    # not, the device is holding a different key from the one just fed, and
+    # every sheet will disagree for that reason alone. One note about the
+    # cause beats one per student about the symptom.
+    if isinstance(key_scanner_score, int) and key_scanner_score != question_count:
+        return [{
+            "page": 0,
+            "field": "session",
+            "reason": "stale_device_key",
+            "value": key_scanner_score,
+            "question_count": question_count,
+        }]
+
+    items = []
+    for number, scanner_score in sorted(marked.items()):
+        ours = (scores.get(number) or {}).get("correct")
+        if ours is None or scanner_score == ours:
+            continue
+        items.append({
+            "page": number,
+            "field": "sheet",
+            "reason": "score_disagreement",
+            "value": scanner_score,
+            "ours": ours,
+        })
+    return items
 
 
 def faint_marks(number: int, row: dict) -> list[dict]:

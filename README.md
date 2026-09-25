@@ -176,6 +176,23 @@ answer for each question, and **Use these and read the batch** runs it again.
 
 The second run is quick, because the pages are already rendered and cached.
 
+### The scanner's own marking
+
+The DataLink marks every sheet against a key held inside it and prints the
+score on the paper. That number arrives with the record, and the app keeps it.
+
+It is a second opinion on the same bubbles from different hardware, so where
+it and the app's own scoring disagree, one of them read a mark the other did
+not — and that sheet appears in **Review**. The app's score is the one
+recorded; the scanner's is only ever a reason to look.
+
+Two cases are deliberately quiet. A device with no key loaded marks every
+sheet zero, which is written exactly like a sheet that scored nothing, so a
+batch of zeros is ignored rather than turned into a warning against every
+student. And if the key sheet does not mark full against itself, the device is
+holding a different key from the one you fed — that is said once, about the
+device, instead of once per student.
+
 ### Clearing the review list
 
 A warning is worked out from the marks every time a test is scored, so leaving

@@ -75,7 +75,11 @@ CREATE TABLE IF NOT EXISTS scans (
     responses      TEXT NOT NULL,
     demo           INTEGER NOT NULL DEFAULT 0,
     confidence     TEXT,
-    pending_review INTEGER NOT NULL DEFAULT 0
+    pending_review INTEGER NOT NULL DEFAULT 0,
+    -- What the scanner made of the sheet itself, marked against the key held
+    -- in the device. NULL for anything it did not report, including every
+    -- sheet read from paper.
+    scanner_score  INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS scans_by_session ON scans(session_id, number);
@@ -145,6 +149,11 @@ class Store:
         }
         if "pending_review" not in scan_columns:
             self._connection.execute("ALTER TABLE scans ADD COLUMN pending_review INTEGER NOT NULL DEFAULT 0")
+        # The machine's own marking, kept so it can be set beside ours.
+        if "scanner_score" not in scan_columns:
+            self._connection.execute(
+                "ALTER TABLE scans ADD COLUMN scanner_score INTEGER"
+            )
         if "confidence" not in scan_columns:
             self._connection.execute("ALTER TABLE scans ADD COLUMN confidence TEXT")
 
@@ -342,8 +351,9 @@ class Store:
         with self._lock:
             cursor = self._connection.execute(
                 "INSERT INTO scans(session_id, number, role, student_id, student_name, "
-                "received_at, answered_count, responses, demo, confidence, pending_review) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "received_at, answered_count, responses, demo, confidence, "
+                "pending_review, scanner_score) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     int(scan.get("number", 0)),
@@ -356,6 +366,7 @@ class Store:
                     1 if scan.get("demo") else 0,
                     json.dumps(scan["confidence"]) if scan.get("confidence") else None,
                     int(bool(scan.get("pending_review"))),
+                    scan.get("scanner_score"),
                 ),
             )
             self._connection.commit()
@@ -487,7 +498,8 @@ class Store:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT number, role, student_id, student_name, received_at, "
-                "       answered_count, responses, demo, confidence, pending_review "
+                "       answered_count, responses, demo, confidence, pending_review, "
+                "       scanner_score "
                 "FROM scans WHERE session_id = ? ORDER BY number",
                 (session_id,),
             ).fetchall()

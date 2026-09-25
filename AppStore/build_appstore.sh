@@ -154,9 +154,15 @@ done
   --entitlements "$ENTITLEMENTS" --sign "$APP_IDENTITY" "$APP"
 
 /usr/bin/codesign --verify --strict --deep --verbose=2 "$APP" 2>&1 | tail -2
-SANDBOXED=$(/usr/bin/codesign -d --entitlements - --xml "$APP" 2>/dev/null \
-  | /usr/bin/plutil -extract com.apple.security.app-sandbox raw -o - - 2>/dev/null || true)
-[[ "$SANDBOXED" == "true" ]] || stop \
+# `--entitlements :-` writes real plist XML; without the colon codesign
+# prints a human-readable dump that nothing can parse. And plutil is no use
+# here whatever the format, because it reads the dots in
+# com.apple.security.app-sandbox as a nested key path and finds nothing.
+SANDBOXED=$(/usr/bin/codesign -d --entitlements :- "$APP" 2>/dev/null \
+  | /usr/bin/python3 -c 'import plistlib, sys
+print(plistlib.loads(sys.stdin.buffer.read()).get("com.apple.security.app-sandbox", False))' \
+  2>/dev/null || true)
+[[ "$SANDBOXED" == "True" ]] || stop \
   "the signed bundle is not sandboxed" \
   "The store will refuse it. Check AppStore/entitlements.plist was applied."
 

@@ -229,6 +229,57 @@ if [[ -n "$SIGN_IDENTITY" ]] && /usr/bin/xcrun notarytool history \
   /bin/rm -f "$APP_ZIP"
 fi
 
+# ------------------------------------------------------- the .pkg installer
+#
+# A disk image is what a person downloads and drags. A .pkg is what a district
+# deploys without anybody dragging anything, and it is the only shape the App
+# Store accepts. Built from the same signed, stapled bundle so the two cannot
+# drift apart.
+#
+# Which certificate signs it decides where it can go:
+#
+#   Developer ID Installer          deployable by MDM, notarized, no sandbox
+#   3rd Party Mac Developer Installer   App Store, and the app must be signed
+#                                       Apple Distribution with a profile
+#
+# With neither, an unsigned .pkg is still built. It installs, it is useful for
+# testing the layout, and no one else can be asked to trust it.
+PKG_PATH="$DIST_DIR/DataLink-Scanner-$VERSION.pkg"
+PKG_WORK="$PROJECT_DIR/build/pkg"
+/bin/rm -rf "$PKG_WORK"; /bin/mkdir -p "$PKG_WORK"
+
+INSTALLER_IDENTITY="${DATALINK_INSTALLER_IDENTITY:-$(
+  /usr/bin/security find-identity -v 2>/dev/null \
+    | /usr/bin/sed -n 's/.*"\(3rd Party Mac Developer Installer:.*\)"/\1/p' | head -1
+)}"
+if [[ -z "$INSTALLER_IDENTITY" ]]; then
+  INSTALLER_IDENTITY="$(
+    /usr/bin/security find-identity -v 2>/dev/null \
+      | /usr/bin/sed -n 's/.*"\(Developer ID Installer:.*\)"/\1/p' | head -1
+  )"
+fi
+
+/usr/bin/pkgbuild \
+  --component "$DIST_DIR/$APP_NAME.app" \
+  --install-location /Applications \
+  --identifier "org.davidhohnholt.datalink-scanner" \
+  --version "$VERSION" \
+  "$PKG_WORK/component.pkg" >/dev/null
+
+if [[ -n "$INSTALLER_IDENTITY" ]]; then
+  echo "==> Building the installer, signed as $INSTALLER_IDENTITY"
+  /usr/bin/productbuild --package "$PKG_WORK/component.pkg" \
+    --sign "$INSTALLER_IDENTITY" "$PKG_PATH" >/dev/null
+else
+  echo "==> Building the installer (unsigned — no installer certificate here)"
+  echo "    A .pkg nobody has signed cannot be asked of anybody else."
+  echo "    Create one at developer.apple.com → Certificates:"
+  echo "      Developer ID Installer            for deploying it yourself"
+  echo "      Mac Installer Distribution        for the App Store"
+  /usr/bin/productbuild --package "$PKG_WORK/component.pkg" "$PKG_PATH" >/dev/null
+fi
+/bin/rm -rf "$PKG_WORK"
+
 /bin/cp -R "$DIST_DIR/$APP_NAME.app" "$DMG_ROOT/"
 /bin/ln -s /Applications "$DMG_ROOT/Applications"
 /bin/cp "$PACKAGING_DIR/INSTALL.md" "$DMG_ROOT/Read Me.md"
@@ -281,6 +332,14 @@ if [[ $HAVE_NOTARY -eq 1 ]]; then
        --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m; then
     /usr/bin/xcrun stapler staple "$DMG_PATH"
     echo "==> Notarized and stapled, both the app and the image"
+    # A signed installer is worth notarizing too; an unsigned one cannot be.
+    if [[ -n "$INSTALLER_IDENTITY" && -f "$PKG_PATH" ]]; then
+      echo "==> Notarizing the installer"
+      if /usr/bin/xcrun notarytool submit "$PKG_PATH" \
+           --keychain-profile "$NOTARY_PROFILE" --wait --timeout 30m; then
+        /usr/bin/xcrun stapler staple "$PKG_PATH"
+      fi
+    fi
     /usr/sbin/spctl -a -vvv -t install "$DMG_PATH" 2>&1 | tail -2
   else
     echo
@@ -301,4 +360,5 @@ elif [[ -n "$SIGN_IDENTITY" ]]; then
   echo "See docs/RELEASING.md."
 fi
 
-echo "Built installer: $DMG_PATH"
+echo "Built disk image: $DMG_PATH"
+[[ -f "$PKG_PATH" ]] && echo "Built installer:  $PKG_PATH"

@@ -151,6 +151,51 @@ If it is refused:
 xcrun notarytool log <submission-id> --keychain-profile datalink-notary
 ```
 
+## The .pkg installer
+
+Built from the same signed, stapled bundle as the disk image, so the two
+cannot drift. A disk image is what a person downloads and drags; a `.pkg` is
+what a district deploys without anybody dragging anything, and it is the only
+shape the App Store accepts.
+
+Which certificate signs it decides where it can go:
+
+| Certificate | Where the installer can go |
+| --- | --- |
+| `Developer ID Installer` | deployed by MDM, notarized, no sandbox |
+| `3rd Party Mac Developer Installer` | the App Store, and only with the app signed `Apple Distribution` and a provisioning profile embedded |
+
+With neither, an unsigned `.pkg` is still built. It installs and is useful for
+checking the layout, but nobody else can be asked to trust it.
+`DATALINK_INSTALLER_IDENTITY` names one explicitly.
+
+### What the App Store would additionally require
+
+Signing is the small part. The Mac App Store requires the sandbox, and the
+app does several things the sandbox forbids:
+
+- It installs OpenCV, NumPy and Pillow at runtime and imports them.
+  Downloading and running code is refused outright. They would have to be
+  bundled instead — which would also retire
+  `com.apple.security.cs.disable-library-validation`.
+- It copies a binary to a fixed path and re-signs it, for the Keychain. A
+  sandboxed app may not write an executable and run it. With an Apple
+  Distribution signature the helper is unnecessary anyway, because the
+  Keychain can then identify the app by its signature.
+- It updates itself through Homebrew. App Store apps update through the
+  store.
+- It moves other copies of itself to the Trash and edits the LaunchServices
+  database. Neither is permitted.
+- It accepts a typed path to a PDF. A sandboxed app reaches only files the
+  user chose in an open panel.
+- Its data would move into a container, so existing sessions would not be
+  found.
+
+And one that may be fatal however much of the above is done: CPython needs
+`com.apple.security.cs.allow-unsigned-executable-memory`, which App Review
+grants only with justification and often refuses. That risk is worth pricing
+before any of the rest is attempted.
+
 ## The Keychain helper
 
 `packaging/keychain_helper.c` is compiled and signed into

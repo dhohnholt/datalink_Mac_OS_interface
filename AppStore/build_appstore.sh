@@ -315,7 +315,15 @@ fi
 
 # -------------------------------------------------------------- the package
 
-PKG="$DIST/DataLink-Scanner-$VERSION-appstore.pkg"
+# A testable build is not submittable, and until now it was written to the
+# same filename as one that is -- so building a copy to look at silently
+# replaced a package that had already passed validation, with one that would
+# be refused. They get different names.
+if [[ -n "${DATALINK_APPSTORE_TESTABLE:-}" ]]; then
+  PKG="$DIST/DataLink-Scanner-$VERSION-appstore-TESTABLE-DO-NOT-UPLOAD.pkg"
+else
+  PKG="$DIST/DataLink-Scanner-$VERSION-appstore.pkg"
+fi
 say "==> Building the installer, signed as $INSTALLER_IDENTITY"
 /usr/bin/productbuild --component "$APP" /Applications \
   --sign "$INSTALLER_IDENTITY" "$PKG" >/dev/null

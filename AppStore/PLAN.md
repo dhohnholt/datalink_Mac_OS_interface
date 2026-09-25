@@ -222,6 +222,12 @@ complained about:
 4. Only the app may carry it. Nested binaries with an identifier and no
    profile of their own are the same warning again.
 
+The first uploaded build then failed server-side processing with ITMS-91109:
+`reference_page.png` had inherited `com.apple.quarantine`. The build now
+removes quarantine recursively after all resources are bundled, verifies that
+none remains before signing, and accepts `DATALINK_APPSTORE_BUILD_NUMBER` so a
+replacement can use a build number higher than the rejected upload.
+
 ### The build you can test is not the build you upload
 
 Once the signature carries the application identifier, macOS checks the
@@ -243,7 +249,7 @@ Transporter and altool both look there and neither says so when it is missing.
 
 
 ```bash
-./AppStore/build_appstore.sh
+DATALINK_APPSTORE_BUILD_NUMBER=1.9.1 ./AppStore/build_appstore.sh
 ```
 
 Then validate before uploading, because a failed validation is quick and a

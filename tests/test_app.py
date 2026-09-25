@@ -453,8 +453,14 @@ class ConnectCardLayoutTests(unittest.TestCase):
         fixed = self.css.index(".controls input, .controls select {")
         self.assertGreater(fixed, offset)
         rule = self.css[fixed : self.css.index("}", fixed)]
-        self.assertIn("height: 44px", rule)
+        # The height itself is a token now, so assert what actually has to be
+        # true: these get an explicit height, and it is the same one the
+        # buttons beside them use, or the row stops lining up.
+        self.assertIn("height: var(--control-h)", rule)
         self.assertIn("margin-top: 0", rule)
+        buttons = self.css[self.css.index("select, input, button, .button {") :]
+        buttons = buttons[: buttons.index("}")]
+        self.assertIn("min-height: var(--control-h)", buttons)
 
     def test_the_roster_card_is_gone_and_its_pieces_kept(self):
         self.assertNotIn("roster-card", self.html)

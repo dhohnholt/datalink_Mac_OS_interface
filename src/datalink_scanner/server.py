@@ -11,6 +11,7 @@ import csv
 import errno
 import io
 import json
+import mimetypes
 import signal
 import threading
 import time
@@ -45,6 +46,21 @@ from .interface import (
     other_readers,
     validate_question_count,
 )
+
+# Python probes a list of system files the first time it guesses a MIME type.
+# One of them, /etc/apache2/mime.types, exists on macOS but is unreadable
+# inside the App Sandbox: os.path.isfile() says yes, open() raises
+# PermissionError, and the exception escapes guess_type() and kills the
+# request before a single byte reaches the browser. The window comes up blank
+# with nothing logged.
+#
+# Emptying knownfiles is the only way to skip them: init(files=[]) does NOT
+# replace that list, it appends to it, so passing an explicit list still reads
+# every system file. Calling init() with no argument then builds the table from
+# Python's own map alone, which also makes the types we serve identical on
+# every machine regardless of what is installed in /etc.
+mimetypes.knownfiles = []
+mimetypes.init()
 
 
 def safe_export_filename(test_name: str) -> str:

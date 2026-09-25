@@ -121,6 +121,30 @@ shipping, but it is a different product and the listing must say so.
 Test this immediately after the first signed build. It is the second
 go/no-go.
 
+**Partly answered, 2026-09-25.** A signed sandboxed build lists both
+`/dev/cu.usbserial-1200` and `/dev/tty.usbserial-1200` from `/api/status`, so
+the sandbox does not hide the device node. That is enumeration only. Whether
+`open()` on it succeeds under `com.apple.security.device.serial` is still
+untested, because connecting drives the scanner's mode and the owner is
+testing the build himself. Run `/api/connect` with the scanner attached to
+finish this step.
+
+### Before testing anything in this bundle
+
+The sandbox breaks things that fail silently. The first one cost a session:
+Python's `mimetypes` module reads `/etc/apache2/mime.types`, which exists on
+macOS but cannot be opened inside the sandbox, and the `PermissionError`
+escaped `guess_type()` and killed every static request — the window came up
+blank with nothing logged anywhere. Note the shape of it, because the rest of
+this list will look the same: a file that `os.path.isfile()` says is there,
+an exception on `open()`, and a dead request.
+
+When something in this bundle misbehaves, run the executable straight from a
+terminal rather than double-clicking it. Its stderr is the only place the
+traceback appears:
+
+    "AppStore/dist/DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
+
 ---
 
 ## Step 5 — remove what the sandbox forbids

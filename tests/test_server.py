@@ -1,8 +1,10 @@
 """Tests for the local workspace server that need no scanner and no browser."""
 
+import builtins
 import csv
 import io
 import json
+import mimetypes
 import tempfile
 import threading
 import unittest
@@ -225,7 +227,7 @@ class CaptureRootTests(unittest.TestCase):
             self.assertTrue((root / asset).is_file(), f"missing {asset}")
 
 
-class HttpApiTests(unittest.TestCase):
+class LiveServerTestCase(unittest.TestCase):
     """Drives the real handler over a real socket on an ephemeral port."""
 
     def setUp(self):
@@ -254,6 +256,8 @@ class HttpApiTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.loads(response.read())
 
+
+class HttpApiTests(LiveServerTestCase):
     def test_status_reports_a_disconnected_scanner(self):
         with urllib.request.urlopen(self.base + "/api/status", timeout=5) as response:
             snapshot = json.loads(response.read())
@@ -592,6 +596,74 @@ class HttpApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaticAssetTests(LiveServerTestCase):
+    """The workspace itself, not the API -- this is what fills the window."""
+
+    ASSETS = {
+        "/": "text/html",
+        "/index.html": "text/html",
+        "/styles.css": "text/css",
+        "/app.js": "text/javascript",
+    }
+
+    def test_every_asset_is_served_with_its_type(self):
+        for path, expected in self.ASSETS.items():
+            with self.subTest(path=path):
+                with urllib.request.urlopen(self.base + path, timeout=5) as response:
+                    body = response.read()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(
+                        response.headers.get_content_type(), expected
+                    )
+                self.assertTrue(body)
+
+    def test_assets_survive_unreadable_system_mime_files(self):
+        # Under the App Sandbox /etc/apache2/mime.types exists but cannot be
+        # opened. Python's mimetypes module checks isfile() and not access, so
+        # it used to raise PermissionError out of guess_type() and kill the
+        # request -- the App Store build opened to a blank window with nothing
+        # logged. Nothing may consult /etc while a request is in flight.
+        real_open = builtins.open
+
+        def denied(file, *args, **kwargs):
+            if str(file).startswith("/etc/"):
+                raise PermissionError(1, "Operation not permitted", str(file))
+            return real_open(file, *args, **kwargs)
+
+        with mock.patch.object(builtins, "open", denied):
+            for path in self.ASSETS:
+                with self.subTest(path=path):
+                    with urllib.request.urlopen(
+                        self.base + path, timeout=5
+                    ) as response:
+                        self.assertEqual(response.status, 200)
+
+    def test_the_mime_table_is_pythons_own_and_not_the_systems(self):
+        # The guard above only bites in a process that has not already built a
+        # MIME table, so assert the source of the table directly: an extension
+        # that only the system file defines must not resolve.
+        system_file = Path("/etc/apache2/mime.types")
+        if not system_file.is_file():
+            self.skipTest("no system mime.types to be confused with")
+        try:
+            lines = system_file.read_text().splitlines()
+        except OSError:
+            self.skipTest("system mime.types is not readable")
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            for extension in line.split()[1:]:
+                candidate = "." + extension
+                if candidate not in mimetypes.types_map:
+                    self.assertIsNone(
+                        mimetypes.guess_type("sample" + candidate)[0],
+                        f"{candidate} resolved, so the system file was read",
+                    )
+                    return
+        self.skipTest("system mime.types adds nothing Python lacks")
 
 
 class AppBundlePathTests(unittest.TestCase):

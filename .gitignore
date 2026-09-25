@@ -29,6 +29,15 @@ packaging/*.iconset/
 windows_capture_kit.zip
 
 # ---------------------------------------------------------------------------
+# App Store edition — its own build output, and a profile that is not ours
+# to publish
+# ---------------------------------------------------------------------------
+AppStore/dist/
+AppStore/build/
+AppStore/embedded.provisionprofile
+AppStore/*.p8
+
+# ---------------------------------------------------------------------------
 # Python
 # ---------------------------------------------------------------------------
 __pycache__/

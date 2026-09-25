@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Mandatory for the Mac App Store. Everything below is an exception to
+       it, and every exception is something App Review will ask about. -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+
+  <!-- The DataLink 1200 is a USB serial device, /dev/cu.usbserial-1200.
+       UNVERIFIED: that this entitlement actually reaches a CP210x node from
+       inside the sandbox is the first thing to test — see PLAN.md step 4. -->
+  <key>com.apple.security.device.serial</key>
+  <true/>
+
+  <!-- The workspace is a local HTTP server on 127.0.0.1 that the app's own
+       WKWebView loads. Listening needs this; the client side needs nothing. -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+
+  <!-- Paper batches are PDFs the teacher picks in an open panel. A sandboxed
+       app reaches no file it was not handed this way, which is why the typed
+       path has to go. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+
+  <!-- CPython builds and runs code objects at runtime. This is the entitlement
+       App Review refuses most often for Python applications, and the single
+       biggest risk in the whole plan. Nothing else here is unusual. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

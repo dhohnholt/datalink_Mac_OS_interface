@@ -92,6 +92,47 @@ class ScriptMessageTests(unittest.TestCase):
         )
         self.assertEqual(saved, [("name=Unit+1", "Unit 1.csv", "/api/export.csv")])
 
+    def test_handler_copies_text_to_the_pasteboard(self):
+        # The integration specification is copied this way because a
+        # WKWebView refuses both web clipboard routes often enough that a
+        # button relying on them is one that sometimes silently does nothing.
+        from AppKit import NSPasteboard, NSPasteboardTypeString
+        from datalink_scanner.app import DataLinkAppDelegate
+
+        delegate = DataLinkAppDelegate.alloc().initWithCaptureDir_(None)
+
+        class Message:
+            def __init__(self, body):
+                self._body = body
+
+            def body(self):
+                return self._body
+
+        board = NSPasteboard.generalPasteboard()
+        before = board.stringForType_(NSPasteboardTypeString)
+        self.addCleanup(
+            lambda: (
+                board.clearContents(),
+                before is not None
+                and board.setString_forType_(before, NSPasteboardTypeString),
+            )
+        )
+
+        delegate.userContentController_didReceiveScriptMessage_(
+            None, Message({"action": "copyText", "text": "a specification"})
+        )
+        self.assertEqual(
+            board.stringForType_(NSPasteboardTypeString), "a specification"
+        )
+
+        # Nothing usable to copy must leave what is there alone.
+        for payload in ({"action": "copyText"}, {"action": "copyText", "text": ""},
+                        {"action": "copyText", "text": 7}):
+            delegate.userContentController_didReceiveScriptMessage_(None, Message(payload))
+            self.assertEqual(
+                board.stringForType_(NSPasteboardTypeString), "a specification"
+            )
+
     def test_handler_exports_a_saved_session(self):
         from datalink_scanner.app import DataLinkAppDelegate
 

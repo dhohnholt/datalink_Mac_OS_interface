@@ -76,6 +76,7 @@ def safe_export_filename(test_name: str) -> str:
 
 
 DESTINATIONS = ttess.DestinationCache()
+ENDPOINT_SETTING = "ttess_api_url"
 PAPER_JOB = paper.Job()
 
 
@@ -727,6 +728,18 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         return
 
+    def _save_endpoint(self, url: str) -> None:
+        """Remember where this copy uploads to, and start using it now.
+
+        Refused unless it is https: the token travels on this request as a
+        bearer header, and student data travels in the body.
+        """
+        url = url.strip()
+        if url:
+            ttess._require_https(url)
+        self.store.set_setting(ENDPOINT_SETTING, url)
+        ttess.set_endpoint(url)
+
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store, max-age=0")
         super().end_headers()
@@ -802,8 +815,11 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
             bearer = ttess.token()
             payload = {
                 "connected": bool(bearer),
-                "api_url": ttess.API_URL,
-                "site_url": ttess.SITE_URL,
+                "api_url": ttess.api_url(),
+                "site_url": ttess.site_url(),
+                # The store edition has no address of its own and shows the
+                # field instead of a link to somebody else's site.
+                "sandboxed": edition.sandboxed(),
                 "destinations": [],
                 "error": None,
             }
@@ -1059,6 +1075,8 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                         self.store.set_setting(key, str(body[key]))
                 if "auto_update_check" in body:
                     updates.set_auto_check(self.store, bool(body["auto_update_check"]))
+                if "ttess_api_url" in body:
+                    self._save_endpoint(str(body["ttess_api_url"]))
                 # Keep an open history row in step with a renamed test or class.
                 session_id = self.controller.current_session_id()
                 if session_id is not None:
@@ -1303,6 +1321,9 @@ def build_server(
     it never has to coordinate with another instance over a fixed port.
     """
     store = Store(paths.database_path(capture_dir))
+    # Where this copy uploads to, if the teacher has set it. The store edition
+    # has no default, so without this it would have nowhere to send anything.
+    ttess.set_endpoint(store.get_setting(ENDPOINT_SETTING, "") or "")
     controller = ScannerController(paths.capture_root(capture_dir), store)
     shutdown_requested = threading.Event()
     DataLinkRequestHandler.controller = controller

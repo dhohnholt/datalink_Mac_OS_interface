@@ -26,6 +26,8 @@ from AppKit import (
     NSAlertFirstButtonReturn,
     NSAlertSecondButtonReturn,
     NSApplication,
+    NSPasteboard,
+    NSPasteboardTypeString,
     NSApplicationActivationPolicyRegular,
     NSBackingStoreBuffered,
     NSColor,
@@ -893,6 +895,16 @@ class DataLinkAppDelegate(NSObject):
             return
         if action == "choosePdf":
             self.choose_pdf()
+            return
+        if action == "copyText":
+            # A WKWebView refuses navigator.clipboard often enough that a copy
+            # button relying on it is a button that sometimes silently does
+            # nothing. The pasteboard from this side always works.
+            text = body.get("text")
+            if isinstance(text, str) and text:
+                board = NSPasteboard.generalPasteboard()
+                board.clearContents()
+                board.setString_forType_(text, NSPasteboardTypeString)
             return
         if action == "export":
             query = body.get("query") or ""

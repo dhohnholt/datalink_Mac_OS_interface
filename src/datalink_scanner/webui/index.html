@@ -408,7 +408,7 @@
           <button type="button" data-pane="students">Student scores</button>
           <button type="button" data-pane="review">Review<span id="reviewBadge" class="badge-count hidden">0</span></button>
           <button type="button" data-pane="key">Answer key</button>
-          <button type="button" data-pane="upload">Send to T-TESS</button>
+          <button type="button" data-pane="upload" id="uploadTabButton">Send to T-TESS</button>
         </nav>
 
         <section class="card" data-pane="items">
@@ -508,13 +508,13 @@
         <section class="card" data-pane="upload" hidden>
           <div class="section-title row">
             <div>
-              <h2>Send to T-TESS</h2>
-              <p>Uploads this scored run to the Reteach Center. It does not finalize results — you review and finalize on the website.</p>
+              <h2 id="uploadHeading">Send to T-TESS</h2>
+              <p id="uploadIntro">Uploads this scored run to the Reteach Center. It does not finalize results — you review and finalize on the website.</p>
             </div>
-            <button id="uploadButton" class="primary" disabled>Upload to T-TESS</button>
+            <button id="uploadButton" class="primary" disabled>Upload</button>
           </div>
           <p id="uploadNotConnected" class="callout hidden">
-            DataLink is not connected to T-TESS yet. Open <strong>Settings</strong> and paste a connection token.
+            <span id="uploadNotConnectedText">DataLink is not connected to T-TESS yet.</span> Open <strong>Settings</strong> and paste a connection token.
           </p>
           <div id="uploadPicker" class="hidden">
             <div class="controls upload-controls">
@@ -555,7 +555,7 @@
       <section class="card">
         <div class="section-title row">
           <div>
-            <h2>T-TESS connection</h2>
+            <h2 id="connectionTitle">T-TESS connection</h2>
             <p id="connectionStatus">Checking…</p>
           </div>
           <div class="button-row">
@@ -567,8 +567,113 @@
             <button id="disconnectTtessButton" class="ghost danger hidden">Disconnect</button>
           </div>
         </div>
-        <div id="connectForm">
+        <div id="ownSiteSetup" class="hidden">
           <p class="dialog-copy">
+            DataLink can send a scored report straight to a website of your own, so a
+            class set of sheets becomes a page you can read and share without exporting
+            anything by hand. It sends the report for one session at a time, over HTTPS,
+            to an address you give it. Nothing leaves this Mac until you ask it to, and
+            nothing is sent anywhere by default.
+          </p>
+          <div class="controls connect-controls">
+            <label>
+              <span class="label-text">Upload address</span>
+              <input id="endpointInput" type="url" autocomplete="off" spellcheck="false"
+                     placeholder="https://example.org/functions/v1/datalink-api">
+            </label>
+            <label>
+              <span class="label-text">&nbsp;</span>
+              <button id="saveEndpointButton" class="secondary">Save address</button>
+            </label>
+          </div>
+          <p id="endpointError" class="safety danger hidden"></p>
+          <details id="buildPromptDetails">
+            <summary>Do not have a site yet?</summary>
+            <p class="safety">
+              The button below copies a full specification of what DataLink sends and
+              what it expects back. Give it to an AI coding assistant, or to whoever
+              maintains your site, and it describes the whole contract: the two
+              requests, the shape of a scored report, the token format, the size limit
+              and how retries must be treated. It is the same specification this app
+              was built against.
+            </p>
+            <div class="button-row">
+              <button id="copyPromptButton" class="secondary">Copy the specification</button>
+            </div>
+            <pre id="buildPrompt" class="prompt-text">Build an HTTPS endpoint that receives scored exam reports from DataLink
+Scanner, a macOS app that reads Apperson DataLink 1200 answer sheets.
+
+ONE URL, TWO REQUESTS
+
+Both carry `Authorization: Bearer &lt;token&gt;` and `Accept: application/json`.
+The app refuses any address that is not https, because the token is a header
+on these requests and student data is in the body.
+
+GET  -&gt; which tests a report may be filed against:
+        200 {&quot;destinations&quot;: [
+              {&quot;exam_id&quot;: &quot;...&quot;, &quot;exam_title&quot;: &quot;...&quot;, &quot;test_code&quot;: &quot;...&quot;,
+               &quot;unit_title&quot;: &quot;...&quot;, &quot;course_id&quot;: &quot;...&quot;, &quot;course_title&quot;: &quot;...&quot;}
+            ]}
+        An empty list is valid and the app says so rather than failing.
+
+POST -&gt; one scored run:
+        body  {&quot;exam_id&quot;: &quot;&lt;from the list above&gt;&quot;, &quot;analysis&quot;: { ... }}
+        200 or 201 {&quot;run_id&quot;: &quot;...&quot;, &quot;status&quot;: &quot;imported&quot;,
+                    &quot;review_url&quot;: &quot;https://.../where/a/human/reads/it&quot;}
+
+ERRORS
+
+Answer with the real HTTP status and a body of
+{&quot;error&quot;: {&quot;code&quot;: &quot;...&quot;, &quot;message&quot;: &quot;...&quot;}}. The message is shown to the
+teacher verbatim, so write it for them, not for a log.
+
+Use 401, or the code &quot;invalid_token&quot;, when the token is bad or withdrawn: the
+app then erases its stored copy and asks the teacher to reconnect. Anything
+transient should be a 5xx. The app retries twice, backing off, with a byte
+for byte identical body.
+
+TOKENS
+
+The teacher generates a token on your site and pastes it into the app, which
+stores it in the macOS Keychain and never writes it to a file, a log or an
+error message. Tokens must begin with `dlk_live_` or the app rejects them
+before sending anything. Issue one per teacher, let them revoke it, and
+require nothing else: the app sends no email address, no password, no account
+identifier of any kind.
+
+THE ANALYSIS OBJECT
+
+At most 5 MB encoded, or the app refuses to send it. Top level keys include:
+
+  run_id          stable for one scored run
+  exam            test_code, source_type, capture_method, question_count
+  students        one entry per sheet: student id, name, per question answers
+  scores          per student totals
+  stats           per question statistics, difficulty and discrimination
+  answer_key      the key the run was scored against
+  review_items    sheets the app wants a human to look at
+
+Store whatever you need and ignore the rest; treat unknown keys as forward
+compatible rather than an error.
+
+RUN IDS ARE AN AUDIT KEY
+
+`analysis.run_id` identifies one scored run. The same run_id arriving twice is
+a retry of a single upload, not two uploads: make the write idempotent on it
+and return the original run_id. A re-score after the key or a sheet is
+corrected arrives with a NEW run_id, and that one is a genuinely new record
+which must not overwrite the first silently. A teacher has to be able to see
+that a class was scored twice and why.
+
+WHAT NOT TO DO
+
+Do not ask the app for credentials of any kind beyond the token. Do not log
+the authorization header, the full request body, student names or student IDs.
+Redact secrets from errors and diagnostics. This data is about children.</pre>
+          </details>
+        </div>
+        <div id="connectForm">
+          <p class="dialog-copy" id="connectInstructions">
             On the T-TESS website go to <strong>Reteaching → Connect DataLink</strong>,
             generate a connection token, and paste it here. It is stored in this Mac's
             Keychain and never written to the app's files or logs.

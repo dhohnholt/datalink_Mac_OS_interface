@@ -1706,22 +1706,112 @@ $("#saveKeyButton").addEventListener("click", async () => {
 
 let destinations = [];
 let connected = false;
+// True in the Mac App Store build, which ships with no address of its own.
+let ownSiteMode = false;
+let endpointSet = false;
+// The address itself, kept apart from the label, which may read "nowhere yet".
+// Two callers re-render from the page's own state and would otherwise feed
+// that placeholder back as though it were a real address.
+let lastApiUrl = "";
+// The store edition talks to whatever site the teacher set up, which has no
+// name this app could know.
+const siteName = () => (ownSiteMode ? "your site" : "T-TESS");
+
+function applyOwnSiteMode(on, apiUrl) {
+  ownSiteMode = on;
+  endpointSet = Boolean(apiUrl);
+  $("#ownSiteSetup").classList.toggle("hidden", !on);
+  // The link and the instructions both name one particular school's site.
+  $("#ttessSiteLink").classList.toggle("hidden", on);
+  $("#connectInstructions").classList.toggle("hidden", on);
+  if (!on) return;
+  $("#connectionTitle").textContent = "Send scored reports to your own site";
+  // Every one of these names one particular school's system, which means
+  // nothing to anybody else.
+  $("#uploadTabButton").textContent = "Send to your site";
+  $("#uploadHeading").textContent = "Send to your site";
+  $("#uploadIntro").textContent =
+    "Uploads this scored run to the address set in Settings. What happens to it "
+    + "afterwards is up to your site.";
+  $("#uploadNotConnectedText").textContent = "DataLink is not connected to a site yet.";
+  if (document.activeElement !== $("#endpointInput")) $("#endpointInput").value = apiUrl;
+  // Without an address there is nothing a token could authenticate against.
+  $("#tokenInput").disabled = !endpointSet;
+  $("#connectTtessButton").disabled = !endpointSet;
+}
+
+$("#saveEndpointButton")?.addEventListener("click", async () => {
+  const wanted = $("#endpointInput").value.trim();
+  const error = $("#endpointError");
+  error.classList.add("hidden");
+  try {
+    await post("/api/settings", {ttess_api_url: wanted});
+    toast(wanted ? "Upload address saved" : "Upload address cleared");
+    await loadConnection();
+  } catch (failure) {
+    error.textContent = failure.message || "That address could not be saved";
+    error.classList.remove("hidden");
+  }
+});
+
+$("#copyPromptButton")?.addEventListener("click", async () => {
+  // Three ways down, because the first one is not dependable inside a
+  // WKWebView and a copy button that quietly does nothing is worse than no
+  // copy button at all. Whichever way it goes, the text ends up selected, so
+  // the teacher can always finish the job with ⌘C.
+  $("#buildPromptDetails").open = true;
+  const range = document.createRange();
+  range.selectNodeContents($("#buildPrompt"));
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  const text = $("#buildPrompt").textContent;
+  if (window.datalinkNative) {
+    // Inside the app, where the pasteboard is the app's to write and the two
+    // web APIs below are both unreliable.
+    window.webkit.messageHandlers.datalink.postMessage({action: "copyText", text});
+    toast("Specification copied");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Specification copied");
+    return;
+  } catch {
+    // Refused: no user activation it recognises, or no permission.
+  }
+  try {
+    if (document.execCommand("copy")) {
+      toast("Specification copied");
+      return;
+    }
+  } catch {
+    // Deprecated, but it is the one that works on a real click in a web view.
+  }
+  toast("Press ⌘C to copy the selected text");
+});
 
 function renderConnection(state) {
   connected = Boolean(state.connected);
   destinations = state.destinations || [];
-  $("#apiUrlLabel").textContent = state.api_url || "";
+  if (state.api_url !== undefined) lastApiUrl = state.api_url || "";
+  $("#apiUrlLabel").textContent = lastApiUrl || "nowhere yet";
   // Only when the server sent one: renderConnection is also called with states
   // assembled in the page, which carry no site_url, and overwriting the link
   // with "" there would leave a button that goes nowhere.
   if (state.site_url) $("#ttessSiteLink").href = state.site_url;
+  if (state.sandboxed !== undefined) applyOwnSiteMode(state.sandboxed === true, lastApiUrl);
   $("#connectForm").classList.toggle("hidden", connected);
   $("#connectedPanel").classList.toggle("hidden", !connected);
   $("#disconnectTtessButton").classList.toggle("hidden", !connected);
 
   if (!connected) {
-    $("#connectionStatus").textContent =
-      "Not connected. Paste a connection token from T-TESS → Reteaching → Connect DataLink.";
+    $("#connectionStatus").textContent = ownSiteMode
+      ? (endpointSet
+        ? "Not connected. Paste the connection token your site issued."
+        : "Not connected. Enter the address of your site first.")
+      : "Not connected. Paste a connection token from T-TESS → Reteaching → Connect DataLink.";
   } else {
     const courses = new Set(destinations.map(item => item.course_title));
     $("#connectionStatus").textContent = state.error
@@ -1730,6 +1820,13 @@ function renderConnection(state) {
     $("#destinationSummary").textContent = destinations.length
       ? [...courses].join(" · ")
       : "No tests are available to this account yet.";
+  }
+  if (ownSiteMode && !endpointSet) {
+    // A token with no address authenticates against nothing, so saying
+    // "connected" and offering to refresh a test list would both be false.
+    $("#connectedPanel").classList.add("hidden");
+    $("#connectionStatus").textContent =
+      "No upload address yet. Enter the address of your site below.";
   }
   renderUploadPicker();
 }
@@ -1747,8 +1844,8 @@ $("#connectTtessButton").addEventListener("click", async () => {
   try {
     const state = await post("/api/connection/connect", {token: field.value});
     field.value = "";                       // do not leave it sitting in the DOM
-    renderConnection({connected: true, destinations: state.destinations, api_url: $("#apiUrlLabel").textContent});
-    toast("Connected to T-TESS");
+    renderConnection({connected: true, destinations: state.destinations, api_url: lastApiUrl});
+    toast(`Connected to ${siteName()}`);
   } catch (error) {
     banner.textContent = error.message;
     banner.classList.remove("hidden");
@@ -1758,7 +1855,7 @@ $("#connectTtessButton").addEventListener("click", async () => {
 });
 
 $("#disconnectTtessButton").addEventListener("click", async () => {
-  if (!confirm("Disconnect from T-TESS? The connection token is removed from this Mac's Keychain.")) return;
+  if (!confirm(`Disconnect from ${siteName()}? The connection token is removed from this Mac's Keychain.`)) return;
   renderConnection(await post("/api/connection/disconnect", {}));
   toast("Disconnected");
 });
@@ -1767,7 +1864,7 @@ $("#refreshDestinationsButton").addEventListener("click", async () => {
   try {
     const state = await request("/api/destinations");
     destinations = state.destinations || [];
-    renderConnection({connected: true, destinations, api_url: $("#apiUrlLabel").textContent});
+    renderConnection({connected: true, destinations, api_url: lastApiUrl});
     toast(`${destinations.length} test(s) available`);
   } catch (error) { toast(error.message); }
 });
@@ -1864,7 +1961,7 @@ $("#uploadButton").addEventListener("click", async () => {
     $("#uploadRunId").textContent = result.run_id || "—";
     $("#uploadReviewLink").href = result.review_url;
     success.classList.remove("hidden");
-    toast("Uploaded to T-TESS");
+    toast(`Uploaded to ${siteName()}`);
   } catch (failure) {
     error.textContent = failure.message;
     error.classList.remove("hidden");
@@ -1872,7 +1969,7 @@ $("#uploadButton").addEventListener("click", async () => {
     if (/reconnect/i.test(failure.message)) loadConnection();
   } finally {
     $("#uploadButton").disabled = false;
-    $("#uploadButton").textContent = "Upload to T-TESS";
+    $("#uploadButton").textContent = "Upload";
   }
 });
 
@@ -2033,7 +2130,7 @@ function renderPaperJob(job) {
   $("#paperSetup").classList.toggle("hidden", !paperPath || running || finished);
   if (finished) {
     $("#paperDoneMessage").textContent =
-      `${job.message}. They are saved as a session, ready to review and send to T-TESS.`;
+      `${job.message}. They are saved as a session, ready to review and send to ${siteName()}.`;
     $("#paperOpenAnalysis").dataset.session = job.session_id;
   }
 }

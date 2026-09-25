@@ -455,3 +455,25 @@ td.response:hover { background: var(--green-soft); outline: 1px solid #aed7c5; }
   background: var(--green); border-color: var(--green); color: #fff;
 }
 .key-fix-choice input:focus-visible + span { outline: 2px solid var(--green); outline-offset: 2px; }
+
+/* The integration specification, hidden inside a <details> until asked for.
+   It is meant to be copied rather than read on screen, so it is capped and
+   scrolls instead of pushing the rest of Settings off the page. */
+.prompt-text {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--ink-050, #f3f4f2);
+  border: 1px solid var(--line, #d9ddd6);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+#buildPromptDetails summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+}

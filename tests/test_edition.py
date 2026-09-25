@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from datalink_scanner import edition, keychain, paper, updates
+from datalink_scanner import edition, keychain, paper, ttess, updates
 
 
 class SandboxDetectionTests(unittest.TestCase):
@@ -70,6 +70,35 @@ class SandboxedBehaviourTests(unittest.TestCase):
         # though the button is hidden for a second reason.
         status = paper.status()
         self.assertFalse(status["can_install_packages"])
+
+    def test_it_ships_with_nobody_elses_address(self):
+        # The Developer ID build was made for one school and carries that
+        # school's address. Sending a stranger's student data there would be
+        # wrong even if the server refused it.
+        ttess.set_endpoint(None)
+        self.addCleanup(ttess.set_endpoint, None)
+        self.assertEqual(ttess.api_url(), "")
+        self.assertEqual(ttess.site_url(), "")
+        self.assertEqual(ttess.review_base_url(), "")
+
+    def test_it_refuses_to_send_until_an_address_is_set(self):
+        ttess.set_endpoint(None)
+        self.addCleanup(ttess.set_endpoint, None)
+        with self.assertRaises(ttess.UploadError) as caught:
+            ttess.fetch_destinations("dlk_live_whatever")
+        self.assertEqual(caught.exception.code, "no_endpoint")
+
+    def test_the_teacher_can_point_it_at_their_own(self):
+        self.addCleanup(ttess.set_endpoint, None)
+        ttess.set_endpoint("https://example.org/datalink")
+        self.assertEqual(ttess.api_url(), "https://example.org/datalink")
+
+    def test_an_address_that_is_not_https_is_refused(self):
+        # The token rides as a header on this request and the students ride in
+        # the body.
+        with self.assertRaises(ttess.UploadError) as caught:
+            ttess._require_https("http://example.org/datalink")
+        self.assertEqual(caught.exception.code, "insecure_url")
 
     def test_the_keychain_is_read_in_process(self):
         # Writing an executable out and running it is forbidden, and the

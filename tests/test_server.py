@@ -598,6 +598,38 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class UploadAddressTests(LiveServerTestCase):
+    """The store edition has no address of its own; the teacher gives one."""
+
+    def tearDown(self):
+        from datalink_scanner import ttess
+
+        ttess.set_endpoint(None)
+
+    def test_saving_an_address_persists_it_and_takes_effect(self):
+        from datalink_scanner import ttess
+
+        self.post("/api/settings", {"ttess_api_url": "https://example.org/datalink"})
+        self.assertEqual(ttess.api_url(), "https://example.org/datalink")
+        self.assertEqual(
+            self.store.get_setting("ttess_api_url"), "https://example.org/datalink"
+        )
+
+    def test_an_unencrypted_address_is_refused_and_not_stored(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/api/settings", {"ttess_api_url": "http://example.org/datalink"})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertFalse(self.store.get_setting("ttess_api_url"))
+
+    def test_clearing_it_is_allowed(self):
+        from datalink_scanner import ttess
+
+        self.post("/api/settings", {"ttess_api_url": "https://example.org/datalink"})
+        self.post("/api/settings", {"ttess_api_url": ""})
+        self.assertEqual(self.store.get_setting("ttess_api_url"), "")
+        self.assertIsNone(ttess._endpoint_override)
+
+
 class StaticAssetTests(LiveServerTestCase):
     """The workspace itself, not the API -- this is what fills the window."""
 

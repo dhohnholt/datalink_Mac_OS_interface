@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from . import edition
 from . import keychain
 
 
@@ -43,6 +44,34 @@ REQUEST_TIMEOUT_SECONDS = float(
 )
 MAX_ANALYSIS_BYTES = int(os.environ.get("DATALINK_MAX_ANALYSIS_BYTES", "5242880"))
 
+# The Developer ID build was made for one school and carries that school's
+# address as its default. The store edition must not: it goes to strangers,
+# and pointing their uploads at someone else's server would be wrong even if
+# that server refused them. There the teacher gives their own address, and
+# until they do there is nowhere to send anything.
+_endpoint_override: str | None = None
+
+
+def set_endpoint(url: str | None) -> None:
+    """Point this app at a site. Empty or None restores the built-in default."""
+    global _endpoint_override
+    _endpoint_override = (url or "").strip() or None
+
+
+def api_url() -> str:
+    if _endpoint_override:
+        return _endpoint_override
+    return "" if edition.sandboxed() else API_URL
+
+
+def site_url() -> str:
+    return "" if edition.sandboxed() else SITE_URL
+
+
+def review_base_url() -> str:
+    return "" if edition.sandboxed() else REVIEW_BASE_URL
+
+
 TOKEN_PREFIX = "dlk_live_"
 DESTINATION_CACHE_SECONDS = 15 * 60
 MAX_RETRIES = 2
@@ -60,7 +89,7 @@ class UploadError(RuntimeError):
 def _require_https(url: str) -> None:
     if not url.lower().startswith("https://"):
         raise UploadError(
-            "The T-TESS address must use https. Refusing to send student data "
+            "The upload address must use https. Refusing to send student data "
             "over an unencrypted connection.",
             code="insecure_url",
         )
@@ -88,8 +117,15 @@ def forget_token() -> bool:
 
 
 def _request(method: str, body: bytes | None, bearer: str) -> tuple[int, dict]:
-    _require_https(API_URL)
-    request = urllib.request.Request(API_URL, data=body, method=method)
+    url = api_url()
+    if not url:
+        raise UploadError(
+            "No upload address is set. Open Settings and enter the address of "
+            "your own site before connecting.",
+            code="no_endpoint",
+        )
+    _require_https(url)
+    request = urllib.request.Request(url, data=body, method=method)
     request.add_header("Authorization", f"Bearer {bearer}")
     request.add_header("Accept", "application/json")
     if body is not None:
@@ -110,14 +146,14 @@ def _request(method: str, body: bytes | None, bearer: str) -> tuple[int, dict]:
         # The reason can carry a host name but never the token, which is only
         # ever sent as a header.
         raise UploadError(
-            f"Could not reach T-TESS ({exc.reason}). Check the internet "
+            f"Could not reach the site ({exc.reason}). Check the internet "
             "connection and try again.",
             code="service_unavailable",
             retryable=True,
         ) from None
     except TimeoutError:
         raise UploadError(
-            f"T-TESS did not respond within {REQUEST_TIMEOUT_SECONDS:.0f} seconds.",
+            f"The site did not respond within {REQUEST_TIMEOUT_SECONDS:.0f} seconds.",
             code="service_unavailable",
             retryable=True,
         ) from None
@@ -132,8 +168,8 @@ def _server_error(status: int, payload: dict) -> UploadError:
         forget_token()
         return UploadError(
             message
-            or "The connection token is no longer valid. Reconnect DataLink from "
-            "T-TESS → Reteaching → Connect DataLink.",
+            or "The connection token is no longer valid. Open Settings and "
+            "paste a new one.",
             code="invalid_token",
         )
     if status == 403 or code == "exam_forbidden":
@@ -153,16 +189,16 @@ def _server_error(status: int, payload: dict) -> UploadError:
         )
     if status == 422 or code == "validation_failed":
         return UploadError(
-            message or "T-TESS rejected the analysis.", code="validation_failed"
+            message or "The site rejected the analysis.", code="validation_failed"
         )
     if status == 503 or code == "service_unavailable":
         return UploadError(
-            message or "T-TESS is temporarily unavailable.",
+            message or "The site is temporarily unavailable.",
             code="service_unavailable",
             retryable=True,
         )
     return UploadError(
-        message or f"T-TESS returned an unexpected response ({status}).",
+        message or f"The site returned an unexpected response ({status}).",
         code=code or "unexpected",
         retryable=status >= 500,
     )
@@ -171,7 +207,7 @@ def _server_error(status: int, payload: dict) -> UploadError:
 def fetch_destinations(bearer: str | None = None) -> list[dict]:
     bearer = bearer or token()
     if not bearer:
-        raise UploadError("Connect DataLink to T-TESS first", code="not_connected")
+        raise UploadError("Connect DataLink to your site first", code="not_connected")
     status, payload = _request("GET", None, bearer)
     if status != 200:
         raise _server_error(status, payload)
@@ -240,7 +276,7 @@ def upload(
     """Send one scored run. Retries only what is safe to retry."""
     bearer = bearer or token()
     if not bearer:
-        raise UploadError("Connect DataLink to T-TESS first", code="not_connected")
+        raise UploadError("Connect DataLink to your site first", code="not_connected")
     if not exam_id:
         raise UploadError("Choose which test to upload to", code="no_destination")
 
@@ -255,7 +291,7 @@ def upload(
                 return {
                     "run_id": payload.get("run_id"),
                     "status": payload.get("status", "imported"),
-                    "review_url": payload.get("review_url") or REVIEW_BASE_URL,
+                    "review_url": payload.get("review_url") or review_base_url(),
                 }
             failure = _server_error(status, payload)
         except UploadError as exc:

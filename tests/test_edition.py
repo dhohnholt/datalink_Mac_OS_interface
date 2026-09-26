@@ -81,6 +81,32 @@ class SandboxedBehaviourTests(unittest.TestCase):
             "a real address is written into ttess.py again",
         )
 
+    def test_nobody_s_site_is_written_into_anything_that_ships(self):
+        # The ttess.py check above missed the markup: index.html carried the
+        # site as the href of the Open link, so a store build shipped one
+        # school's address in its own resources even though the module had
+        # none. Check every file that goes into the bundle, not one of them.
+        import re
+        root = Path("src/datalink_scanner")
+        host_of = re.compile(r"https?://([A-Za-z0-9.-]+)")
+        # Placeholders and the app's own loopback are not somebody's site.
+        allowed = {"example.org", "example.com", "localhost", "127.0.0.1"}
+        documentation = ("github.com", "apple.com", "python.org")
+        offenders = []
+        for path in sorted(list(root.glob("*.py")) + list(root.glob("webui/*"))):
+            if not path.is_file() or path.suffix == ".pyc":
+                continue
+            real = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
+            for host in host_of.findall(path.read_text(errors="ignore")):
+                # "https://.../where/a/human/reads/it" in the specification is
+                # a placeholder, not a host.
+                if not real.match(host) or host in allowed:
+                    continue
+                if any(host.endswith(d) for d in documentation):
+                    continue
+                offenders.append(f"{path.name}: {host}")
+        self.assertEqual(offenders, [], "a real address is written into a shipped file")
+
     def test_it_ships_with_nobody_elses_address(self):
         # The Developer ID build was made for one school and carries that
         # school's address. Sending a stranger's student data there would be

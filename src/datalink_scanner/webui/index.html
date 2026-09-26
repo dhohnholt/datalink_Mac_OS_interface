@@ -565,9 +565,11 @@
           <div class="button-row">
             <!-- Off our own server, so the native shell hands this to the
                  real browser rather than opening it in the app window. -->
-            <a id="ttessSiteLink" class="button secondary"
-               href="https://ttess.tmechsmonitor.org/ttess/reteach"
-               target="_blank" rel="noopener">Open T-TESS</a>
+            <!-- No address here either. The href is filled in from the site
+                 address in Settings, and the link stays hidden until there is
+                 one, so nobody's site ships inside the markup. -->
+            <a id="ttessSiteLink" class="button secondary hidden"
+               href="#" target="_blank" rel="noopener">Open T-TESS</a>
             <button id="disconnectTtessButton" class="ghost danger hidden">Disconnect</button>
           </div>
         </div>

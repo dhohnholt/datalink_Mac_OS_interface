@@ -508,7 +508,15 @@ class TtessInterfaceTests(unittest.TestCase):
         card = self.html[self.html.index("T-TESS connection") :]
         card = card[: card.index("</section>")]
         self.assertIn('id="ttessSiteLink"', card)
-        self.assertIn("https://ttess.tmechsmonitor.org/ttess/reteach", card)
+        # The address used to be written in here, which meant a store build
+        # shipped one school's site in its own markup. The href is filled in
+        # from the site address in Settings, and the link starts hidden so it
+        # never points at nothing.
+        self.assertNotIn("tmechsmonitor", card)
+        link = card[card.index('id="ttessSiteLink"') :]
+        opening = link[: link.index(">")]
+        self.assertIn('href="#"', opening)
+        self.assertIn("hidden", opening)
         # Opened in the real browser: the native shell sends anything off our
         # own server out through NSWorkspace rather than the web view.
         link = card[card.index('id="ttessSiteLink"') :]

@@ -572,7 +572,7 @@
           </div>
         </div>
         <div id="ownSiteSetup" class="hidden">
-          <p class="dialog-copy">
+          <p class="dialog-copy" id="ownSiteIntro">
             DataLink can send a scored report straight to a website of your own, so a
             class set of sheets becomes a page you can read and share without exporting
             anything by hand. It sends the report for one session at a time, over HTTPS,
@@ -584,6 +584,11 @@
               <span class="label-text">Upload address</span>
               <input id="endpointInput" type="url" autocomplete="off" spellcheck="false"
                      placeholder="https://example.org/functions/v1/datalink-api">
+            </label>
+            <label>
+              <span class="label-text">Site address <span class="muted">(optional)</span></span>
+              <input id="siteInput" type="url" autocomplete="off" spellcheck="false"
+                     placeholder="https://example.org/reports">
             </label>
             <label>
               <span class="label-text">&nbsp;</span>

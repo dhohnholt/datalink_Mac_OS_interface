@@ -211,17 +211,31 @@ class TransportTests(unittest.TestCase):
                 ttess._request("GET", None, "dlk_live_x")
         self.assertEqual(caught.exception.code, "insecure_url")
 
-    def test_the_configured_endpoints_match_the_specification(self):
-        self.assertEqual(
-            ttess.API_URL,
-            "https://zgrxawyginizrshjmkum.supabase.co/functions/v1/datalink-api",
-        )
-        self.assertTrue(
-            ttess.REVIEW_BASE_URL.startswith(
-                "https://ttess.tmechsmonitor.org/ttess/reteach/scantron"
-            )
-        )
+    def test_no_address_ships_with_the_app(self):
+        # These used to default to one school's Supabase function and one
+        # school's T-TESS site, written into a public repository. A teacher
+        # says where their own reports go, and is asked once.
+        self.assertEqual(ttess.API_URL, "")
+        self.assertEqual(ttess.SITE_URL, "")
+        self.assertEqual(ttess.REVIEW_BASE_URL, "")
         self.assertEqual(ttess.REQUEST_TIMEOUT_SECONDS, 30)
+
+    def test_the_address_a_teacher_sets_is_the_one_used(self):
+        self.addCleanup(ttess.set_endpoint, None)
+        self.addCleanup(ttess.set_site, None)
+        ttess.set_endpoint("https://example.org/datalink")
+        ttess.set_site("https://example.org/reports")
+        self.assertEqual(ttess.api_url(), "https://example.org/datalink")
+        self.assertEqual(ttess.site_url(), "https://example.org/reports")
+        # The review link falls back to the site when the server sends none.
+        self.assertEqual(ttess.review_base_url(), "https://example.org/reports")
+
+    def test_with_nothing_set_there_is_nowhere_to_send(self):
+        ttess.set_endpoint(None)
+        self.addCleanup(ttess.set_endpoint, None)
+        with self.assertRaises(ttess.UploadError) as caught:
+            ttess._request("GET", None, "dlk_live_x")
+        self.assertEqual(caught.exception.code, "no_endpoint")
 
 
 class DestinationCacheTests(unittest.TestCase):

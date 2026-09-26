@@ -22,19 +22,21 @@ from . import edition
 from . import keychain
 
 
-API_URL = os.environ.get(
-    "DATALINK_API_URL",
-    "https://zgrxawyginizrshjmkum.supabase.co/functions/v1/datalink-api",
-)
-REVIEW_BASE_URL = os.environ.get(
-    "DATALINK_REVIEW_BASE_URL",
-    "https://ttess.tmechsmonitor.org/ttess/reteach/scantron",
-)
+# No address ships with the app, in either edition.
+#
+# These used to default to one school's Supabase function and one school's
+# T-TESS site, written into a public repository, which meant the store edition
+# needed code to suppress somebody's personal details rather than simply not
+# having them. The default is now nobody, and a teacher says where their own
+# reports go. It is remembered in Settings, so it is asked for once.
+#
+# The environment variables still work, for a machine that wants to set this
+# without touching the interface.
+API_URL = os.environ.get("DATALINK_API_URL", "")
+REVIEW_BASE_URL = os.environ.get("DATALINK_REVIEW_BASE_URL", "")
 # Where the teacher goes to generate a token, and to read the reports this app
 # uploads. Opened in the real browser, never inside the app's web view.
-SITE_URL = os.environ.get(
-    "DATALINK_SITE_URL", "https://ttess.tmechsmonitor.org/ttess/reteach"
-)
+SITE_URL = os.environ.get("DATALINK_SITE_URL", "")
 KEYCHAIN_SERVICE = os.environ.get("DATALINK_KEYCHAIN_SERVICE", "org.tmechs.datalink")
 KEYCHAIN_ACCOUNT = os.environ.get(
     "DATALINK_KEYCHAIN_ACCOUNT", "scantron-upload-token"
@@ -50,25 +52,38 @@ MAX_ANALYSIS_BYTES = int(os.environ.get("DATALINK_MAX_ANALYSIS_BYTES", "5242880"
 # that server refused them. There the teacher gives their own address, and
 # until they do there is nowhere to send anything.
 _endpoint_override: str | None = None
+_site_override: str | None = None
 
 
 def set_endpoint(url: str | None) -> None:
-    """Point this app at a site. Empty or None restores the built-in default."""
+    """Where reports are sent. Empty or None falls back to the environment."""
     global _endpoint_override
     _endpoint_override = (url or "").strip() or None
+
+
+def set_site(url: str | None) -> None:
+    """Where the teacher reads those reports, for the link in Settings."""
+    global _site_override
+    _site_override = (url or "").strip() or None
 
 
 def api_url() -> str:
     if _endpoint_override:
         return _endpoint_override
+    # The store edition ignores the environment as well, so that a variable
+    # set for the other edition cannot quietly give it somewhere to send to.
     return "" if edition.sandboxed() else API_URL
 
 
 def site_url() -> str:
+    if _site_override:
+        return _site_override
     return "" if edition.sandboxed() else SITE_URL
 
 
 def review_base_url() -> str:
+    if _site_override:
+        return _site_override
     return "" if edition.sandboxed() else REVIEW_BASE_URL
 
 

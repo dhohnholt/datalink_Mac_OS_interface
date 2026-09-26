@@ -1713,16 +1713,23 @@ let endpointSet = false;
 // Two callers re-render from the page's own state and would otherwise feed
 // that placeholder back as though it were a real address.
 let lastApiUrl = "";
+let lastSiteUrl = "";
 // The store edition talks to whatever site the teacher set up, which has no
 // name this app could know.
 const siteName = () => (ownSiteMode ? "your site" : "T-TESS");
 
-function applyOwnSiteMode(on, apiUrl) {
+function applyOwnSiteMode(on, apiUrl, siteUrl) {
   ownSiteMode = on;
   endpointSet = Boolean(apiUrl);
-  $("#ownSiteSetup").classList.toggle("hidden", !on);
-  // The link and the instructions both name one particular school's site.
-  $("#ttessSiteLink").classList.toggle("hidden", on);
+  // No address ships with either edition now, so both need somewhere to enter
+  // one. What differs is the explanation around it: the store edition is
+  // talking to a stranger who has no site yet, and this one is not.
+  $("#ownSiteSetup").classList.remove("hidden");
+  $("#ownSiteIntro").classList.toggle("hidden", !on);
+  $("#buildPromptDetails").classList.toggle("hidden", !on);
+  if (document.activeElement !== $("#siteInput")) $("#siteInput").value = siteUrl || "";
+  // A link to a site nobody has set goes nowhere, so it waits until there is one.
+  $("#ttessSiteLink").classList.toggle("hidden", on || !siteUrl);
   $("#connectInstructions").classList.toggle("hidden", on);
   if (!on) return;
   $("#connectionTitle").textContent = "Send scored reports to your own site";
@@ -1745,7 +1752,10 @@ $("#saveEndpointButton")?.addEventListener("click", async () => {
   const error = $("#endpointError");
   error.classList.add("hidden");
   try {
-    await post("/api/settings", {ttess_api_url: wanted});
+    await post("/api/settings", {
+      ttess_api_url: wanted,
+      ttess_site_url: $("#siteInput").value.trim(),
+    });
     toast(wanted ? "Upload address saved" : "Upload address cleared");
     await loadConnection();
   } catch (failure) {
@@ -1801,7 +1811,8 @@ function renderConnection(state) {
   // assembled in the page, which carry no site_url, and overwriting the link
   // with "" there would leave a button that goes nowhere.
   if (state.site_url) $("#ttessSiteLink").href = state.site_url;
-  if (state.sandboxed !== undefined) applyOwnSiteMode(state.sandboxed === true, lastApiUrl);
+  if (state.site_url !== undefined) lastSiteUrl = state.site_url || "";
+  if (state.sandboxed !== undefined) applyOwnSiteMode(state.sandboxed === true, lastApiUrl, lastSiteUrl);
   $("#connectForm").classList.toggle("hidden", connected);
   $("#connectedPanel").classList.toggle("hidden", !connected);
   $("#disconnectTtessButton").classList.toggle("hidden", !connected);

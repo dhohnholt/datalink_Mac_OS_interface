@@ -71,6 +71,16 @@ class SandboxedBehaviourTests(unittest.TestCase):
         status = paper.status()
         self.assertFalse(status["can_install_packages"])
 
+    def test_neither_edition_ships_with_an_address(self):
+        # This is the point of the change: the source carries nobody's site.
+        import re
+        source = Path("src/datalink_scanner/ttess.py").read_text()
+        urls = re.findall(r'https?://[^"\')\s]+', source)
+        self.assertEqual(
+            [u for u in urls if "example" not in u], [],
+            "a real address is written into ttess.py again",
+        )
+
     def test_it_ships_with_nobody_elses_address(self):
         # The Developer ID build was made for one school and carries that
         # school's address. Sending a stranger's student data there would be

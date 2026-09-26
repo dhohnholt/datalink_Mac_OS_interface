@@ -77,6 +77,7 @@ def safe_export_filename(test_name: str) -> str:
 
 DESTINATIONS = ttess.DestinationCache()
 ENDPOINT_SETTING = "ttess_api_url"
+SITE_SETTING = "ttess_site_url"
 PAPER_JOB = paper.Job()
 
 
@@ -740,6 +741,14 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
         self.store.set_setting(ENDPOINT_SETTING, url)
         ttess.set_endpoint(url)
 
+    def _save_site(self, url: str) -> None:
+        """Where the teacher reads the reports, for the link in Settings."""
+        url = url.strip()
+        if url:
+            ttess._require_https(url)
+        self.store.set_setting(SITE_SETTING, url)
+        ttess.set_site(url)
+
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store, max-age=0")
         super().end_headers()
@@ -1077,6 +1086,8 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     updates.set_auto_check(self.store, bool(body["auto_update_check"]))
                 if "ttess_api_url" in body:
                     self._save_endpoint(str(body["ttess_api_url"]))
+                if "ttess_site_url" in body:
+                    self._save_site(str(body["ttess_site_url"]))
                 # Keep an open history row in step with a renamed test or class.
                 session_id = self.controller.current_session_id()
                 if session_id is not None:
@@ -1329,6 +1340,7 @@ def build_server(
     # Where this copy uploads to, if the teacher has set it. The store edition
     # has no default, so without this it would have nowhere to send anything.
     ttess.set_endpoint(store.get_setting(ENDPOINT_SETTING, "") or "")
+    ttess.set_site(store.get_setting(SITE_SETTING, "") or "")
     controller = ScannerController(paths.capture_root(capture_dir), store)
     shutdown_requested = threading.Event()
     DataLinkRequestHandler.controller = controller

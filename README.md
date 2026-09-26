@@ -41,6 +41,61 @@ that got there.
 > is ever sent to a network service. The server binds to loopback only, and the
 > data stays in a folder on your Mac that you control.
 
+## Two editions
+
+The same codebase builds two applications. They are not forks, and there is no
+second branch: which edition a build is is decided at runtime, by whether macOS
+has put the app in a sandbox container.
+
+```python
+# src/datalink_scanner/edition.py
+def sandboxed() -> bool:
+    return "/Library/Containers/" in str(Path.home())
+```
+
+A build flag can be set wrong. This cannot.
+
+| | Homebrew build | Mac App Store build |
+| --- | --- | --- |
+| Install | `brew install dhohnholt/datalink/datalink-scanner` | the App Store |
+| Updates | `brew upgrade`, or the Updates card in Settings | the App Store, and nothing else |
+| Sandbox | no | yes, with the scanner reachable through `com.apple.security.device.serial` |
+| Signing | ad-hoc, built on your Mac by Homebrew | Apple Distribution, notarized by App Review |
+| Data | `~/Library/Application Support/DataLink Scanner` | the app's own container |
+| Keychain | through a helper, because an ad-hoc signature changes every upgrade | read in process; the signature is stable |
+| Paper scanning | installs OpenCV, NumPy and Pillow on first use | already in the bundle |
+
+### Where the boundary is
+
+Differences between the editions are **configuration and capability, never a
+fork**. Every one of them is a branch on `edition.sandboxed()` in the same
+file as the behaviour it changes, so the two cannot drift apart the way two
+long-lived branches would. Adding a second branch would mean landing every
+scanner fix, parser fix and interface fix twice, forever, for a difference that
+amounts to what the sandbox forbids.
+
+What the sandbox forbids, and what the store edition therefore does not do:
+update itself, move other copies of the app to the Trash, edit the
+LaunchServices database, install packages at runtime, write out and run a
+helper binary, or open a file it was not handed by an open panel.
+`tests/test_edition.py` asserts each of those, and asserts that the Homebrew
+edition keeps all of them.
+
+### Neither edition ships with an upload address
+
+Sending a scored report is off in both until a teacher enters the address of
+their own site, in **Settings**. Nothing is sent anywhere by default, and no
+address is written into this repository. The store edition also carries the
+full specification of what the app sends and what it expects back, so someone
+with no site yet can have one built.
+
+### The two do not share anything at runtime
+
+Separate signatures, separate containers, separate data. Installing one does
+not upgrade or replace the other, and sessions scanned in one are not visible
+in the other. Their version numbers move independently: a Homebrew release is a
+script you run, and a store release waits on App Review.
+
 ## Install
 
 ```bash
@@ -379,14 +434,18 @@ session — writes the full report for upload.
 The **Send to T-TESS** section uploads a scored run straight to the Reteach
 Center, so there is no file to export and re-upload by hand.
 
-Connect once, under **Settings** (⌘5): on the T-TESS website go to
-**Reteaching → Connect DataLink**, generate a connection token, and paste it
-in. **Open T-TESS** on that card opens the Reteach Center in your normal
-browser, which is where that token is generated and where the uploaded reports
-are read. The token is held in this Mac's **Keychain** and nowhere else — not in the
+Connect once, under **Settings** (⌘5). No address ships with the app, in
+either edition, so there are two things to give it: the **upload address** of
+the site that receives the reports, and a **connection token** that site issues.
+On a T-TESS site the token comes from **Reteaching → Connect DataLink**.
+**Open T-TESS** on that card opens the site in your normal browser, and appears
+once a site address has been set. The token is held in this Mac's **Keychain** and nowhere else — not in the
 app database, not in a preferences file, not in any log. It travels only as an
 `Authorization: Bearer` header. No password, email, or other account
 credential is ever requested; the server works out the teacher from the token.
+
+The rest of this applies to the Homebrew build. The App Store build is signed
+by one stable identity, so it reads the Keychain in process and needs no helper.
 
 macOS decides which application may read a Keychain item, and for an app that
 is not signed with a paid developer certificate it decides that **by file
@@ -554,6 +613,8 @@ src/datalink_scanner/   the application: transport, parser, store, server,
 tests/                  offline tests; no scanner needed
 scripts/                phase 1–3 discovery tools (see below)
 packaging/              app bundle builder, DMG build, Homebrew formula
+AppStore/               the store edition: its own entitlements, build script
+                        and dist/ — nothing here touches the Homebrew build
 docs/                   protocol notes, experiment log, installer analysis
 windows_capture_kit/    portable collector for a Windows DataLink Connect PC
 captures/               local scan data and library.sqlite3 — gitignored

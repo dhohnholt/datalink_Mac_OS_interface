@@ -138,7 +138,15 @@ fi
 
 echo "==> Tagging v$VERSION"
 git add pyproject.toml src/datalink_scanner/__init__.py
-git commit -m "Release v$VERSION"
+# Preparing a release by bumping the version first is a reasonable thing to
+# do, and it used to stop the script dead here: with the strings already at
+# $VERSION there is nothing staged, git commit exits non-zero, and the release
+# aborts after the tests have run but before anything is tagged.
+if git diff --cached --quiet; then
+  echo "    already at $VERSION, nothing to commit"
+else
+  git commit -m "Release v$VERSION"
+fi
 git tag -a "v$VERSION" -m "v$VERSION"
 git push origin HEAD
 git push origin "v$VERSION"

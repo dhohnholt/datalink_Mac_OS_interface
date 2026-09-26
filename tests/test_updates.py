@@ -578,11 +578,16 @@ class LaunchServicesRegistrationTests(unittest.TestCase):
             cli.register_with_launch_services(Path("/Applications/x.app"), runner)
         )
 
-    def test_the_formula_refreshes_the_link_after_an_upgrade(self):
-        # Without this the teacher has to re-run install-app by hand after
-        # every single upgrade, which is what kept breaking the Dock icon.
+    def test_the_formula_refreshes_the_record_after_an_upgrade(self):
+        # Without this the teacher re-runs install-app by hand after every
+        # upgrade, which is what kept breaking the Dock icon.
         formula = Path("packaging/homebrew/datalink-scanner.rb").read_text()
         self.assertIn("def post_install", formula)
         self.assertIn("lsregister", formula)
-        # Only for someone who already linked it; absence is a choice.
-        self.assertIn("return unless linked.symlink?", formula)
+        # It must register the opt path. A formula phase runs in a sandbox
+        # that refuses /Applications, and the first attempt at this failed
+        # there with "Operation not permitted @ apply2files".
+        hook = formula[formula.index("def post_install") :]
+        hook = hook[: hook.index("\n  end")]
+        self.assertIn("opt_prefix", hook)
+        self.assertNotIn("/Applications", hook)

@@ -81,25 +81,29 @@ class DatalinkScanner < Formula
   end
 
   # Every upgrade puts the app at a new Cellar path and deletes the old one.
-  # The /Applications symlink is version-independent, but LaunchServices
-  # resolves it and records the real path, so after an upgrade that record
-  # points at a directory that is gone and the Dock icon reports "The
-  # application can't be opened" -- which looks like the app is broken.
+  # LaunchServices records the resolved path, so after an upgrade its record
+  # names a directory that is gone and the Dock icon reports "The application
+  # can't be opened" -- which reads as though the app is broken rather than
+  # the record being stale.
   #
-  # Relink and re-register, but only for someone who already ran install-app:
-  # the absence of that symlink is a choice, and this does not make it for
-  # them. Nothing here may fail the upgrade, so it all runs best-effort.
+  # Registering the opt path makes macOS look again and record the version
+  # that is now installed. It has to be the opt path: a formula phase runs in
+  # a sandbox that refuses to touch /Applications, which is where the first
+  # attempt at this failed with "Operation not permitted @ apply2files".
+  #
+  # Homebrew skips post_install when building a bottle, so this does not run
+  # during a release on the maintainer's own machine -- only on the poured
+  # upgrades that everybody else gets. `brew postinstall datalink-scanner`
+  # runs it by hand.
   def post_install
-    linked = Pathname.new("/Applications/DataLink Scanner.app")
-    return unless linked.symlink?
+    app = opt_prefix/"DataLink Scanner.app"
+    return unless app.exist?
 
     begin
-      linked.unlink
-      linked.make_symlink(opt_prefix/"DataLink Scanner.app")
       system "/System/Library/Frameworks/CoreServices.framework/Frameworks" \
-             "/LaunchServices.framework/Support/lsregister", "-f", linked.to_s
+             "/LaunchServices.framework/Support/lsregister", "-f", app.to_s
     rescue StandardError => e
-      opoo "Could not refresh the /Applications link: #{e}"
+      opoo "Could not refresh the Launch Services record: #{e}"
     end
   end
 

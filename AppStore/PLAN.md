@@ -274,6 +274,19 @@ Transporter looks for `AuthKey_KFBHF6LUP5.p8` in
 
 ---
 
+## Step 7b — App Review notes
+
+`AppStore/REVIEW_NOTES.md` holds the text to paste into **App Review
+Information → Notes**, with a justification for each entitlement.
+
+The part that decides the review is not the entitlements: **a reviewer has no
+DataLink 1200 and cannot exercise the app without one.** The notes point them
+at the Paper tab and promise a sample PDF, which has to be attached to the
+submission. It must be a synthetic batch -- everything under `Scans/` has real
+students' names and ID numbers on it.
+
+---
+
 ## Step 8 — the listing
 
 `AppStore/screenshots/mac-1280x800/` already holds eight screenshots. Review

@@ -211,11 +211,11 @@ class TransportTests(unittest.TestCase):
                 ttess._request("GET", None, "dlk_live_x")
         self.assertEqual(caught.exception.code, "insecure_url")
 
-    def test_no_address_ships_with_the_app(self):
-        # These used to default to one school's Supabase function and one
-        # school's T-TESS site, written into a public repository. A teacher
-        # says where their own reports go, and is asked once.
-        self.assertEqual(ttess.API_URL, "")
+    def test_only_the_upload_endpoint_has_a_default(self):
+        # The owner's endpoint, so his own build needs no setting up. The site
+        # and review links do not default: they would name a school, and the
+        # server sends a review_url with every accepted upload anyway.
+        self.assertEqual(ttess.API_URL, ttess.OWNER_API_URL)
         self.assertEqual(ttess.SITE_URL, "")
         self.assertEqual(ttess.REVIEW_BASE_URL, "")
         self.assertEqual(ttess.REQUEST_TIMEOUT_SECONDS, 30)
@@ -231,10 +231,12 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(ttess.review_base_url(), "https://example.org/reports")
 
     def test_with_nothing_set_there_is_nowhere_to_send(self):
+        # True of the store edition, which has no default to fall back on.
         ttess.set_endpoint(None)
         self.addCleanup(ttess.set_endpoint, None)
-        with self.assertRaises(ttess.UploadError) as caught:
-            ttess._request("GET", None, "dlk_live_x")
+        with mock.patch.object(ttess.edition, "sandboxed", return_value=True):
+            with self.assertRaises(ttess.UploadError) as caught:
+                ttess._request("GET", None, "dlk_live_x")
         self.assertEqual(caught.exception.code, "no_endpoint")
 
 

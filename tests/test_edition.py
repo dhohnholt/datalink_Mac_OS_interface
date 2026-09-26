@@ -71,15 +71,16 @@ class SandboxedBehaviourTests(unittest.TestCase):
         status = paper.status()
         self.assertFalse(status["can_install_packages"])
 
-    def test_neither_edition_ships_with_an_address(self):
-        # This is the point of the change: the source carries nobody's site.
-        import re
-        source = Path("src/datalink_scanner/ttess.py").read_text()
-        urls = re.findall(r'https?://[^"\')\s]+', source)
-        self.assertEqual(
-            [u for u in urls if "example" not in u], [],
-            "a real address is written into ttess.py again",
-        )
+    def test_the_store_edition_ships_no_address(self):
+        # The owner's endpoint is a default for his own Homebrew build. The
+        # store edition must never use it, whatever is written in the module:
+        # a stranger's reports cannot be aimed at somebody else's server.
+        ttess.set_endpoint(None)
+        self.addCleanup(ttess.set_endpoint, None)
+        self.assertTrue(ttess.API_URL, "the owner's default went missing")
+        self.assertEqual(ttess.api_url(), "")
+        self.assertEqual(ttess.site_url(), "")
+        self.assertEqual(ttess.review_base_url(), "")
 
     def test_nobody_s_site_is_written_into_anything_that_ships(self):
         # The ttess.py check above missed the markup: index.html carried the
@@ -93,7 +94,9 @@ class SandboxedBehaviourTests(unittest.TestCase):
         allowed = {"example.org", "example.com", "localhost", "127.0.0.1"}
         documentation = ("github.com", "apple.com", "python.org")
         offenders = []
-        for path in sorted(list(root.glob("*.py")) + list(root.glob("webui/*"))):
+        # The page only. ttess.py holds the owner's default for his own
+        # build, and the store edition refuses it at runtime instead.
+        for path in sorted(root.glob("webui/*")):
             if not path.is_file() or path.suffix == ".pyc":
                 continue
             real = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")

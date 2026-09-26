@@ -22,17 +22,18 @@ from . import edition
 from . import keychain
 
 
-# No address ships with the app, in either edition.
+# The store edition ships no address at all. api_url() below returns "" when
+# sandboxed, whatever is written here, so a stranger's reports can never be
+# aimed at somebody else's server: they say where their own go, in Settings.
 #
-# These used to default to one school's Supabase function and one school's
-# T-TESS site, written into a public repository, which meant the store edition
-# needed code to suppress somebody's personal details rather than simply not
-# having them. The default is now nobody, and a teacher says where their own
-# reports go. It is remembered in Settings, so it is asked for once.
-#
-# The environment variables still work, for a machine that wants to set this
-# without touching the interface.
-API_URL = os.environ.get("DATALINK_API_URL", "")
+# The Homebrew edition keeps the owner's, at his request, so his own install
+# needs no setting up. It is not a credential -- the endpoint refuses anything
+# without a dlk_live_ token from the Keychain -- and this repository is public,
+# so it is a convenience rather than a disclosure. Anyone else who builds from
+# source and does not want it can set DATALINK_API_URL, or overwrite it in
+# Settings, which takes precedence over both.
+OWNER_API_URL = "https://zgrxawyginizrshjmkum.supabase.co/functions/v1/datalink-api"
+API_URL = os.environ.get("DATALINK_API_URL", OWNER_API_URL)
 REVIEW_BASE_URL = os.environ.get("DATALINK_REVIEW_BASE_URL", "")
 # Where the teacher goes to generate a token, and to read the reports this app
 # uploads. Opened in the real browser, never inside the app's web view.

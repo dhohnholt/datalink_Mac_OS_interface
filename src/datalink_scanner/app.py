@@ -221,6 +221,7 @@ class DataLinkAppDelegate(NSObject):
             self._build_menu()
             self._build_window()
             self._start_launch_check()
+            self._refresh_launch_services_record()
         except Exception:
             import traceback
 
@@ -228,6 +229,41 @@ class DataLinkAppDelegate(NSObject):
             print(detail, file=sys.stderr, flush=True)
             alert(f"{APP_NAME} could not start", detail, buttons=("Quit",)).runModal()
             NSApplication.sharedApplication().terminate_(None)
+
+    def _refresh_launch_services_record(self):
+        """Tell macOS where this app is now, off the main thread.
+
+        Homebrew installs each version at a new Cellar path and deletes the
+        old one. LaunchServices resolves the /Applications symlink and records
+        the real path, so after an upgrade its record names a directory that
+        is gone and the Dock icon reports "The application can't be opened" --
+        which reads as though the app is broken rather than the record being
+        stale.
+
+        This belongs in the upgrade, and cannot live there: a Homebrew formula
+        phase runs in a sandbox that refuses /Applications outright and makes
+        lsregister fail even inside the prefix, and post_install is skipped
+        altogether when a bottle is built. The app is the first thing after an
+        upgrade that runs unsandboxed, so it does it here. It costs nothing
+        when the record is already right.
+        """
+        if edition.sandboxed():
+            return
+
+        def refresh():
+            try:
+                from .cli import register_with_launch_services, stable_bundle_path
+
+                bundle = Path(sys.executable).resolve()
+                for parent in bundle.parents:
+                    if parent.suffix == ".app":
+                        register_with_launch_services(stable_bundle_path(parent))
+                        return
+            except Exception:
+                # Never worth interrupting a launch over.
+                pass
+
+        threading.Thread(target=refresh, daemon=True).start()
 
     def _start_server(self):
         self._server, self._controller, _ = build_server(

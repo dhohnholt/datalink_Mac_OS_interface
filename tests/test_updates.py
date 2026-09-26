@@ -578,16 +578,21 @@ class LaunchServicesRegistrationTests(unittest.TestCase):
             cli.register_with_launch_services(Path("/Applications/x.app"), runner)
         )
 
-    def test_the_formula_refreshes_the_record_after_an_upgrade(self):
-        # Without this the teacher re-runs install-app by hand after every
-        # upgrade, which is what kept breaking the Dock icon.
+    def test_the_formula_does_not_try_to_do_this(self):
+        # A Homebrew formula phase runs in a sandbox that refuses
+        # /Applications outright and makes lsregister fail even inside the
+        # prefix, and post_install is skipped when a bottle is built. Both
+        # were tried and both failed; the app does it at startup instead.
         formula = Path("packaging/homebrew/datalink-scanner.rb").read_text()
-        self.assertIn("def post_install", formula)
-        self.assertIn("lsregister", formula)
-        # It must register the opt path. A formula phase runs in a sandbox
-        # that refuses /Applications, and the first attempt at this failed
-        # there with "Operation not permitted @ apply2files".
-        hook = formula[formula.index("def post_install") :]
-        hook = hook[: hook.index("\n  end")]
-        self.assertIn("opt_prefix", hook)
-        self.assertNotIn("/Applications", hook)
+        self.assertNotIn("def post_install", formula)
+        self.assertIn("The app refreshes its", formula)
+
+    def test_the_app_refreshes_the_record_at_startup(self):
+        source = Path("src/datalink_scanner/app.py").read_text()
+        self.assertIn("_refresh_launch_services_record", source)
+        self.assertIn("register_with_launch_services", source)
+        # Off the main thread, and never in the sandboxed edition.
+        hook = source[source.index("def _refresh_launch_services_record") :]
+        hook = hook[: hook.index("\n    def ")]
+        self.assertIn("edition.sandboxed()", hook)
+        self.assertIn("threading.Thread", hook)

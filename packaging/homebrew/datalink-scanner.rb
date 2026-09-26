@@ -80,32 +80,13 @@ class DatalinkScanner < Formula
            "--icon", "src/datalink_scanner/resources/DataLinkScanner.icns"
   end
 
-  # Every upgrade puts the app at a new Cellar path and deletes the old one.
-  # LaunchServices records the resolved path, so after an upgrade its record
-  # names a directory that is gone and the Dock icon reports "The application
-  # can't be opened" -- which reads as though the app is broken rather than
-  # the record being stale.
-  #
-  # Registering the opt path makes macOS look again and record the version
-  # that is now installed. It has to be the opt path: a formula phase runs in
-  # a sandbox that refuses to touch /Applications, which is where the first
-  # attempt at this failed with "Operation not permitted @ apply2files".
-  #
-  # Homebrew skips post_install when building a bottle, so this does not run
-  # during a release on the maintainer's own machine -- only on the poured
-  # upgrades that everybody else gets. `brew postinstall datalink-scanner`
-  # runs it by hand.
-  def post_install
-    app = opt_prefix/"DataLink Scanner.app"
-    return unless app.exist?
-
-    begin
-      system "/System/Library/Frameworks/CoreServices.framework/Frameworks" \
-             "/LaunchServices.framework/Support/lsregister", "-f", app.to_s
-    rescue StandardError => e
-      opoo "Could not refresh the Launch Services record: #{e}"
-    end
-  end
+  # No post_install hook here, deliberately. Refreshing the Launch Services
+  # record after an upgrade is the right idea and a formula phase is the wrong
+  # place for it: those run in a sandbox that refuses /Applications outright
+  # ("Operation not permitted @ apply2files") and makes lsregister fail even
+  # on a path inside the prefix ("failed to scan ... -10822"). Homebrew also
+  # skips post_install entirely when building a bottle. The app refreshes its
+  # own record at startup instead, where nothing is sandboxed.
 
   def caveats
     <<~EOS

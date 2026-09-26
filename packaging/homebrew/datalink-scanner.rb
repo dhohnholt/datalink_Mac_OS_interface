@@ -13,31 +13,6 @@ class DatalinkScanner < Formula
     sha256 cellar: :any, arm64_tahoe: "759a51bed38225f09bbce5231139b058efd734a1a00d3c8b1a57f6780946d04f"
   end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   depends_on :macos
   depends_on "python@3.13"
 
@@ -82,13 +57,33 @@ class DatalinkScanner < Formula
            "--icon", "src/datalink_scanner/resources/DataLinkScanner.icns"
   end
 
-  # No post_install hook here, deliberately. Refreshing the Launch Services
-  # record after an upgrade is the right idea and a formula phase is the wrong
-  # place for it: those run in a sandbox that refuses /Applications outright
-  # ("Operation not permitted @ apply2files") and makes lsregister fail even
-  # on a path inside the prefix ("failed to scan ... -10822"). Homebrew also
-  # skips post_install entirely when building a bottle. The app refreshes its
-  # own record at startup instead, where nothing is sandboxed.
+  # Homebrew rewrites paths inside the keg when it pours a bottle, and that
+  # rewriting breaks the ad-hoc signature the app bundle was built with:
+  #
+  #   nested code is modified or invalid
+  #   file modified: .../Contents/MacOS/python-runtime
+  #
+  # An app in that state still opens from a terminal, because `open` does not
+  # consult Gatekeeper, and Finder, the Dock and Launchpad refuse it with
+  # "The application can't be opened" and no reason given.
+  #
+  # Relocation cannot be avoided: python-runtime carries a reference to
+  # python@3.13's own Cellar path, so the bottle can never be
+  # :any_skip_relocation. The seal has to be remade afterwards instead, which
+  # is what this does. Signing is inner-out, and writes only inside the
+  # prefix, which is the one thing a sandboxed formula phase is allowed to do.
+  #
+  # Homebrew skips post_install when building a bottle, so this runs on the
+  # poured upgrades everybody gets, not on the maintainer's own release.
+  # `brew postinstall datalink-scanner` runs it by hand.
+  def post_install
+    app = prefix/"DataLink Scanner.app"
+    return unless app.exist?
+
+    runtime = app/"Contents/MacOS/python-runtime"
+    system "/usr/bin/codesign", "--force", "--sign", "-", runtime if runtime.exist?
+    system "/usr/bin/codesign", "--force", "--sign", "-", app
+  end
 
   def caveats
     <<~EOS

@@ -578,14 +578,19 @@ class LaunchServicesRegistrationTests(unittest.TestCase):
             cli.register_with_launch_services(Path("/Applications/x.app"), runner)
         )
 
-    def test_the_formula_does_not_try_to_do_this(self):
-        # A Homebrew formula phase runs in a sandbox that refuses
+    def test_the_formula_does_not_touch_launch_services(self):
+        # Refreshing the Launch Services record after an upgrade is the right
+        # idea and a formula phase is the wrong place: that sandbox refuses
         # /Applications outright and makes lsregister fail even inside the
-        # prefix, and post_install is skipped when a bottle is built. Both
-        # were tried and both failed; the app does it at startup instead.
+        # prefix. Both were tried and both failed. The formula's post_install
+        # does something else entirely -- it reseals the bundle after
+        # Homebrew's relocation -- and the app refreshes the record itself.
         formula = Path("packaging/homebrew/datalink-scanner.rb").read_text()
-        self.assertNotIn("def post_install", formula)
-        self.assertIn("The app refreshes its", formula)
+        self.assertNotIn("lsregister", formula)
+        # The hook body only; caveats mentions /Applications legitimately.
+        hook = formula[formula.index("def post_install") :]
+        hook = hook[: hook.index("\n  end")]
+        self.assertNotIn("/Applications", hook)
 
     def test_the_app_refreshes_the_record_at_startup(self):
         source = Path("src/datalink_scanner/app.py").read_text()

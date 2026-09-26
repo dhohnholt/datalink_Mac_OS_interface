@@ -792,6 +792,23 @@ class LauncherBundleSigningTests(unittest.TestCase):
         outer = self.script.index('--sign - "$APP"\n')
         self.assertLess(inner, outer)
 
+    def test_the_formula_reseals_the_bundle_after_pouring(self):
+        # Homebrew rewrites paths inside the keg when it pours a bottle, and
+        # that breaks the signature applied at build time. Relocation cannot
+        # be avoided: python-runtime references python@3.13's own Cellar path,
+        # so the bottle can never be :any_skip_relocation. The seal is remade
+        # afterwards instead.
+        formula = Path("packaging/homebrew/datalink-scanner.rb").read_text()
+        hook = formula[formula.index("def post_install") :]
+        hook = hook[: hook.index("\n  end")]
+        self.assertIn("codesign", hook)
+        # Inner-out, and only inside the prefix, which is all a sandboxed
+        # formula phase may write to.
+        inner = hook.index("runtime")
+        outer = hook.rindex("codesign")
+        self.assertLess(inner, outer)
+        self.assertNotIn("/Applications", hook)
+
     def test_a_bad_signature_fails_the_build(self):
         # This used to end in `|| true`, which is how a broken seal shipped
         # without anybody noticing.

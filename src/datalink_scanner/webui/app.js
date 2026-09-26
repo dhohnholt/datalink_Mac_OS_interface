@@ -1871,14 +1871,28 @@ $("#disconnectTtessButton").addEventListener("click", async () => {
   toast("Disconnected");
 });
 
-$("#refreshDestinationsButton").addEventListener("click", async () => {
+async function refreshDestinations(button) {
+  const restore = button ? button.textContent : "";
+  if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
   try {
     const state = await request("/api/destinations");
     destinations = state.destinations || [];
+    // renderConnection ends by rebuilding the upload picker, and fillSelect
+    // keeps each current value when it is still in the refreshed list, so the
+    // course, unit and test chosen before the refresh survive it.
     renderConnection({connected: true, destinations, api_url: lastApiUrl});
     toast(`${destinations.length} test(s) available`);
-  } catch (error) { toast(error.message); }
-});
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = restore; }
+  }
+}
+
+$("#refreshDestinationsButton").addEventListener("click", event =>
+  refreshDestinations(event.currentTarget));
+$("#refreshUploadTestsButton")?.addEventListener("click", event =>
+  refreshDestinations(event.currentTarget));
 
 /* Course → Section → Unit → Test, each narrowing the next. */
 

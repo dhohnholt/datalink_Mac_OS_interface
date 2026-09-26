@@ -421,6 +421,123 @@ def forget_stale_registrations(runner=subprocess.run) -> list[Path]:
     return forgotten
 
 
+DOCK_PLIST = Path.home() / "Library/Preferences/com.apple.dock.plist"
+STABLE_APP_URL = "file:///Applications/" + APP_BUNDLE_NAME.replace(" ", "%20") + "/"
+
+
+def _dock_items(dock: dict) -> list[tuple[str, dict]]:
+    """Every Dock tile that refers to this app, wherever it points."""
+    found = []
+    for key in ("persistent-apps", "recent-apps"):
+        for item in dock.get(key) or []:
+            data = (item.get("tile-data") or {}).get("file-data") or {}
+            url = data.get("_CFURLString") or ""
+            if APP_BUNDLE_NAME.replace(" ", "%20") in url or APP_BUNDLE_NAME in url:
+                found.append((url, item))
+    return found
+
+
+def _read_dock(runner=subprocess.run) -> dict | None:
+    """The Dock's preferences as cfprefsd has them, not as the file has them.
+
+    Never read com.apple.dock.plist directly. cfprefsd owns that store and
+    serves a cached copy, so the file on disk can be behind what the Dock is
+    actually using -- and writing to the file is worse: the Dock keeps its
+    tiles in memory and writes them back when it quits, silently undoing the
+    edit. That is exactly how a "fixed" Dock icon came back broken.
+    """
+    try:
+        result = runner(
+            ["/usr/bin/defaults", "export", "com.apple.dock", "-"],
+            capture_output=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout:
+        return None
+    try:
+        return plistlib.loads(result.stdout)
+    except (ValueError, plistlib.InvalidFileException):
+        return None
+
+
+def stale_dock_entries(runner=subprocess.run) -> list[str]:
+    """Dock tiles pointing at a copy of this app that is no longer there.
+
+    A Dock tile records the path it was dragged from. Drag one out of the
+    Homebrew keg and it holds `Cellar/datalink-scanner/<version>`, which the
+    next upgrade deletes -- so the icon a teacher actually clicks launches
+    nothing, and macOS says "The application can't be opened", which reads as
+    though the app is broken rather than the shortcut. It happened on the
+    1.9.5 to 1.9.6 upgrade, with a tile still pointing at 1.9.0.
+
+    Only tiles whose target is gone count. A tile pointing at something real
+    is the teacher's choice and not this function's business.
+    """
+    dock = _read_dock(runner)
+    if dock is None:
+        return []
+    stale = []
+    for url, _item in _dock_items(dock):
+        if url == STABLE_APP_URL:
+            continue
+        target = url.removeprefix("file://").replace("%20", " ").rstrip("/")
+        if target and not Path(target).exists():
+            stale.append(url)
+    return stale
+
+
+def repoint_dock(runner=subprocess.run) -> list[str]:
+    """Aim stale tiles at /Applications, which every upgrade keeps current.
+
+    Written back through `defaults import` and followed by a Dock restart, in
+    that order: cfprefsd takes the new state, and the Dock reads it when it
+    relaunches instead of overwriting it from memory.
+    """
+    _refuse_in_sandbox("Editing the Dock")
+    dock = _read_dock(runner)
+    if dock is None:
+        return []
+    stale = set(stale_dock_entries(runner))
+    if not stale:
+        return []
+    replaced = []
+    for url, item in _dock_items(dock):
+        if url not in stale:
+            continue
+        data = item["tile-data"]["file-data"]
+        data["_CFURLString"] = STABLE_APP_URL
+        # The alias pins the old path even once the string is corrected.
+        data.pop("_CFURLAliasData", None)
+        replaced.append(url)
+    if not replaced:
+        return []
+    import tempfile
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".plist", delete=False) as handle:
+            handle.write(plistlib.dumps(dock))
+            staged = handle.name
+        result = runner(
+            ["/usr/bin/defaults", "import", "com.apple.dock", staged],
+            capture_output=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return []
+    except (OSError, subprocess.SubprocessError):
+        return []
+    finally:
+        try:
+            os.unlink(staged)
+        except (OSError, NameError):
+            pass
+    try:
+        runner(["/usr/bin/killall", "Dock"], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return replaced
+
+
 def sweep(extra: list[Path]) -> list[Path]:
     """Move the extra copies to the Trash, and report what actually moved."""
     _refuse_in_sandbox("Moving other copies to the Trash")

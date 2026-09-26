@@ -757,6 +757,12 @@ class DataLinkAppDelegate(NSObject):
             survey = updates.survey()
             result["survey"] = survey
             result["moved"] = updates.sweep(survey.get("duplicates") or [])
+            # The Dock is what a teacher actually clicks, and a tile dragged
+            # out of the keg points at a version the upgrade just deleted.
+            try:
+                result["dock"] = updates.repoint_dock()
+            except updates.UpdateError:
+                result["dock"] = []
         self._update_result = result
         self.performSelectorOnMainThread_withObject_waitUntilDone_(
             "finishUpdate:", None, False
@@ -771,6 +777,8 @@ class DataLinkAppDelegate(NSObject):
             return
         version = (result.get("release") or {}).get("version") or ""
         moved = result.get("moved") or []
+        if result.get("dock"):
+            moved = list(moved) + ["the Dock icon, which pointed at the old version"]
         alert(
             f"Updated to {version}",
             f"DataLink Scanner will close and reopen now.{_moved_note(moved)}",

@@ -492,3 +492,60 @@ class DailyCheckTests(unittest.TestCase):
         self.store.values[updates.LAST_CHECK_KEY] = "yesterday"
         self.assertEqual(updates.last_checked(self.store), 0.0)
         self.assertTrue(updates.check_is_due(self.store))
+
+
+class DockTileTests(unittest.TestCase):
+    """A tile dragged out of the keg points at a version the next upgrade
+    deletes, and macOS then says the application cannot be opened."""
+
+    def _dock(self, url):
+        return plistlib.dumps({
+            "persistent-apps": [
+                {"tile-data": {"file-data": {
+                    "_CFURLString": url, "_CFURLStringType": 15,
+                    "_CFURLAliasData": b"stale-alias",
+                }}}
+            ]
+        })
+
+    def _runner(self, exported, record=None):
+        def run(command, **kwargs):
+            if command[:3] == ["/usr/bin/defaults", "export", "com.apple.dock"]:
+                return subprocess.CompletedProcess(command, 0, stdout=exported)
+            if record is not None:
+                record.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout=b"")
+        return run
+
+    def test_a_tile_pointing_at_a_deleted_keg_is_stale(self):
+        gone = "file:///opt/homebrew/Cellar/datalink-scanner/1.9.0/DataLink%20Scanner.app/"
+        found = updates.stale_dock_entries(self._runner(self._dock(gone)))
+        self.assertEqual(found, [gone])
+
+    def test_a_tile_pointing_at_something_real_is_left_alone(self):
+        here = "file://" + str(Path(__file__).parent).replace(" ", "%20") + "/DataLink%20Scanner.app/"
+        Path(__file__).parent.joinpath("DataLink Scanner.app").mkdir(exist_ok=True)
+        self.addCleanup(Path(__file__).parent.joinpath("DataLink Scanner.app").rmdir)
+        self.assertEqual(updates.stale_dock_entries(self._runner(self._dock(here))), [])
+
+    def test_the_applications_tile_is_never_touched(self):
+        self.assertEqual(
+            updates.stale_dock_entries(self._runner(self._dock(updates.STABLE_APP_URL))),
+            [],
+        )
+
+    def test_repointing_writes_through_defaults_and_restarts_the_dock(self):
+        # Never by writing the plist: the Dock holds its tiles in memory and
+        # writes them back when it quits, which undoes a direct edit.
+        gone = "file:///opt/homebrew/Cellar/datalink-scanner/1.9.0/DataLink%20Scanner.app/"
+        commands = []
+        replaced = updates.repoint_dock(self._runner(self._dock(gone), commands))
+        self.assertEqual(replaced, [gone])
+        self.assertIn(["/usr/bin/defaults", "import", "com.apple.dock", mock.ANY],
+                      [c[:3] + [mock.ANY] for c in commands if c[:2] == ["/usr/bin/defaults", "import"]])
+        self.assertIn(["/usr/bin/killall", "Dock"], commands)
+
+    def test_the_store_edition_does_not_touch_the_dock(self):
+        with mock.patch.object(updates.edition, "sandboxed", return_value=True):
+            with self.assertRaises(updates.UpdateError):
+                updates.repoint_dock()

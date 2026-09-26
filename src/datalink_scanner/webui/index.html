@@ -511,7 +511,14 @@
               <h2 id="uploadHeading">Send to T-TESS</h2>
               <p id="uploadIntro">Uploads this scored run to the Reteach Center. It does not finalize results — you review and finalize on the website.</p>
             </div>
-            <button id="uploadButton" class="primary" disabled>Upload</button>
+            <div class="button-row">
+              <!-- The same refresh as in Settings. A test created on the site
+                   while this page was open will not be in the list, and
+                   navigating to Settings and back to find that out loses the
+                   selection. -->
+              <button id="refreshUploadTestsButton" class="secondary">Refresh tests</button>
+              <button id="uploadButton" class="primary" disabled>Upload</button>
+            </div>
           </div>
           <p id="uploadNotConnected" class="callout hidden">
             <span id="uploadNotConnectedText">DataLink is not connected to T-TESS yet.</span> Open <strong>Settings</strong> and paste a connection token.

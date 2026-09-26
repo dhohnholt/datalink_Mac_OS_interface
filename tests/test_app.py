@@ -501,6 +501,20 @@ class TtessInterfaceTests(unittest.TestCase):
         self.assertIn("uploadReviewLink", panel)
         self.assertIn("does not finalize", panel)
 
+    def test_the_upload_pane_can_refresh_the_test_list_itself(self):
+        # A test created on the site while this page was open is not in the
+        # list, and finding that out used to mean leaving the upload pane for
+        # Settings and coming back, which loses the selection.
+        # The tab button carries data-pane="upload" too; this wants the panel.
+        pane = self.html[self.html.index('<section class="card" data-pane="upload"') :]
+        pane = pane[: pane.index("</section>")]
+        self.assertIn('id="refreshUploadTestsButton"', pane)
+        self.assertIn('id="uploadButton"', pane)
+        # Both refresh buttons run the same code.
+        self.assertIn("refreshDestinations", APP_JS)
+        for button in ("refreshDestinationsButton", "refreshUploadTestsButton"):
+            self.assertIn(f'$("#{button}")', APP_JS)
+
     def test_the_token_is_never_rendered_back_into_the_page(self):
         self.assertNotIn("dlk_live_", APP_JS.replace('placeholder="dlk_live_…"', ""))
 

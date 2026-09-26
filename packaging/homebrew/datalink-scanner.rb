@@ -8,6 +8,11 @@ class DatalinkScanner < Formula
   license "MIT"
   head "https://github.com/dhohnholt/datalink_Mac_OS_interface.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/dhohnholt/datalink_Mac_OS_interface/releases/download/v1.9.5"
+    sha256 cellar: :any, arm64_tahoe: "a3e01848636c0cc1da9dd094e141bf198cefcbf7107ce05abfc81acb840be1b9"
+  end
+
 
 
 

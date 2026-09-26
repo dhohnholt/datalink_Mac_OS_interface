@@ -105,9 +105,31 @@ if [ -f "$ICON" ]; then
   cp "$ICON" "$APP/Contents/Resources/DataLinkScanner.icns"
 fi
 
-# Ad-hoc signature. Nothing here is downloaded, so this is not what gets the
-# app past Gatekeeper — it just keeps macOS from treating the bundle as
-# damaged after the files are written.
-/usr/bin/codesign --force --sign - "$APP" 2>/dev/null || true
+# Ad-hoc signature, inner-out. Nothing here is downloaded, so this is not what
+# gets the app past Gatekeeper — it is what keeps macOS from treating the
+# bundle as damaged.
+#
+# The nested binary has to be signed FIRST, and signed here. python-runtime is
+# a copy of Homebrew's Python and arrives carrying Python's own signature, so
+# sealing only the outer bundle leaves the two disagreeing:
+#
+#   nested code is modified or invalid
+#   file modified: .../Contents/MacOS/python-runtime
+#
+# An app in that state opens from a terminal, because `open` does not consult
+# Gatekeeper, and is refused by Finder, the Dock and Launchpad, which do. The
+# teacher sees "The application can't be opened" and nothing else.
+if [ -f "$APP/Contents/MacOS/python-runtime" ]; then
+  /usr/bin/codesign --force --sign - "$APP/Contents/MacOS/python-runtime"
+fi
+/usr/bin/codesign --force --sign - "$APP"
+
+# Say so rather than shipping a bundle macOS will call damaged. This used to
+# end in `|| true`, which is how a broken seal shipped unnoticed.
+if ! /usr/bin/codesign --verify --verbose=2 "$APP" 2>&1 | grep -q "satisfies its Designated Requirement"; then
+  echo "the app bundle's signature is not valid:" >&2
+  /usr/bin/codesign --verify --verbose=2 "$APP" >&2 2>&1 || true
+  exit 1
+fi
 
 echo "$APP"

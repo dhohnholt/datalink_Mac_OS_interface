@@ -774,3 +774,28 @@ class FaintMarkReviewTests(unittest.TestCase):
         self.assertIn('item.field === "sheet"', problems)
         render = APP_JS[APP_JS.index("function renderAnalysisReview") :]
         self.assertIn('row.kind === "note"', render[: render.index("}).join")])
+
+
+class LauncherBundleSigningTests(unittest.TestCase):
+    """The bundle Homebrew installs is ad-hoc signed. If its seal does not
+    cover the nested interpreter, macOS calls the app damaged -- and it still
+    opens from a terminal, because `open` does not consult Gatekeeper, while
+    Finder, the Dock and Launchpad refuse it."""
+
+    script = Path("packaging/make_app_bundle.sh").read_text()
+
+    def test_the_nested_interpreter_is_signed_before_the_bundle(self):
+        # python-runtime is a copy of Homebrew's Python and arrives carrying
+        # Python's own signature. Sealing only the outer bundle leaves the two
+        # disagreeing: "nested code is modified or invalid".
+        inner = self.script.index('--sign - "$APP/Contents/MacOS/python-runtime"')
+        outer = self.script.index('--sign - "$APP"\n')
+        self.assertLess(inner, outer)
+
+    def test_a_bad_signature_fails_the_build(self):
+        # This used to end in `|| true`, which is how a broken seal shipped
+        # without anybody noticing.
+        self.assertIn("--verify", self.script)
+        self.assertIn("satisfies its Designated Requirement", self.script)
+        signing = self.script[self.script.index("# Ad-hoc signature") :]
+        self.assertNotIn('--sign - "$APP" 2>/dev/null || true', signing)

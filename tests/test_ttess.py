@@ -119,6 +119,17 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(body["exam_id"], "exam-1")
         self.assertEqual(body["analysis"]["exam"]["source_type"], "datalink_direct")
 
+    def test_a_draft_replacement_is_explicit_in_the_body_and_result(self):
+        result, calls, _, error = self.send([
+            (200, {"run_id": "new-db-run", "status": "updated",
+                   "replaced_run_id": "old-db-run"}),
+        ], replace_run_id="old-db-run")
+        self.assertIsNone(error)
+        body = json.loads(calls[0]["body"])
+        self.assertEqual(body["replace_run_id"], "old-db-run")
+        self.assertEqual(result["status"], "updated")
+        self.assertEqual(result["replaced_run_id"], "old-db-run")
+
     def test_an_unavailable_service_is_retried_twice_then_reported(self):
         _, calls, slept, error = self.send([(503, {"error": {"code": "service_unavailable"}})])
         self.assertEqual(error.code, "service_unavailable")
@@ -140,6 +151,16 @@ class UploadTests(unittest.TestCase):
         ])
         self.assertEqual(error.code, "duplicate_run")
         self.assertEqual(error.args[0], "Already uploaded")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(slept, [])
+
+    def test_finalized_results_are_not_reported_as_duplicate_runs(self):
+        _, calls, slept, error = self.send([
+            (409, {"error": {"code": "run_not_replaceable",
+                              "message": "Finalized results cannot be replaced"}}),
+        ])
+        self.assertEqual(error.code, "run_not_replaceable")
+        self.assertEqual(error.args[0], "Finalized results cannot be replaced")
         self.assertEqual(len(calls), 1)
         self.assertEqual(slept, [])
 

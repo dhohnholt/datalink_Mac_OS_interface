@@ -524,6 +524,10 @@
               <label><span class="label-text">Test</span><select id="uploadTest"></select></label>
             </div>
             <p id="uploadDetail" class="safety"></p>
+            <div id="uploadModePanel" class="callout hidden">
+              <strong id="uploadModeTitle">Update current draft</strong>
+              <p id="uploadModeDetail"></p>
+            </div>
           </div>
           <p id="uploadError" class="safety danger hidden"></p>
           <div id="uploadSuccess" class="success-panel hidden">
@@ -617,7 +621,8 @@ GET  -&gt; which tests a report may be filed against:
         An empty list is valid and the app says so rather than failing.
 
 POST -&gt; one scored run:
-        body  {&quot;exam_id&quot;: &quot;&lt;from the list above&gt;&quot;, &quot;analysis&quot;: { ... }}
+        body  {&quot;exam_id&quot;: &quot;&lt;from the list above&gt;&quot;, &quot;analysis&quot;: { ... },
+               &quot;replace_run_id&quot;: &quot;&lt;optional unfinalized run UUID&gt;&quot;}
         200 or 201 {&quot;run_id&quot;: &quot;...&quot;, &quot;status&quot;: &quot;imported&quot;,
                     &quot;review_url&quot;: &quot;https://.../where/a/human/reads/it&quot;}
 

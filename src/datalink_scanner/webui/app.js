@@ -1921,10 +1921,23 @@ function renderUploadPicker() {
   fillSelect($("#uploadTest"), tests, $("#uploadTest").value);
 
   const chosen = selectedDestination();
+  const draft = chosen?.draft_run || null;
   $("#uploadDetail").textContent = chosen
     ? `Uploads to ${chosen.course_title} · ${chosen.unit_title} · ${chosen.exam_title} · code ${chosen.test_code}` +
       (chosen.grade_cap ? ` · grade cap ${chosen.grade_cap}` : "")
     : "No test matches this combination.";
+  $("#uploadModePanel").classList.toggle("hidden", !draft);
+  if (draft) {
+    const uploaded = draft.created_at
+      ? new Date(draft.created_at).toLocaleString()
+      : "an earlier upload";
+    $("#uploadModeTitle").textContent = "Update current draft results";
+    $("#uploadModeDetail").textContent =
+      `${draft.student_count || 0} student${draft.student_count === 1 ? "" : "s"} · ` +
+      `${draft.question_count || 0} questions · uploaded ${uploaded}. ` +
+      "The corrected scan will replace this draft; finalized results cannot be replaced.";
+  }
+  $("#uploadButton").textContent = draft ? "Update draft" : "Upload";
   $("#uploadButton").disabled = !chosen || !hasReport;
 }
 
@@ -1946,6 +1959,12 @@ $("#uploadButton").addEventListener("click", async () => {
   const destination = selectedDestination();
   const sessionId = $("#analysisSession").value;
   if (!destination || !sessionId) return;
+  const draft = destination.draft_run || null;
+  const replaceRunId = draft?.run_id || null;
+  if (replaceRunId && !confirm(
+    `Replace the current unfinalized results for ${destination.exam_title}? ` +
+    "The corrected scan becomes the test's current draft."
+  )) return;
   const error = $("#uploadError");
   const success = $("#uploadSuccess");
   error.textContent = "";
@@ -1957,11 +1976,21 @@ $("#uploadButton").addEventListener("click", async () => {
     const result = await post("/api/sessions/upload", {
       session_id: Number(sessionId),
       exam_id: destination.exam_id,
+      replace_run_id: replaceRunId,
     });
     $("#uploadRunId").textContent = result.run_id || "—";
     $("#uploadReviewLink").href = result.review_url;
     success.classList.remove("hidden");
-    toast(`Uploaded to ${siteName()}`);
+    toast(result.status === "updated"
+      ? `Updated draft results on ${siteName()}`
+      : `Uploaded to ${siteName()}`);
+    try {
+      const state = await request("/api/destinations");
+      destinations = state.destinations || [];
+      renderUploadPicker();
+    } catch (_) {
+      // The upload already succeeded; a refresh failure should not hide that.
+    }
   } catch (failure) {
     error.textContent = failure.message;
     error.classList.remove("hidden");
@@ -1969,7 +1998,7 @@ $("#uploadButton").addEventListener("click", async () => {
     if (/reconnect/i.test(failure.message)) loadConnection();
   } finally {
     $("#uploadButton").disabled = false;
-    $("#uploadButton").textContent = "Upload";
+    renderUploadPicker();
   }
 });
 

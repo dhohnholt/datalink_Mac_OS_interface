@@ -177,6 +177,11 @@ def _server_error(status: int, payload: dict) -> UploadError:
             message or "That test is not available to this account. Choose another.",
             code="exam_forbidden",
         )
+    if code == "run_not_replaceable":
+        return UploadError(
+            message or "Those results are already finalized and cannot be replaced.",
+            code="run_not_replaceable",
+        )
     if status == 409 or code == "duplicate_run":
         return UploadError(
             message or "This scoring run has already been uploaded.",
@@ -270,6 +275,7 @@ def upload(
     exam_id: str,
     analysis: dict,
     test_code: str,
+    replace_run_id: str | None = None,
     bearer: str | None = None,
     sleep=time.sleep,
 ) -> dict:
@@ -281,7 +287,10 @@ def upload(
         raise UploadError("Choose which test to upload to", code="no_destination")
 
     prepared, _ = prepare_analysis(analysis, test_code)
-    body = json.dumps({"exam_id": exam_id, "analysis": prepared}).encode("utf-8")
+    request_body = {"exam_id": exam_id, "analysis": prepared}
+    if replace_run_id:
+        request_body["replace_run_id"] = replace_run_id
+    body = json.dumps(request_body).encode("utf-8")
 
     attempt = 0
     while True:
@@ -291,6 +300,7 @@ def upload(
                 return {
                     "run_id": payload.get("run_id"),
                     "status": payload.get("status", "imported"),
+                    "replaced_run_id": payload.get("replaced_run_id"),
                     "review_url": payload.get("review_url") or review_base_url(),
                 }
             failure = _server_error(status, payload)

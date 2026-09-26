@@ -403,14 +403,20 @@ Then pick **Course → Section → Unit → Test** and upload. The list of avail
 tests is refreshed when you connect, when the app opens, and before an upload
 once it is more than fifteen minutes old.
 
+If that test already has an unfinalized DataLink upload, the picker shows its
+date, student count and question count. Sending the corrected scan updates that
+draft atomically instead of adding another result run. DataLink asks for
+confirmation first, and the server refuses to replace finalized results.
+
 **Uploading does not finalize anything.** It creates a run for review; you
 check the warnings, student-ID matches, blanks and multiple marks on the
 website and finalize there. The success panel links straight to that review.
 
-Each upload is an audit record. Re-uploading the same scored run is refused by
-the server as a duplicate, and a retry after a network failure reuses the same
-run so it cannot become a second record. Correcting a student ID, a response
-or the answer key re-scores the session and produces a genuinely new run.
+Each finalized upload remains an audit record. A retry after a network failure
+reuses the same local run identifier so it cannot become a second record. While
+the selected test's current DataLink run is still a draft, correcting a student
+ID, response, or answer key and sending again replaces that draft; after it is
+finalized, DataLink creates a new review run instead of overwriting history.
 
 The scoring is not reimplemented here. `src/datalink_scanner/vendor/` holds
 verbatim copies of `analysis_core.py` and `result_schema.py` from the

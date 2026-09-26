@@ -1261,7 +1261,12 @@ class DataLinkRequestHandler(SimpleHTTPRequestHandler):
                     return
                 try:
                     result = ttess.upload(
-                        exam_id, report, str(destination.get("test_code", ""))
+                        exam_id,
+                        report,
+                        str(destination.get("test_code", "")),
+                        replace_run_id=(
+                            str(body.get("replace_run_id", "")) or None
+                        ),
                     )
                 except ttess.UploadError as exc:
                     self._send_json(

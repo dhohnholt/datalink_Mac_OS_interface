@@ -10,6 +10,6 @@ physical scanner:
 ``cli``        the ``datalink-scanner`` command
 """
 
-__version__ = "1.9.7"
+__version__ = "1.9.8"
 
 __all__ = ["__version__"]

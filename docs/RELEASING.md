@@ -15,8 +15,43 @@ builds the `.dmg`, creates the GitHub release with the disk image attached, and
 finally builds and attaches the bottle.
 
 It refuses to start on a dirty working tree, and if the tests fail it stops
-before tagging, so nothing is published. Pass `--skip-dmg` to publish the
-release without spending the ~40 seconds on a fresh disk image.
+before tagging, so nothing is published. It no longer minds a version that has
+already been bumped by hand, which used to abort it after the tests had run but
+before anything was tagged.
+
+## The disk image is off by default
+
+`release.sh` does not build one. Pass `--with-dmg` when a release genuinely
+needs it.
+
+Homebrew installs from the tag tarball and compiles the app locally, so the
+image is not what anybody here runs. The app Homebrew installs is ad-hoc signed
+and carries no quarantine attribute, which means Gatekeeper never checks it and
+Apple notarization does nothing for it. The image exists only for someone who
+downloads it instead of using brew — and notarizing it has hung for 45 minutes
+at a stretch, while every build of it overwrites `dist/`.
+
+That overwriting is the dangerous part. Twice now a rebuild has replaced a
+notarized disk image and installer with fresh ones, and an interrupted
+notarization left them unstapled **under the shipping filenames**. Before
+attaching anything to a release:
+
+```bash
+xcrun stapler validate dist/DataLink-Scanner-*.dmg
+xcrun stapler validate dist/DataLink-Scanner-*.pkg
+```
+
+Rename anything that must not ship so that its name says so. The same class of
+mistake has also sent an App Store package that was deliberately built to be
+unsubmittable, which cost a build number that cannot be reused.
+
+## If a release stops half way
+
+Nothing already pushed is undone. Check what landed before deciding what to
+re-run: the tag (`git ls-remote --tags origin`), the tap formula, and whether
+`gh release view v<version>` exists. Re-running `release.sh` will fail at
+`git tag` once the tag is pushed; create the release by hand with
+`gh release create` and then finish with `--bottle-only`.
 
 ## Bottles
 

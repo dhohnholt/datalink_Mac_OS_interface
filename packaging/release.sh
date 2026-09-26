@@ -14,11 +14,19 @@
 set -euo pipefail
 
 VERSION=""
-SKIP_DMG=0
+# The disk image is off by default. Homebrew installs from the tag tarball and
+# builds the app locally, so the image is not what anybody here runs: it exists
+# only for someone who downloads it instead of using brew. Building it costs a
+# PyInstaller run plus an Apple notarization that has hung for 45 minutes at a
+# time, and every one of those builds overwrites dist/ -- which is how a
+# half-notarized image has twice ended up sitting under the shipping filename.
+# Pass --with-dmg when an image is actually wanted.
+SKIP_DMG=1
 SKIP_BOTTLE=0
 BOTTLE_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --with-dmg) SKIP_DMG=0; shift ;;
     --skip-dmg) SKIP_DMG=1; shift ;;
     --skip-bottle) SKIP_BOTTLE=1; shift ;;
     --bottle-only) BOTTLE_ONLY=1; shift ;;
@@ -27,7 +35,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ -z "$VERSION" ]]; then
-  echo "usage: packaging/release.sh [--skip-dmg] [--skip-bottle|--bottle-only] <version>"
+  echo "usage: packaging/release.sh [--with-dmg] [--skip-bottle|--bottle-only] <version>"
+  echo "   the disk image is NOT built unless --with-dmg is given"
   echo "   e.g. packaging/release.sh 1.1.0"
   exit 2
 fi
@@ -54,7 +63,7 @@ fi
 if [[ $SKIP_DMG -eq 0 ]] && [[ $BOTTLE_ONLY -eq 0 ]] && ! "${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python}" -c "import PyInstaller" 2>/dev/null; then
   echo "PyInstaller is missing, so the .dmg cannot be built."
   echo "Install it with: .venv/bin/pip install pyinstaller"
-  echo "Or re-run with --skip-dmg to publish without refreshing the disk image."
+  echo "Or drop --with-dmg; the disk image is optional and off by default."
   exit 1
 fi
 
@@ -218,10 +227,9 @@ datalink-scanner install-app
 Already installed? \`brew update && brew upgrade datalink-scanner\` updates the
 command and the app together.
 
-Without Homebrew, download the disk image below and drag the app to
-Applications. That build bundles its own Python, is built for $(/usr/bin/uname -m)
-only, and is ad-hoc signed rather than Apple notarized, so its first launch
-needs a Control-click → **Open**."
+Homebrew is the supported way to install this. Releases do not normally carry
+a disk image; when one is attached it is signed with a Developer ID
+certificate and notarized by Apple, so it opens without a Control-click."
 
 
 if [[ $SKIP_BOTTLE -eq 0 ]]; then

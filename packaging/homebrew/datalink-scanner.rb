@@ -79,6 +79,29 @@ class DatalinkScanner < Formula
            "--icon", "src/datalink_scanner/resources/DataLinkScanner.icns"
   end
 
+  # Every upgrade puts the app at a new Cellar path and deletes the old one.
+  # The /Applications symlink is version-independent, but LaunchServices
+  # resolves it and records the real path, so after an upgrade that record
+  # points at a directory that is gone and the Dock icon reports "The
+  # application can't be opened" -- which looks like the app is broken.
+  #
+  # Relink and re-register, but only for someone who already ran install-app:
+  # the absence of that symlink is a choice, and this does not make it for
+  # them. Nothing here may fail the upgrade, so it all runs best-effort.
+  def post_install
+    linked = Pathname.new("/Applications/DataLink Scanner.app")
+    return unless linked.symlink?
+
+    begin
+      linked.unlink
+      linked.make_symlink(opt_prefix/"DataLink Scanner.app")
+      system "/System/Library/Frameworks/CoreServices.framework/Frameworks" \
+             "/LaunchServices.framework/Support/lsregister", "-f", linked.to_s
+    rescue StandardError => e
+      opoo "Could not refresh the /Applications link: #{e}"
+    end
+  end
+
   def caveats
     <<~EOS
       To open the workspace from the Dock or Spotlight, link the app once:

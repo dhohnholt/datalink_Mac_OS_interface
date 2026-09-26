@@ -549,3 +549,40 @@ class DockTileTests(unittest.TestCase):
         with mock.patch.object(updates.edition, "sandboxed", return_value=True):
             with self.assertRaises(updates.UpdateError):
                 updates.repoint_dock()
+
+
+class LaunchServicesRegistrationTests(unittest.TestCase):
+    """The /Applications symlink is version-independent; the registration
+    LaunchServices makes from it is not, because it resolves the link."""
+
+    def test_linking_registers_the_stable_path(self):
+        from datalink_scanner import cli
+
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0)
+
+        app = Path("/Applications/DataLink Scanner.app")
+        self.assertTrue(cli.register_with_launch_services(app, runner))
+        self.assertEqual(calls, [[cli.LSREGISTER, "-f", str(app)]])
+
+    def test_a_failure_to_register_is_not_fatal(self):
+        from datalink_scanner import cli
+
+        def runner(command, **kwargs):
+            raise OSError("lsregister went missing")
+
+        self.assertFalse(
+            cli.register_with_launch_services(Path("/Applications/x.app"), runner)
+        )
+
+    def test_the_formula_refreshes_the_link_after_an_upgrade(self):
+        # Without this the teacher has to re-run install-app by hand after
+        # every single upgrade, which is what kept breaking the Dock icon.
+        formula = Path("packaging/homebrew/datalink-scanner.rb").read_text()
+        self.assertIn("def post_install", formula)
+        self.assertIn("lsregister", formula)
+        # Only for someone who already linked it; absence is a choice.
+        self.assertIn("return unless linked.symlink?", formula)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -247,6 +248,34 @@ def move_to_trash(app: Path, label: str = "replaced") -> Path:
     return target
 
 
+LSREGISTER = (
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks"
+    "/LaunchServices.framework/Support/lsregister"
+)
+
+
+def register_with_launch_services(app: Path, runner=subprocess.run) -> bool:
+    """Tell macOS this app lives here, and mean it.
+
+    The symlink into /Applications is version-independent, but LaunchServices
+    resolves it and records the real path -- which is inside the Cellar, and
+    which `brew upgrade` deletes. The registration is then stale, and clicking
+    the Dock icon reports "The application can't be opened", which reads as
+    though the app is broken rather than the record being out of date.
+
+    Registering the stable path after every link makes macOS look again.
+    """
+    if not Path(LSREGISTER).is_file():
+        return False
+    try:
+        result = runner(
+            [LSREGISTER, "-f", str(app)], capture_output=True, timeout=120
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def command_install_app(args: argparse.Namespace) -> int:
     """Symlink the bundle into /Applications so `brew upgrade` updates it too."""
     bundle = find_app_bundle()
@@ -277,6 +306,8 @@ def command_install_app(args: argparse.Namespace) -> int:
     target = stable_bundle_path(bundle)
     destination.symlink_to(target)
     print(f"Linked {destination} → {target}")
+    if register_with_launch_services(destination):
+        print("Registered it with macOS, so the Dock icon opens this version.")
     print("`brew upgrade datalink-scanner` now updates the app in place.")
     return 0
 

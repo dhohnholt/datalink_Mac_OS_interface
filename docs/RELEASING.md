@@ -309,3 +309,31 @@ Releases page never goes stale against the formula.
 Unlike the Homebrew build it is architecture-specific — it produces a disk
 image for whichever Mac builds it — and, being downloaded, it is subject to
 Gatekeeper. Homebrew remains the better path for anyone who has it.
+
+## The Dock icon after an upgrade
+
+Every upgrade installs the app at a new Cellar path and deletes the old one.
+The `/Applications` symlink `install-app` creates is version-independent, but
+**LaunchServices resolves it and records the real path**, so after an upgrade
+that record names a directory that no longer exists. Clicking the Dock icon
+then reports "The application can't be opened", which reads as though the app
+is broken rather than the record being out of date.
+
+The formula's `post_install` relinks and re-registers on every upgrade, so
+this fixes itself. It only acts for someone who already ran `install-app`:
+the absence of that symlink is a choice, and the formula does not make it for
+them.
+
+To check what macOS currently believes:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump \
+  | grep -o "/opt/homebrew/Cellar/datalink-scanner/[0-9.]*" | sort -u
+```
+
+It should name the version that is installed. If it names an older one, that
+is the bug, and `datalink-scanner install-app` refreshes it by hand.
+
+Note that the dump always shows a Cellar path even after registering the
+`/Applications` symlink: LaunchServices canonicalises. The version in it is
+the part that matters.

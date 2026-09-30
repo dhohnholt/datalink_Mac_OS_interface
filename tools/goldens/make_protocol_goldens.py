@@ -328,6 +328,44 @@ def message_cases() -> list[dict]:
     return out
 
 
+# ------------------------------------------------------------------- port discovery
+
+
+def discover_cases() -> list[dict]:
+    """discover_port over made-up directory listings. The Python globs the
+    filesystem, so its glob is replaced for the duration."""
+    listings = [
+        [],
+        ["/dev/cu.usbserial-1200"],
+        ["/dev/cu.usbserial-1200", "/dev/tty.usbserial-1200"],
+        ["/dev/cu.usbserial-1200", "/dev/cu.usbserial-FTDI1"],
+        ["/dev/cu.usbserial-A", "/dev/cu.usbserial-B"],
+        ["/dev/tty.usbserial-1200"],
+        ["/dev/cu.usbserial-0001"],
+        ["/dev/tty.usbserial-1200", "/dev/tty.usbserial-3200"],
+        ["/dev/cu.usbserial-1200", "/dev/cu.usbserial-3200"],
+        ["/dev/cu.Bluetooth-Incoming-Port", "/dev/cu.usbserial-1200"],
+        ["/dev/cu.usbserial-1200", "/dev/cu.usbserial-1200"],
+    ]
+    real = interface.glob.glob
+    out = []
+    try:
+        for listing in listings:
+            def fake(pattern, listing=listing):
+                prefix = pattern.rstrip("*")
+                return [path for path in listing if path.startswith(prefix)]
+            interface.glob.glob = fake
+            entry = {"found": listing}
+            try:
+                entry["ok"] = interface.discover_port()
+            except DataLinkError as exc:
+                entry["error"] = str(exc)
+            out.append(entry)
+    finally:
+        interface.glob.glob = real
+    return out
+
+
 # -------------------------------------------------------------------------- json
 
 
@@ -602,6 +640,7 @@ def main() -> int:
         "stream": stream_cases(),
         "messages": message_cases(),
         "json": json_cases(),
+        "discover_port": discover_cases(),
         "device_replies": {c.decode(): r.hex() for c, r in REPLIES.items()},
         "driver": [run_driver(s) for s in scenarios],
         "constants": {

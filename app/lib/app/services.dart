@@ -9,6 +9,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../features/classes/class_book.dart';
+import '../features/scan/scan_model.dart';
 import '../features/settings/ttess_connection.dart';
 import 'keychain_store.dart';
 
@@ -93,6 +94,11 @@ class AppServices {
   /// Whether this Mac is connected to the reporting site.
   final TtessConnection connection;
 
+  /// What the Scan tab decides. It lives here, not in the screen, because the
+  /// old page kept every tab alive at once: a sheet that arrives while the
+  /// teacher is looking at Sessions must still be saved or put up for review.
+  late final ScanModel scan = ScanModel(this, portPollInterval: portPollInterval);
+
   /// Where sessions and the library live. Inside the sandbox this is the app's
   /// container, at the same `Application Support/DataLink Scanner/captures`
   /// path the Python app used, so the on-disk layout is unchanged.
@@ -139,6 +145,7 @@ class AppServices {
   }
 
   Future<void> dispose() async {
+    scan.dispose();
     classBook.dispose();
     connection.dispose();
     await scanner.dispose();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
 import '../../ui/widgets.dart';
+import 'class_book.dart';
 
 /// Saved classes: the list, and an editor for one at a time.
 class ClassesScreen extends StatefulWidget {
@@ -19,8 +20,32 @@ class _ClassesScreenState extends State<ClassesScreen> {
   final _roster = TextEditingController();
   final _nameFocus = FocusNode();
 
+  ClassBook? _book;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final book = Services.of(context).classBook;
+    if (_book == book) return;
+    _book?.editorRequest.removeListener(_fromMenu);
+    _book = book..editorRequest.addListener(_fromMenu);
+    // A request made before this screen existed (File > New Class… from another
+    // tab) is waiting for it.
+    if (book.editorRequest.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _fromMenu() : null);
+    }
+  }
+
+  void _fromMenu() {
+    final request = _book?.editorRequest.value;
+    if (request == null) return;
+    _book!.editorRequest.value = null;
+    _open(request.name);
+  }
+
   @override
   void dispose() {
+    _book?.editorRequest.removeListener(_fromMenu);
     _name.dispose();
     _roster.dispose();
     _nameFocus.dispose();

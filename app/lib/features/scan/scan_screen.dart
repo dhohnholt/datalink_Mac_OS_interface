@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import '../../app/scope.dart';
 import '../../ui/widgets.dart';
 import '../classes/class_book.dart';
-import 'review_dialog.dart';
 import 'scan_model.dart';
 
 /// Connect the scanner, run a session, and watch sheets arrive.
@@ -18,7 +17,6 @@ class ScanScreen extends StatefulWidget {
 
 class _ScanScreenState extends State<ScanScreen> {
   ScanModel? _model;
-  bool _dialogOpen = false;
   final _testName = TextEditingController();
   final _count = TextEditingController();
   late final FocusNode _countFocus = FocusNode()
@@ -30,14 +28,9 @@ class _ScanScreenState extends State<ScanScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_model != null) return;
-    final model = ScanModel(
-      Services.of(context),
-      portPollInterval: Services.of(context).portPollInterval,
-    );
-    model.onMessage = (message) {
-      if (mounted) showToast(context, message);
-    };
-    model.addListener(_afterChange);
+    // The model outlives this screen (see AppServices.scan); the screen only
+    // shows it, so leaving the tab does not stop sheets being handled.
+    final model = Services.of(context).scan;
     _testName.text = model.testName;
     _count.text = '${model.questionCount}';
     _model = model;
@@ -45,32 +38,10 @@ class _ScanScreenState extends State<ScanScreen> {
 
   @override
   void dispose() {
-    _model?.removeListener(_afterChange);
-    _model?.dispose();
     _testName.dispose();
     _count.dispose();
     _countFocus.dispose();
     super.dispose();
-  }
-
-  /// Open the review dialog when a sheet needs a person. The dialog closes
-  /// itself, including when the sheet is dealt with some other way.
-  void _afterChange() {
-    final model = _model!;
-    if (model.pendingPlan != null && !_dialogOpen) {
-      _dialogOpen = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || model.pendingPlan == null) {
-          _dialogOpen = false;
-          return;
-        }
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => ReviewDialog(model: model),
-        ).whenComplete(() => _dialogOpen = false);
-      });
-    }
   }
 
   @override

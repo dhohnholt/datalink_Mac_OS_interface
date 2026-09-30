@@ -160,7 +160,16 @@ class ScannerController {
         ports: _ports,
       );
 
+  int _revision = 0;
+
+  /// Counts every change. A reader that keeps a [snapshot] can tell whether it
+  /// is still current without waiting for the next event on [changes]: events
+  /// arrive later than the change that caused them, so a stored one can be
+  /// older than state the reader has already seen.
+  int get revision => _revision;
+
   void _changed() {
+    _revision++;
     if (!_changes.isClosed) _changes.add(snapshot());
   }
 

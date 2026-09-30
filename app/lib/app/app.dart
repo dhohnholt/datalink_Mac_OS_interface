@@ -1,3 +1,5 @@
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/material.dart';
 
 import '../ui/shell.dart';
@@ -42,8 +44,24 @@ class DataLinkApp extends StatefulWidget {
 class _DataLinkAppState extends State<DataLinkApp> {
   final AppNavigation _navigation = AppNavigation();
 
+  /// On Quit, end any running session, release the serial port and fold the
+  /// database's write-ahead log back in, before the process goes.
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onExitRequested: () async {
+        await widget.services.dispose();
+        return AppExitResponse.exit;
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _lifecycle.dispose();
     _navigation.dispose();
     super.dispose();
   }

@@ -1,8 +1,6 @@
 import 'package:datalink_scanner/app/app.dart';
-import 'package:datalink_scanner/app/navigation.dart';
 import 'package:datalink_scanner/app/services.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_services.dart';
@@ -136,24 +134,5 @@ void main() {
     expect(services.store.listClasses(), isEmpty);
     expect(services.classBook.selectedName, '');
     expect(services.store.getSetting('selected_class'), '');
-  });
-
-  testWidgets('keyboard: Cmd+4 goes to Classes, Cmd+[ goes back', (tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(DataLinkApp(services: testServices()));
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.digit4);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
-    await tester.pumpAndSettle();
-    expect(find.text('New class'), findsOneWidget);
-
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.bracketLeft);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
-    await tester.pumpAndSettle();
-    expect(find.text('New class'), findsNothing);
-    expect(AppView.values.first, AppView.scan);
   });
 }

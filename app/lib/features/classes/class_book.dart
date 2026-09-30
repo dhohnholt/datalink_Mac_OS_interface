@@ -1,6 +1,10 @@
 import 'package:datalink_core/datalink_core.dart';
 import 'package:flutter/foundation.dart';
 
+/// A request, from the menu, to open the class editor: for [name], or a new
+/// class when null. `serial` makes two identical requests distinct.
+typedef EditorRequest = ({String? name, int serial});
+
 /// The saved classes and which one scanning is using. In the old page these
 /// were globals in app.js (`classes`, `selectedClassName`) read by the Scan,
 /// Paper, Classes and Analysis tabs; here they are one object they all watch.
@@ -10,6 +14,12 @@ class ClassBook extends ChangeNotifier {
   }
 
   final Store _store;
+
+  /// Listened to by the Classes screen.
+  final ValueNotifier<EditorRequest?> editorRequest = ValueNotifier(null);
+  int _requests = 0;
+
+  void requestEditor(String? name) => editorRequest.value = (name: name, serial: ++_requests);
 
   List<Map<String, Object?>> _classes = const [];
   String _selected = '';

@@ -19,13 +19,12 @@ class ScanModel extends ChangeNotifier {
     final saved = int.tryParse('${settings['question_count']}');
     if (saved != null) _questionCount = saved.clamp(minAnswerCount, maxAnswerCount);
     _matching = StudentMatching.parse(settings['student_matching'] as String?);
-    _snapshot = _services.scanner.snapshot();
-    _subscription = _services.scanner.changes.listen(_onSnapshot);
+    _subscription = _services.scanner.changes.listen((_) => _react());
     _services.classBook.addListener(notifyListeners);
     unawaited(_services.scanner.refreshPorts());
     if (portPollInterval != null) {
       _ports = Timer.periodic(portPollInterval, (_) {
-        if (!_snapshot.connected) unawaited(_services.scanner.refreshPorts());
+        if (!snapshot.connected) unawaited(_services.scanner.refreshPorts());
       });
     }
   }
@@ -33,7 +32,8 @@ class ScanModel extends ChangeNotifier {
   final AppServices _services;
   final Duration debounce;
 
-  late ScannerSnapshot _snapshot;
+  ScannerSnapshot? _cached;
+  int _cachedRevision = -1;
   StreamSubscription<ScannerSnapshot>? _subscription;
   Timer? _ports;
   Timer? _nameTimer;
@@ -60,7 +60,17 @@ class ScanModel extends ChangeNotifier {
 
   // ------------------------------------------------------------------ state
 
-  ScannerSnapshot get snapshot => _snapshot;
+  /// The controller's state now. Read afresh whenever it has changed, never
+  /// taken from an event: events arrive after the change that caused them, so
+  /// an event can be older than state already seen.
+  ScannerSnapshot get snapshot {
+    final revision = _services.scanner.revision;
+    if (_cached == null || revision != _cachedRevision) {
+      _cached = _services.scanner.snapshot();
+      _cachedRevision = revision;
+    }
+    return _cached!;
+  }
   String get testName => _testName;
   int get questionCount => _questionCount;
   StudentMatching get matching => _matching;
@@ -71,12 +81,12 @@ class ScanModel extends ChangeNotifier {
         _rosterIndex[className] ?? 0,
       );
 
-  bool get busy => _snapshot.state == 'connecting';
-  bool get scanning => _snapshot.scanning;
-  bool get connected => _snapshot.state == 'connected';
-  bool get hasKey => _snapshot.records.any((r) => r['role'] == 'key');
+  bool get busy => snapshot.state == 'connecting';
+  bool get scanning => snapshot.scanning;
+  bool get connected => snapshot.state == 'connected';
+  bool get hasKey => snapshot.records.any((r) => r['role'] == 'key');
 
-  String get badgeLabel => switch (_snapshot.state) {
+  String get badgeLabel => switch (snapshot.state) {
         'disconnected' => 'Disconnected',
         'connecting' => 'Connecting…',
         'connected' => scanning ? 'Ready to scan' : 'Connected · no session',
@@ -88,18 +98,18 @@ class ScanModel extends ChangeNotifier {
   bool get canStart => !busy && !scanning;
   bool get canEnd => scanning;
   bool get canReset => connected;
-  bool get canDisconnect => _snapshot.state != 'disconnected';
+  bool get canDisconnect => snapshot.state != 'disconnected';
   bool get canClear => !scanning;
   bool get portLocked => busy || connected;
   bool get countLocked => busy || scanning;
 
   String get connectionDetail {
-    final error = _snapshot.error;
+    final error = snapshot.error;
     if (error != null && error.isNotEmpty) return error;
     if (connected) {
       return scanning
-          ? 'Session running on ${_snapshot.port}. Feed one sheet at a time.'
-          : 'Scanner ready on ${_snapshot.port}. No session is running.';
+          ? 'Session running on ${snapshot.port}. Feed one sheet at a time.'
+          : 'Scanner ready on ${snapshot.port}. No session is running.';
     }
     return 'Connect the scanner by USB, then select its serial port.';
   }
@@ -145,25 +155,25 @@ class ScanModel extends ChangeNotifier {
 
   /// The newest sheet's "answered / total", or an em dash.
   String get latestAnswered {
-    final records = _snapshot.records;
+    final records = snapshot.records;
     if (records.isEmpty) return '—';
     final latest = records.last;
     return '${latest['answered_count']} / ${(latest['responses']! as List).length}';
   }
 
   String get sessionLabel {
-    if (!_snapshot.scanning) return 'Not started';
-    if (_snapshot.sessionName.isNotEmpty) return _snapshot.sessionName;
-    final path = _snapshot.outputPath;
+    if (!snapshot.scanning) return 'Not started';
+    if (snapshot.sessionName.isNotEmpty) return snapshot.sessionName;
+    final path = snapshot.outputPath;
     return path == null ? 'Running' : path.split('/').last;
   }
 
   /// Newest first, as the table shows them.
-  List<Map<String, Object?>> get recordsNewestFirst => _snapshot.records.reversed.toList();
+  List<Map<String, Object?>> get recordsNewestFirst => snapshot.records.reversed.toList();
 
   /// Protocol lines are hidden until asked for.
   List<ActivityEntry> get activity => [
-        for (final entry in _snapshot.activity)
+        for (final entry in snapshot.activity)
           if (showProtocol || entry.kind != 'protocol') entry,
       ];
 
@@ -317,11 +327,10 @@ class ScanModel extends ChangeNotifier {
 
   /// Read the controller's state now rather than waiting for its next event,
   /// so what the screen shows is never a step behind the action just taken.
-  void _sync() => _onSnapshot(_services.scanner.snapshot());
+  void _sync() => _react();
 
-  void _onSnapshot(ScannerSnapshot next) {
-    _snapshot = next;
-    final review = next.pendingReview;
+  void _react() {
+    final review = snapshot.pendingReview;
     if (review == null) {
       pendingPlan = null;
       pendingReview = null;

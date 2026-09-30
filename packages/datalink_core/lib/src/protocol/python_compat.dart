@@ -5,12 +5,25 @@
 /// message on a teacher's screen.
 library;
 
-/// Whitespace as `str.strip()` sees it for ASCII input: the usual six plus the
-/// four information separators `\x1c`..`\x1f`, which `str.isspace()` counts.
+/// Whitespace as `str.strip()` sees it: what `str.isspace()` accepts. That is
+/// the usual ASCII six, the four information separators `\x1c`..`\x1f`, and the
+/// Unicode spaces (NBSP, em space, ideographic space and so on), because a
+/// student's name pasted from a spreadsheet can carry any of them.
 bool _isPySpace(int unit) =>
-    unit == 0x20 || (unit >= 0x09 && unit <= 0x0d) || (unit >= 0x1c && unit <= 0x1f);
+    unit == 0x20 ||
+    (unit >= 0x09 && unit <= 0x0d) ||
+    (unit >= 0x1c && unit <= 0x1f) ||
+    unit == 0x85 ||
+    unit == 0xa0 ||
+    unit == 0x1680 ||
+    (unit >= 0x2000 && unit <= 0x200a) ||
+    unit == 0x2028 ||
+    unit == 0x2029 ||
+    unit == 0x202f ||
+    unit == 0x205f ||
+    unit == 0x3000;
 
-/// `str.strip()` for the ASCII text this app handles.
+/// `str.strip()`.
 String pyStrip(String text) {
   var start = 0;
   var end = text.length;

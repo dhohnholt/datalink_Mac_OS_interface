@@ -18,5 +18,6 @@ export 'src/protocol/stream_parser.dart';
 export 'src/scanning/scanner_controller.dart';
 export 'src/serial/serial.dart';
 export 'src/store/store.dart';
+export 'src/ttess/ttess.dart';
 export 'src/workspace/roster.dart';
 export 'src/workspace/workspace.dart';

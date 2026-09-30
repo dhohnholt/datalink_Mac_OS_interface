@@ -8,6 +8,7 @@ import 'items_pane.dart';
 import 'key_pane.dart';
 import 'review_pane.dart';
 import 'students_pane.dart';
+import 'upload_pane.dart';
 
 /// Item analysis for one saved test: how the class did, who needs a second
 /// look, and the answer key.
@@ -142,8 +143,9 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                   ),
                 ),
                 const ButtonSegment(value: AnalysisPane.key, label: Text('Answer key')),
+                const ButtonSegment(value: AnalysisPane.upload, label: Text('Send to your site')),
               ],
-              selected: {nav.pane == AnalysisPane.upload ? AnalysisPane.items : nav.pane},
+              selected: {nav.pane},
               onSelectionChanged: (selection) => nav.showPane(selection.first),
             ),
           ),
@@ -162,6 +164,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                 report: report,
                 onChanged: reload,
               ),
+            AnalysisPane.upload => UploadPane(sessionId: _loadedFor!),
             _ => ItemsPane(report: report),
           },
         ],

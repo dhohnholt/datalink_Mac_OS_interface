@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,6 +9,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../features/classes/class_book.dart';
+import '../features/settings/ttess_connection.dart';
+import 'keychain_store.dart';
 
 /// The few things that need the operating system's own dialogs. Behind an
 /// interface so screens can be tested without opening a panel.
@@ -71,16 +74,24 @@ class AppServices {
     required this.scanner,
     required this.actions,
     required this.dataDirectory,
+    required this.ttess,
     this.portPollInterval = const Duration(seconds: 2),
-  }) : classBook = ClassBook(store);
+  })  : classBook = ClassBook(store),
+        connection = TtessConnection(ttess);
 
   final Store store;
   final Workspace workspace;
   final ScannerController scanner;
   final PlatformActions actions;
 
+  /// The client for the teacher's own reporting site.
+  final TtessClient ttess;
+
   /// The saved classes and the one scanning is using.
   final ClassBook classBook;
+
+  /// Whether this Mac is connected to the reporting site.
+  final TtessConnection connection;
 
   /// Where sessions and the library live. Inside the sandbox this is the app's
   /// container, at the same `Application Support/DataLink Scanner/captures`
@@ -103,13 +114,21 @@ class AppServices {
       transport: PosixSerialTransport(),
       clock: SystemClock(),
     );
-    return AppServices(
+    final services = AppServices(
       store: store,
       workspace: Workspace(store: store),
       scanner: scanner,
       actions: const SystemPlatformActions(),
       dataDirectory: directory,
+      ttess: TtessClient(
+        store: store,
+        secrets: const KeychainSecretStore(),
+        http: IoHttpTransport(),
+      ),
     );
+    // Who is connected, and what the site offers: asked once on launch.
+    unawaited(services.connection.load());
+    return services;
   }
 
   /// `~/Library/Application Support/DataLink Scanner/captures`. In the sandbox
@@ -121,6 +140,7 @@ class AppServices {
 
   Future<void> dispose() async {
     classBook.dispose();
+    connection.dispose();
     await scanner.dispose();
     store.close();
   }

@@ -6,11 +6,11 @@ import '../app/scope.dart';
 import '../features/analysis/analysis_screen.dart';
 import '../features/classes/classes_screen.dart';
 import '../features/scan/scan_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/sessions/sessions_screen.dart';
 import 'widgets.dart';
 
-/// Builds the screen for a tab. The screens that are not written yet are
-/// absent rather than faked: see docs/flutter-ui-checklist.md.
+/// Builds the screen for a tab.
 typedef ScreenBuilder = Widget Function(BuildContext context);
 
 class AppShell extends StatelessWidget {
@@ -83,14 +83,10 @@ class AppShell extends StatelessWidget {
     if (override != null) return override(context);
     return switch (view) {
       AppView.scan => const ScanScreen(),
-      AppView.classes => const ClassesScreen(),
       AppView.sessions => const SessionsScreen(),
       AppView.analysis => const AnalysisScreen(),
-      _ => EmptyState(
-          title: '${_labels[view]!.$1} is not built yet',
-          message: 'This screen is still being ported; see docs/flutter-ui-checklist.md.',
-          icon: Icons.construction_outlined,
-        ),
+      AppView.classes => const ClassesScreen(),
+      AppView.settings => const SettingsScreen(),
     };
   }
 }

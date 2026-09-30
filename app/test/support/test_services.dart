@@ -39,6 +39,46 @@ class RecordingActions implements PlatformActions {
   Future<void> openUrl(String url) async => opened.add(url);
 }
 
+class MemorySecrets implements SecretStore {
+  final Map<(String, String), String> items = {};
+
+  @override
+  Future<String?> read(String service, String account) async => items[(service, account)];
+
+  @override
+  Future<void> write(String service, String account, String secret) async =>
+      items[(service, account)] = secret;
+
+  @override
+  Future<bool> delete(String service, String account) async =>
+      items.remove((service, account)) != null;
+}
+
+/// A site that answers from a script; the last answer repeats.
+class ScriptedHttp implements HttpTransport {
+  ScriptedHttp([List<Object>? outcomes]) : outcomes = outcomes ?? [];
+
+  final List<Object> outcomes;
+  final List<({String method, Uri url, Map<String, String> headers, List<int>? body})> calls = [];
+
+  @override
+  Future<HttpReply> send(
+    String method,
+    Uri url, {
+    required Map<String, String> headers,
+    List<int>? body,
+    required Duration timeout,
+  }) async {
+    calls.add((method: method, url: url, headers: headers, body: body));
+    if (outcomes.isEmpty) throw const SocketException('No site in tests');
+    final outcome = outcomes[calls.length - 1 < outcomes.length ? calls.length - 1 : outcomes.length - 1];
+    if (outcome is Exception) throw outcome;
+    return outcome as HttpReply;
+  }
+}
+
+HttpReply reply(int status, [Map<String, Object?> body = const {}]) => (status: status, body: body);
+
 /// Services over an in-memory library and a temp folder, with no hardware.
 AppServices testServices({
   Store? store,
@@ -46,6 +86,8 @@ AppServices testServices({
   SerialTransport? transport,
   Clock? clock,
   DateTime Function()? now,
+  MemorySecrets? secrets,
+  ScriptedHttp? http,
 }) {
   final db = store ?? Store.open(':memory:');
   final directory = Directory.systemTemp.createTempSync('datalink-app-test');
@@ -60,6 +102,12 @@ AppServices testServices({
     ),
     actions: actions ?? RecordingActions(),
     dataDirectory: directory,
+    ttess: TtessClient(
+      store: db,
+      secrets: secrets ?? MemorySecrets(),
+      http: http ?? ScriptedHttp(),
+      sleep: (_) async {},
+    ),
     portPollInterval: null,
   );
 }

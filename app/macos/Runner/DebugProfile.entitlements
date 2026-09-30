@@ -8,6 +8,10 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- Only for Send to your site: an HTTPS request to the address the teacher
+	     enters. Nothing is sent until they ask, and no address ships with the app. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<!-- Debug and profile builds ONLY: Flutter's VM service listens on a local
 	     socket and hot reload needs JIT. Release.entitlements is what ships;
 	     nothing in this file may be copied into it. -->

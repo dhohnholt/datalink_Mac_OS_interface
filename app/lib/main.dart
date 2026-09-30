@@ -5,6 +5,7 @@ import 'package:datalink_serial_posix/datalink_serial_posix.dart';
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
+import 'app/keychain_store.dart';
 import 'app/services.dart';
 import 'hardware_check/hardware_check.dart';
 
@@ -27,7 +28,28 @@ Future<void> main() async {
     exit(0);
   }
 
+  // Headless check that the signed build may open an outgoing connection:
+  //   DATALINK_NETWORK_SELFTEST=127.0.0.1:8765 "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
+  final probe = env['DATALINK_NETWORK_SELFTEST'];
+  if (probe != null) {
+    final parts = probe.split(':');
+    try {
+      final socket = await Socket.connect(parts[0], int.parse(parts[1]), timeout: const Duration(seconds: 3));
+      stdout.writeln('connect $probe: ok');
+      socket.destroy();
+    } on Object catch (error) {
+      stdout.writeln('connect $probe: FAILED $error');
+    }
+    exit(0);
+  }
+
   WidgetsFlutterBinding.ensureInitialized();
+  // Headless check of the Keychain from a signed, sandboxed build:
+  //   DATALINK_KEYCHAIN_SELFTEST=1 "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
+  if (env['DATALINK_KEYCHAIN_SELFTEST'] == '1') {
+    stdout.writeln(await keychainSelfTest(const KeychainSecretStore()));
+    exit(0);
+  }
   final services = await AppServices.start();
   runApp(DataLinkApp(services: services));
 }

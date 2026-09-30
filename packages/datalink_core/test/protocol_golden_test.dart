@@ -198,6 +198,30 @@ void main() {
     });
   });
 
+  group('discoverPort', () {
+    test('agrees with Python on every listing', () {
+      for (final raw in list('discover_port')) {
+        final entry = asMap(raw);
+        final found = (entry['found']! as List<Object?>).cast<String>();
+        if (entry.containsKey('ok')) {
+          expect(discoverPort(found), entry['ok'], reason: '$found');
+        } else {
+          expect(
+            () => discoverPort(found),
+            throwsA(
+              isA<DataLinkError>().having(
+                (e) => e.message,
+                'message',
+                entry['error'],
+              ),
+            ),
+            reason: '$found',
+          );
+        }
+      }
+    });
+  });
+
   group('pyJsonEncode', () {
     test('writes the same bytes as json.dumps', () {
       for (final raw in list('json')) {

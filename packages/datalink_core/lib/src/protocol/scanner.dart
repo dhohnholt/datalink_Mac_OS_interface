@@ -174,3 +174,30 @@ class DataLinkScanner {
     return text.substring(0, end);
   }
 }
+
+/// Choose the scanner's port from the device paths that exist.
+///
+/// macOS exposes the same adapter as both `cu.*` and `tty.*`. The `cu.*`
+/// endpoint is the correct callout device for an application initiating a
+/// session. Port of `discover_port` in `interface.py`, minus the `glob`.
+String discoverPort(Iterable<String> found) {
+  final candidates = ({
+    ...found.where(
+      (path) =>
+          path.startsWith('/dev/cu.usbserial') ||
+          path.startsWith('/dev/tty.usbserial'),
+    ),
+  }.toList())
+    ..sort();
+  if (candidates.isEmpty) {
+    throw const DataLinkError('No /dev/cu.usbserial* DataLink port was found');
+  }
+  final preferred = candidates
+      .where((path) => path.startsWith('/dev/cu.') && path.endsWith('1200'))
+      .toList();
+  if (preferred.length == 1) return preferred.first;
+  if (candidates.length == 1) return candidates.first;
+  throw const DataLinkError(
+    'Multiple USB serial ports found; select one with --port',
+  );
+}

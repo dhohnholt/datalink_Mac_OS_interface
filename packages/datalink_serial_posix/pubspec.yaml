@@ -1,0 +1,19 @@
+name: datalink_serial_posix
+description: >-
+  Serial port access for macOS through dart:ffi and libc alone. No native code
+  of our own and no third-party C library, so it needs nothing beyond the
+  com.apple.security.device.serial entitlement.
+version: 2.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  datalink_core:
+    path: ../datalink_core
+  ffi: ^2.1.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

@@ -11,6 +11,7 @@ class SerialSettings {
     this.stopBits = 1,
     this.readTimeoutSeconds = 0.05,
     this.writeTimeoutSeconds = 1.0,
+    this.exclusive = true,
   });
 
   final int baudRate;
@@ -21,6 +22,16 @@ class SerialSettings {
   /// How long one `read` waits for data before returning what it has.
   final double readTimeoutSeconds;
   final double writeTimeoutSeconds;
+
+  /// Ask the OS to refuse other openers while this one holds the port.
+  ///
+  /// macOS lets two processes open one /dev/cu.* device and they take each
+  /// other's bytes without either being told (see docs/PROTOCOL.md). The
+  /// original found out who else had it open by running `lsof`, which a
+  /// sandboxed app cannot do usefully. Holding the port exclusively closes the
+  /// same hole from our side; it cannot detect a holder that did not do the
+  /// same.
+  final bool exclusive;
 }
 
 enum SerialParity { none, even, odd }

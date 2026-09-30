@@ -9252,6 +9252,79 @@
    "sorted_indent2": "{\n  \"confidence\": {\n    \"1\": {\n      \"margin\": 0.1,\n      \"needs_review\": false\n    }\n  },\n  \"n\": 3,\n  \"responses\": [\n    \"A\",\n    \"\",\n    \"*\",\n    \"AC\"\n  ],\n  \"scanner_id\": \"900011\",\n  \"strength\": 0.2917\n}"
   }
  ],
+ "discover_port": [
+  {
+   "found": [],
+   "error": "No /dev/cu.usbserial* DataLink port was found"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-1200"
+   ],
+   "ok": "/dev/cu.usbserial-1200"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-1200",
+    "/dev/tty.usbserial-1200"
+   ],
+   "ok": "/dev/cu.usbserial-1200"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-1200",
+    "/dev/cu.usbserial-FTDI1"
+   ],
+   "ok": "/dev/cu.usbserial-1200"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-A",
+    "/dev/cu.usbserial-B"
+   ],
+   "error": "Multiple USB serial ports found; select one with --port"
+  },
+  {
+   "found": [
+    "/dev/tty.usbserial-1200"
+   ],
+   "ok": "/dev/tty.usbserial-1200"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-0001"
+   ],
+   "ok": "/dev/cu.usbserial-0001"
+  },
+  {
+   "found": [
+    "/dev/tty.usbserial-1200",
+    "/dev/tty.usbserial-3200"
+   ],
+   "error": "Multiple USB serial ports found; select one with --port"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-1200",
+    "/dev/cu.usbserial-3200"
+   ],
+   "ok": "/dev/cu.usbserial-1200"
+  },
+  {
+   "found": [
+    "/dev/cu.Bluetooth-Incoming-Port",
+    "/dev/cu.usbserial-1200"
+   ],
+   "ok": "/dev/cu.usbserial-1200"
+  },
+  {
+   "found": [
+    "/dev/cu.usbserial-1200",
+    "/dev/cu.usbserial-1200"
+   ],
+   "ok": "/dev/cu.usbserial-1200"
+  }
+ ],
  "device_replies": {
   "V": "41445620313230304f4b0d0a",
   "R1": "4f4b0d0a",

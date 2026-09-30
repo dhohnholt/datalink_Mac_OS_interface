@@ -3,6 +3,7 @@ library;
 
 export 'src/analysis/analysis.dart';
 export 'src/analysis/csv_export.dart';
+export 'src/analysis/report_view.dart';
 export 'src/analysis/result_schema.dart' show ParsedSheet;
 export 'src/analysis/scoring.dart';
 export 'src/protocol/constants.dart';

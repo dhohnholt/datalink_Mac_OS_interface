@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:datalink_core/datalink_core.dart';
 import 'package:datalink_serial_posix/datalink_serial_posix.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../features/classes/class_book.dart';
 
@@ -18,6 +19,12 @@ abstract interface class PlatformActions {
     required String text,
     required String extension,
   });
+
+  /// Show a folder in Finder.
+  Future<void> reveal(String directory);
+
+  /// Open a web address in the teacher's own browser, never inside the app.
+  Future<void> openUrl(String url);
 }
 
 class SystemPlatformActions implements PlatformActions {
@@ -42,6 +49,16 @@ class SystemPlatformActions implements PlatformActions {
       name: suggestedName,
     ).saveTo(location.path);
     return location.path;
+  }
+
+  @override
+  Future<void> reveal(String directory) async {
+    await launchUrl(Uri.directory(directory));
+  }
+
+  @override
+  Future<void> openUrl(String url) async {
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 }
 

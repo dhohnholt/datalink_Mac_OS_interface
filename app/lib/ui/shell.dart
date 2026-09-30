@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../app/navigation.dart';
 import '../app/scope.dart';
 import '../features/classes/classes_screen.dart';
+import '../features/sessions/sessions_screen.dart';
 import 'widgets.dart';
 
 /// Builds the screen for a tab. The screens that are not written yet are
@@ -80,6 +81,7 @@ class AppShell extends StatelessWidget {
     if (override != null) return override(context);
     return switch (view) {
       AppView.classes => const ClassesScreen(),
+      AppView.sessions => const SessionsScreen(),
       _ => EmptyState(
           title: '${_labels[view]!.$1} is not built yet',
           message: 'This screen is still being ported; see docs/flutter-ui-checklist.md.',

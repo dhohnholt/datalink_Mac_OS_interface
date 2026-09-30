@@ -24,6 +24,8 @@ class _Clock implements Clock {
 /// Records what the screen asked the operating system to do.
 class RecordingActions implements PlatformActions {
   final List<({String name, String text, String extension})> saved = [];
+  final List<String> revealed = [];
+  final List<String> opened = [];
   String? nextSavePath = '/tmp/saved';
 
   @override
@@ -35,6 +37,12 @@ class RecordingActions implements PlatformActions {
     saved.add((name: suggestedName, text: text, extension: extension));
     return nextSavePath;
   }
+
+  @override
+  Future<void> reveal(String directory) async => revealed.add(directory);
+
+  @override
+  Future<void> openUrl(String url) async => opened.add(url);
 }
 
 /// Services over an in-memory library and a temp folder, with no hardware.

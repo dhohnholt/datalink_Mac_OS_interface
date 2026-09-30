@@ -69,6 +69,7 @@ class SectionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
+                    flex: 2,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -89,7 +90,12 @@ class SectionCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  ?trailing,
+                  if (trailing != null) ...[
+                    const SizedBox(width: 16),
+                    // Wraps within its own share rather than pushing the row
+                    // wider than the card.
+                    Flexible(flex: 3, child: Align(alignment: Alignment.topRight, child: trailing)),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),

@@ -14,7 +14,8 @@ prior note. Each needs a decision before Phase 1.
    `~/Downloads`, `~/Desktop` by name). So its license is **unread**, and I
    cannot say whether it permits redistribution in an App Store binary. Phase 3
    is blocked on this; Phases 1–2 are not.
-2. **Serial in the sandbox is not "UNVERIFIED" any more.** `AppStore/PLAN.md`
+2. **[RESOLVED 2026-09-30: PASS on hardware; see `docs/flutter-phase1-hardware-check.md`.]**
+   **Serial in the sandbox is not "UNVERIFIED" any more.** `AppStore/PLAN.md`
    step 4 was answered on 2026-09-25: *GO*. A signed sandboxed Python build
    opened `/dev/cu.usbserial-1200`, ran the full handshake, and showed
    bidirectional traffic (`V -> ADV 1200OK`, `T4 -> S32155`, `Q1 -> 4658`,

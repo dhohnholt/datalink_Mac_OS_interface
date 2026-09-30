@@ -1,5 +1,29 @@
 # Phase 1 hardware check — what to run, what to report
 
+## Result: PASS (2026-09-30)
+
+Run on the author's DataLink 1200 (`/dev/cu.usbserial-1200`, firmware 5.5,
+serial S32155) with the **sandboxed, ad-hoc-signed Flutter release build**:
+
+| Check | Result |
+|---|---|
+| Open the CP210x node from the sandbox with `device.serial` | **ok** |
+| `V` → `ADV 1200OK`, full captured init and Data Collection sequence | **ok**, every reply as in the captures (`T2` 5.5, `Q1` 4658, `X7` `11/22/11 Standard`, `T4` S32155; `P5` sheet counters have advanced, as they should) |
+| Five real sheets fed while listening | **all five parsed**: 211 fields, 50 answers each. Scanner score field read 50 for the key (full marks against itself, as `docs/PROTOCOL.md` records), then 31, 36, 26, 30. No student ID bubbled, and the report says "not read" for each. |
+| Second program opens the port while the app holds it | **refused, `Resource busy`**: the CP210x driver honours `TIOCEXCL` |
+| Another program opened the port **first, without locking it**, then the app opens | **succeeds and shares the port silently** |
+
+The last row is a real regression from the Python app. `other_readers()` found
+that case with `lsof` and refused to connect; a sandboxed app cannot run `lsof`
+usefully. Two programs reading one port lose each other's bytes
+(`docs/PROTOCOL.md`). Open question: whether `proc_listpidspath` (libproc) works
+under the sandbox and can name the other holder. Until that is tried, the
+mitigation is the connect message telling the teacher to close other scanner
+software, and the exclusive hold that protects the app from programs started
+afterwards.
+
+The original instructions follow.
+
 The Flutter build's serial path is tested against a pseudo-terminal and against
 Python's recorded behaviour, but **nothing here has touched a real DataLink
 1200 yet**. This check is the one thing that can show a signed, sandboxed

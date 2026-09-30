@@ -71,6 +71,7 @@ class AppServices {
     required this.scanner,
     required this.actions,
     required this.dataDirectory,
+    this.portPollInterval = const Duration(seconds: 2),
   }) : classBook = ClassBook(store);
 
   final Store store;
@@ -85,6 +86,10 @@ class AppServices {
   /// container, at the same `Application Support/DataLink Scanner/captures`
   /// path the Python app used, so the on-disk layout is unchanged.
   final Directory dataDirectory;
+
+  /// How often the Scan tab looks for a newly plugged-in scanner. Null turns
+  /// the polling off, which tests need so no timer outlives them.
+  final Duration? portPollInterval;
 
   /// Open the real thing: the library in Application Support and the USB
   /// serial transport.

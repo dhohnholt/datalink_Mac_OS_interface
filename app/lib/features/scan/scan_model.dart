@@ -1,0 +1,395 @@
+import 'dart:async';
+
+import 'package:datalink_core/datalink_core.dart';
+import 'package:flutter/foundation.dart';
+
+import '../../app/services.dart';
+
+/// Everything the Scan tab decides, apart from drawing it. The old page did
+/// this inside `render()` and a dozen event handlers; here it is one object a
+/// test can drive.
+class ScanModel extends ChangeNotifier {
+  ScanModel(
+    this._services, {
+    Duration? portPollInterval = const Duration(seconds: 2),
+    this.debounce = const Duration(milliseconds: 400),
+  }) {
+    final settings = _services.workspace.settings();
+    _testName = settings['test_name']! as String;
+    final saved = int.tryParse('${settings['question_count']}');
+    if (saved != null) _questionCount = saved.clamp(minAnswerCount, maxAnswerCount);
+    _matching = StudentMatching.parse(settings['student_matching'] as String?);
+    _snapshot = _services.scanner.snapshot();
+    _subscription = _services.scanner.changes.listen(_onSnapshot);
+    _services.classBook.addListener(notifyListeners);
+    unawaited(_services.scanner.refreshPorts());
+    if (portPollInterval != null) {
+      _ports = Timer.periodic(portPollInterval, (_) {
+        if (!_snapshot.connected) unawaited(_services.scanner.refreshPorts());
+      });
+    }
+  }
+
+  final AppServices _services;
+  final Duration debounce;
+
+  late ScannerSnapshot _snapshot;
+  StreamSubscription<ScannerSnapshot>? _subscription;
+  Timer? _ports;
+  Timer? _nameTimer;
+
+  String _testName = '';
+  int _questionCount = defaultAnswerCount;
+  StudentMatching _matching = StudentMatching.id;
+  String port = '';
+  bool showProtocol = false;
+
+  /// Where scanning each class has got to. Kept for the life of the app, as the
+  /// old page kept it for the life of the window.
+  final Map<String, int> _rosterIndex = {};
+
+  int? _autoResolving;
+  int? _handledReview;
+
+  /// Show a short message to the teacher. Set by the screen.
+  void Function(String message)? onMessage;
+
+  /// Set when a sheet needs a human; cleared when it has been dealt with.
+  ReviewPlan? pendingPlan;
+  Map<String, Object?>? pendingReview;
+
+  // ------------------------------------------------------------------ state
+
+  ScannerSnapshot get snapshot => _snapshot;
+  String get testName => _testName;
+  int get questionCount => _questionCount;
+  StudentMatching get matching => _matching;
+  String get className => _services.classBook.selectedName;
+
+  RosterWalk get walk => RosterWalk(
+        _services.classBook.studentsOf(className),
+        _rosterIndex[className] ?? 0,
+      );
+
+  bool get busy => _snapshot.state == 'connecting';
+  bool get scanning => _snapshot.scanning;
+  bool get connected => _snapshot.state == 'connected';
+  bool get hasKey => _snapshot.records.any((r) => r['role'] == 'key');
+
+  String get badgeLabel => switch (_snapshot.state) {
+        'disconnected' => 'Disconnected',
+        'connecting' => 'Connecting…',
+        'connected' => scanning ? 'Ready to scan' : 'Connected · no session',
+        'error' => 'Needs attention',
+        final other => other,
+      };
+
+  String get connectLabel => connected ? 'Start scanning session' : 'Connect and start session';
+  bool get canStart => !busy && !scanning;
+  bool get canEnd => scanning;
+  bool get canReset => connected;
+  bool get canDisconnect => _snapshot.state != 'disconnected';
+  bool get canClear => !scanning;
+  bool get portLocked => busy || connected;
+  bool get countLocked => busy || scanning;
+
+  String get connectionDetail {
+    final error = _snapshot.error;
+    if (error != null && error.isNotEmpty) return error;
+    if (connected) {
+      return scanning
+          ? 'Session running on ${_snapshot.port}. Feed one sheet at a time.'
+          : 'Scanner ready on ${_snapshot.port}. No session is running.';
+    }
+    return 'Connect the scanner by USB, then select its serial port.';
+  }
+
+  /// "Start a session" → "Scan the answer key first" → "Next: Ada".
+  ({String step, String title, String detail}) get workflow {
+    final next = walk.current;
+    final roster = walk.students;
+    if (!scanning) {
+      return (
+        step: '1',
+        title: 'Start a session',
+        detail: 'Name the test, pick the class, then press Start. '
+            'Nothing is recorded until a session is running.',
+      );
+    }
+    if (!hasKey) {
+      return (
+        step: '2',
+        title: 'Scan the answer key first',
+        detail: "Check the scanner's own display reads Scan Mode Ready — press Reset on the "
+            'device to cycle to it — then feed the marked answer key before any student sheets.',
+      );
+    }
+    return (
+      step: '✓',
+      title: next != null
+          ? 'Next: ${next.name}'
+          : roster.isNotEmpty
+              ? 'Roster complete'
+              : 'Answer key captured',
+      detail: next != null
+          ? 'Roster #${next.id} · Feed ${next.name}\'s sheet now.'
+          : roster.isNotEmpty
+              ? 'Every student on the roster has been handled.'
+              : 'The session is ready for student sheets. Feed them one at a time.',
+    );
+  }
+
+  String get rosterSummary => walk.summary(className);
+  bool get canSkip => scanning && hasKey && walk.current != null;
+  bool get canStartAtFirst => walk.students.isNotEmpty && walk.index != 0;
+
+  /// The newest sheet's "answered / total", or an em dash.
+  String get latestAnswered {
+    final records = _snapshot.records;
+    if (records.isEmpty) return '—';
+    final latest = records.last;
+    return '${latest['answered_count']} / ${(latest['responses']! as List).length}';
+  }
+
+  String get sessionLabel {
+    if (!_snapshot.scanning) return 'Not started';
+    if (_snapshot.sessionName.isNotEmpty) return _snapshot.sessionName;
+    final path = _snapshot.outputPath;
+    return path == null ? 'Running' : path.split('/').last;
+  }
+
+  /// Newest first, as the table shows them.
+  List<Map<String, Object?>> get recordsNewestFirst => _snapshot.records.reversed.toList();
+
+  /// Protocol lines are hidden until asked for.
+  List<ActivityEntry> get activity => [
+        for (final entry in _snapshot.activity)
+          if (showProtocol || entry.kind != 'protocol') entry,
+      ];
+
+  String get exportFilename {
+    final name = _testName.trim();
+    final label = [className.trim(), name].where((p) => p.isNotEmpty).join(' - ');
+    return safeExportFilename(label.isEmpty ? 'datalink-session' : label);
+  }
+
+  // ---------------------------------------------------------------- settings
+
+  void setTestName(String value) {
+    _testName = value;
+    notifyListeners();
+    _nameTimer?.cancel();
+    // Saved a moment after typing stops, not on every keystroke.
+    _nameTimer = Timer(debounce, _saveName);
+  }
+
+  void _saveName() {
+    _nameTimer?.cancel();
+    _nameTimer = null;
+    _services.workspace.updateSettings(
+      {'test_name': _testName.trim()},
+      openSessionId: _services.scanner.currentSessionId,
+    );
+  }
+
+  /// Clamp on the way out of the field rather than on every keystroke, so
+  /// typing "100" does not fight the user after the first digit.
+  void commitQuestionCount(String text) {
+    final parsed = int.tryParse(text.trim());
+    final clamped = parsed == null ? defaultAnswerCount : parsed.clamp(minAnswerCount, maxAnswerCount);
+    if (parsed != clamped) {
+      onMessage?.call('Questions per form must be between $minAnswerCount and $maxAnswerCount');
+    }
+    _questionCount = clamped;
+    _services.workspace.updateSettings({'question_count': '$clamped'});
+    notifyListeners();
+  }
+
+  void setMatching(StudentMatching value) {
+    _matching = value;
+    _services.workspace.updateSettings({'student_matching': value.name});
+    onMessage?.call(switch (value) {
+      StudentMatching.id => 'Sheets can be fed in any order',
+      StudentMatching.roster => 'Sheets are taken in roster order',
+      StudentMatching.manual => 'Every sheet will ask',
+    });
+    notifyListeners();
+  }
+
+  void selectClass(String name) {
+    _services.classBook.select(name);
+    onMessage?.call(name.isEmpty ? 'Roster turned off' : 'Scanning against $name');
+    notifyListeners();
+  }
+
+  void toggleProtocol() {
+    showProtocol = !showProtocol;
+    notifyListeners();
+  }
+
+  // ----------------------------------------------------------------- actions
+
+  /// One press for the common case: bring the scanner up if it is not up
+  /// already, then open the session on top of it.
+  Future<void> start() async {
+    // A session takes the name saved at the moment it starts, so a name typed
+    // a moment ago must be saved first, not left waiting on the debounce.
+    if (_nameTimer?.isActive ?? false) _saveName();
+    try {
+      if (!connected) {
+        await _services.scanner.connect(port.isEmpty ? null : port, _questionCount);
+      }
+      _rosterIndex[className] = 0;
+      // The explicit action re-sends the handshake first: a DataLink can keep a
+      // pending second-side prompt after an interrupted key, and this clears it.
+      await _services.scanner.startSession(questionCount: _questionCount, resetScanner: true);
+      onMessage?.call('Session started · feed the answer key first');
+    } on DataLinkError catch (error) {
+      onMessage?.call(error.message);
+    } on SerialException catch (error) {
+      onMessage?.call(error.message);
+    } finally {
+      _sync();
+    }
+  }
+
+  SessionSummary? end() {
+    try {
+      final summary = _services.scanner.endSession();
+      onMessage?.call(summary.message);
+      return summary;
+    } on DataLinkError catch (error) {
+      onMessage?.call(error.message);
+      return null;
+    } finally {
+      _sync();
+    }
+  }
+
+  Future<void> resetScanner() async {
+    try {
+      await _services.scanner.resetScanner();
+      onMessage?.call('Handshake re-sent · for a held sheet, press Reset on the device');
+    } on DataLinkError catch (error) {
+      onMessage?.call(error.message);
+    } on SerialException catch (error) {
+      onMessage?.call(error.message);
+    } finally {
+      _sync();
+    }
+  }
+
+  Future<void> disconnect() async {
+    await _services.scanner.disconnect();
+    _sync();
+  }
+
+  void clearView() {
+    try {
+      _services.scanner.clear();
+    } on DataLinkError catch (error) {
+      onMessage?.call(error.message);
+    } finally {
+      _sync();
+    }
+  }
+
+  void skipStudent() {
+    final w = walk;
+    final skipped = w.current;
+    if (skipped == null) return;
+    w.advance();
+    _rosterIndex[className] = w.index;
+    onMessage?.call('Skipped ${skipped.name}');
+    notifyListeners();
+  }
+
+  void startAtFirst() {
+    _rosterIndex[className] = 0;
+    notifyListeners();
+  }
+
+  /// The CSV for the sheets on screen and the name to offer it under.
+  ({String filename, String csv}) exportCsv() =>
+      (filename: exportFilename, csv: _services.scanner.exportCsv(className));
+
+  // ---------------------------------------------------------------- reviewing
+
+  /// Read the controller's state now rather than waiting for its next event,
+  /// so what the screen shows is never a step behind the action just taken.
+  void _sync() => _onSnapshot(_services.scanner.snapshot());
+
+  void _onSnapshot(ScannerSnapshot next) {
+    _snapshot = next;
+    final review = next.pendingReview;
+    if (review == null) {
+      pendingPlan = null;
+      pendingReview = null;
+      _autoResolving = null;
+      _handledReview = null;
+    } else if (review['id'] != _handledReview) {
+      _handledReview = review['id'] as int?;
+      final plan = planReview(
+        review: review,
+        roster: walk,
+        matching: _matching,
+        className: className,
+      );
+      if (plan.autoSave) {
+        _autoSave(review, plan);
+      } else {
+        pendingReview = review;
+        pendingPlan = plan;
+      }
+    }
+    notifyListeners();
+  }
+
+  void _autoSave(Map<String, Object?> review, ReviewPlan plan) {
+    final id = review['id']! as int;
+    if (_autoResolving == id) return;
+    _autoResolving = id;
+    final scannerId = review['scanner_id']! as String;
+    try {
+      _services.scanner.resolveReview(id, const {}, scannerId, plan.studentName);
+      if (plan.matchIndex >= 0) {
+        _rosterIndex[className] = plan.matchIndex + 1;
+      }
+      onMessage?.call(
+        plan.studentName.isNotEmpty
+            ? 'Captured ${plan.studentName} · $scannerId'
+            : 'Captured ID $scannerId',
+      );
+    } on DataLinkError catch (error) {
+      _autoResolving = null;
+      onMessage?.call(error.message);
+    }
+  }
+
+  /// Finish the sheet the dialog is showing. Returns an error to show, or null
+  /// when it was saved and the dialog can close.
+  String? resolve(Map<String, String> resolutions, String studentId, String studentName) {
+    final review = pendingReview;
+    final plan = pendingPlan;
+    if (review == null || plan == null) return null;
+    try {
+      _services.scanner.resolveReview(review['id']! as int, resolutions, studentId, studentName);
+    } on DataLinkError catch (error) {
+      return error.message;
+    }
+    if (plan.needsStudentId && walk.students.isNotEmpty && plan.matchIndex >= 0) {
+      _rosterIndex[className] = plan.matchIndex + 1;
+    }
+    _sync();
+    return null;
+  }
+
+  @override
+  void dispose() {
+    _nameTimer?.cancel();
+    _ports?.cancel();
+    unawaited(_subscription?.cancel());
+    _services.classBook.removeListener(notifyListeners);
+    super.dispose();
+  }
+}

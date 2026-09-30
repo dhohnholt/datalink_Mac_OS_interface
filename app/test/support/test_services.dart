@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:datalink_core/datalink_core.dart';
 import 'package:datalink_scanner/app/services.dart';
 
+import 'live_fake.dart';
+
 /// A transport with no scanner attached.
 class NoScannerTransport implements SerialTransport {
   @override
@@ -11,14 +13,6 @@ class NoScannerTransport implements SerialTransport {
   @override
   Future<SerialConnection> open(String path, SerialSettings settings) =>
       throw const DataLinkError('No scanner in tests');
-}
-
-class _Clock implements Clock {
-  @override
-  double monotonic() => 0;
-
-  @override
-  Future<void> sleep(double seconds) async {}
 }
 
 /// Records what the screen asked the operating system to do.
@@ -50,6 +44,7 @@ AppServices testServices({
   Store? store,
   RecordingActions? actions,
   SerialTransport? transport,
+  Clock? clock,
   DateTime Function()? now,
 }) {
   final db = store ?? Store.open(':memory:');
@@ -61,10 +56,11 @@ AppServices testServices({
       captureRoot: directory,
       store: db,
       transport: transport ?? NoScannerTransport(),
-      clock: _Clock(),
+      clock: clock ?? YieldingClock(),
     ),
     actions: actions ?? RecordingActions(),
     dataDirectory: directory,
+    portPollInterval: null,
   );
 }
 

@@ -5,6 +5,7 @@ import '../app/navigation.dart';
 import '../app/scope.dart';
 import '../features/analysis/analysis_screen.dart';
 import '../features/classes/classes_screen.dart';
+import '../features/scan/scan_screen.dart';
 import '../features/sessions/sessions_screen.dart';
 import 'widgets.dart';
 
@@ -81,6 +82,7 @@ class AppShell extends StatelessWidget {
     final override = screens[view];
     if (override != null) return override(context);
     return switch (view) {
+      AppView.scan => const ScanScreen(),
       AppView.classes => const ClassesScreen(),
       AppView.sessions => const SessionsScreen(),
       AppView.analysis => const AnalysisScreen(),

@@ -1,0 +1,13 @@
+name: datalink_core
+description: >-
+  The DataLink 1200 serial protocol and record parsing, in pure Dart. No Flutter
+  imports, so it can be tested with `dart test` and run without a scanner.
+version: 2.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

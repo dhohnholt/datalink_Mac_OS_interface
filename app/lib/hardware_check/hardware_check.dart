@@ -117,6 +117,8 @@ class HardwareCheck {
       }
     } on DataLinkError catch (error) {
       _log('FAILED: ${error.message}');
+    } on SerialException catch (error) {
+      _log('FAILED: ${error.message}');
     } finally {
       await scanner.close();
       _log('closed');
@@ -190,6 +192,10 @@ class HardwareCheck {
           progress();
         }
       } on DataLinkError catch (error) {
+        _log('read failed: ${error.message}');
+        progress();
+        return;
+      } on SerialException catch (error) {
         _log('read failed: ${error.message}');
         progress();
         return;

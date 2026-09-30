@@ -9,7 +9,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:datalink_core/datalink_core.dart';
-import 'package:datalink_core/src/protocol/py_json.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_serial.dart';

@@ -175,7 +175,7 @@ class PosixSerialConnection implements SerialConnection {
     final result = c.ioctlInt(_fd, on ? c.tiocmbis : c.tiocmbic, bit);
     if (result != 0) {
       if (!_requireModemLines && c.errno == c.enotty) return;
-      throw DataLinkError(
+      throw SerialException(
         'Could not set a modem line: ${c.errnoMessage(c.errno)}',
       );
     }
@@ -186,7 +186,7 @@ class PosixSerialConnection implements SerialConnection {
     _check();
     final out = <int>[];
     if (c.ioctlInt(_fd, c.tiocmget, 0, out) != 0) {
-      throw DataLinkError(
+      throw SerialException(
         'Could not read the modem lines: ${c.errnoMessage(c.errno)}',
       );
     }
@@ -215,12 +215,12 @@ class PosixSerialConnection implements SerialConnection {
     while (sent < data.length) {
       final put = c.writeBytes(_fd, Uint8List.sublistView(data, sent));
       if (put < 0) {
-        throw DataLinkError('Scanner write failed: ${c.errnoMessage(c.errno)}');
+        throw SerialException('Scanner write failed: ${c.errnoMessage(c.errno)}');
       }
       sent += put;
       if (sent >= data.length) break;
       if (deadline.elapsedMicroseconds / 1e6 > _settings.writeTimeoutSeconds) {
-        throw const DataLinkError('Scanner write timed out');
+        throw const SerialException('Scanner write timed out');
       }
       await Future<void>.delayed(const Duration(milliseconds: 1));
     }
@@ -239,7 +239,7 @@ class PosixSerialConnection implements SerialConnection {
     final queued = <int>[];
     while (c.ioctlInt(_fd, c.tiocoutq, 0, queued) == 0 && queued.single > 0) {
       if (clock.elapsedMicroseconds / 1e6 > _settings.writeTimeoutSeconds) {
-        throw const DataLinkError('Scanner write timed out');
+        throw const SerialException('Scanner write timed out');
       }
       await Future<void>.delayed(const Duration(milliseconds: 1));
     }
@@ -258,7 +258,7 @@ class PosixSerialConnection implements SerialConnection {
     while (true) {
       final chunk = c.readBytes(_fd, size - collected.length);
       if (chunk == null) {
-        throw DataLinkError('Scanner read failed: ${c.errnoMessage(c.errno)}');
+        throw SerialException('Scanner read failed: ${c.errnoMessage(c.errno)}');
       }
       collected.add(chunk);
       if (collected.length >= size) break;

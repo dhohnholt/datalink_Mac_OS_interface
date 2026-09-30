@@ -241,7 +241,7 @@ void main() {
       int? bits;
       try {
         bits = posix.modemBits;
-      } on DataLinkError {
+      } on SerialException {
         // A pty has no modem lines on some systems; the real adapter does.
         markTestSkipped('pseudo-terminal has no modem control lines');
         return;

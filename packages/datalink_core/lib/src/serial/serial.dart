@@ -36,6 +36,20 @@ class SerialSettings {
 
 enum SerialParity { none, even, odd }
 
+/// The port itself failed: a read or write error, a device that vanished. This
+/// is deliberately not a [DataLinkError]. Those are protocol problems the
+/// controller skips past (one bad record must not stop a session); this one
+/// means the connection is gone, and is fatal to it. The Python app had the
+/// same split between `DataLinkError` and pyserial's `SerialException`.
+class SerialException implements Exception {
+  const SerialException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// An open serial port. Mirrors the small slice of pyserial the original uses,
 /// so the driver above it is a line-for-line port.
 abstract interface class SerialConnection {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Mandatory for the Mac App Store. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The DataLink 1200 is a USB serial device (/dev/cu.usbserial-1200). -->
+	<key>com.apple.security.device.serial</key>
+	<true/>
+	<!-- PDFs are chosen in an Open panel and CSV exports saved from a Save panel. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+</dict>
+</plist>

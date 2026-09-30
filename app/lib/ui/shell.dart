@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app/navigation.dart';
 import '../app/scope.dart';
+import '../features/analysis/analysis_screen.dart';
 import '../features/classes/classes_screen.dart';
 import '../features/sessions/sessions_screen.dart';
 import 'widgets.dart';
@@ -82,6 +83,7 @@ class AppShell extends StatelessWidget {
     return switch (view) {
       AppView.classes => const ClassesScreen(),
       AppView.sessions => const SessionsScreen(),
+      AppView.analysis => const AnalysisScreen(),
       _ => EmptyState(
           title: '${_labels[view]!.$1} is not built yet',
           message: 'This screen is still being ported; see docs/flutter-ui-checklist.md.',

@@ -105,6 +105,7 @@ AppServices testServices({
   ScriptedHttp? http,
   BatchReader? paperReader,
   PageCounter? pageCounter,
+  PageCache? pageCache,
 }) {
   final db = store ?? Store.open(':memory:');
   final directory = Directory.systemTemp.createTempSync('datalink-app-test');
@@ -128,6 +129,7 @@ AppServices testServices({
     portPollInterval: null,
     paperReader: paperReader,
     pageCounter: pageCounter,
+    pageCache: pageCache,
   );
 }
 

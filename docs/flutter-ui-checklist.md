@@ -7,73 +7,80 @@ feature does not exist in the new app on purpose, with the reason.
 
 Legend: `[x]` done and checked · `[ ]` not yet · `[-]` dropped on purpose.
 
-**Status:** the Paper section is ticked against `app/test/paper_screen_test.dart`,
-`menu_test.dart` and `review_sheet_picture_test.dart`. The other sections have
-screens and tests but their boxes have not yet been audited line by line, so
-they stay unticked until that is done.
+**Status (audited line by line):** every box below is ticked against a named
+test or a run, and a line that could not be shown stays open with the reason.
+The audit found five gaps with no test (the live scan table and metrics, the
+locked port and form length, the *Connecting…* badge, the session bar, the
+offer to empty the page cache) and one that had none for its copy (*What is
+sent*); `app/test/audit_gaps_test.dart` now covers them. Wording was also
+compared mechanically: all 26 toast messages in the old page appear verbatim in
+the new code except four that do not apply (the browser import, "Open the app
+itself to choose a PDF", the clipboard fallback, and "That setting could not be
+saved"). Descriptive paragraphs under headings were reworded in places, and
+"T-TESS" became "your site"; behaviour is what is held equal.
 
 ## Behaviour that lives in the page and must move into Dart
 
 These are not screens; they are rules the old UI enforced in JavaScript. Each
 becomes tested view-model or domain code.
 
-- [ ] **Student ID matching ignores leading zeros** (`sameStudentId`): a bubbled
+- [x] **Student ID matching ignores leading zeros** (`sameStudentId`): a bubbled
   `0900011` matches a roster `900011`. Also in `store._bare_id`.
-- [ ] **Roster walk** (`rosterIndex`, `advanceRoster`, `currentStudent`): which
+- [x] **Roster walk** (`rosterIndex`, `advanceRoster`, `currentStudent`): which
   student is expected next, kept per class for the life of the app session.
   Skip absent, Start at first student.
-- [ ] **Auto-save a detected student** (`renderReview` → `saveDetectedStudent`):
+- [x] **Auto-save a detected student** (`renderReview` → `saveDetectedStudent`):
   with matching "By bubbled ID", a student sheet with a scanner-read ID, no
   ambiguities, and (no roster or an ID on the roster) is saved without asking.
-- [ ] Three **student matching modes**: `id` (any order), `roster` (roster order,
+- [x] Three **student matching modes**: `id` (any order), `roster` (roster order,
   ignores the ID area), `manual` (every sheet asks).
-- [ ] **Review dialog content** per sheet: title (Confirm NAME / Check the scan /
+- [x] **Review dialog content** per sheet: title (Confirm NAME / Check the scan /
   Enter the student ID), intro text variants (ambiguities, ID not in class,
   ID read, manual), per-question choices (each option, Blank, Keep X), ID and
   name prefilled from the roster.
-- [ ] Question count clamp 1–100 on leaving the field, with the message.
-- [ ] Test name saved 400 ms after typing stops.
-- [ ] Export filename: `class - test.csv`, falling back to `datalink-session`.
-- [ ] Activity list: protocol lines hidden unless "Show protocol details".
-- [ ] Toast messages (kept verbatim: they are user-facing copy).
-- [ ] Item status cut points: Priority < 60 %, Developing < 70 %, else Secure.
-- [ ] Review rows: the exact problem wording for student_id, faint, multiple,
+- [x] Question count clamp 1–100 on leaving the field, with the message.
+- [x] Test name saved 400 ms after typing stops.
+- [x] Export filename: `class - test.csv`, falling back to `datalink-session`.
+- [x] Activity list: protocol lines hidden unless "Show protocol details".
+- [x] Toast messages (kept verbatim: they are user-facing copy). Checked by
+  comparing every toast string in `app.js` with the new source.
+- [x] Item status cut points: Priority < 60 %, Developing < 70 %, else Secure.
+- [x] Review rows: the exact problem wording for student_id, faint, multiple,
   session (stale device key), score disagreement, faint sheet, pending review.
-- [ ] Review-key format `page:field:question:reason` (must equal
+- [x] Review-key format `page:field:question:reason` (must equal
   `analysis.review_key`).
-- [ ] Only *changed* ID/name boxes count as corrections on Apply.
-- [ ] Ticking a row, or changing its answer, settles it.
-- [ ] Name box hides when a roster student is chosen; typing an ID fills the
+- [x] Only *changed* ID/name boxes count as corrections on Apply.
+- [x] Ticking a row, or changing its answer, settles it.
+- [x] Name box hides when a roster student is chosen; typing an ID fills the
   name from the session's own class roster, never overwriting a typed name.
-- [ ] Answer-key editor: per-question A–E, changed rows marked, "N answers
+- [x] Answer-key editor: per-question A–E, changed rows marked, "N answers
   changed. Saving rescores every sheet", confirm before saving.
-- [ ] Upload picker: Course → Section → Unit → Test, each narrowing the next,
+- [x] Upload picker: Course → Section → Unit → Test, each narrowing the next,
   selections surviving a refresh; draft-run detection switches the button to
   "Update draft" and asks before replacing.
 - [x] Paper: disable Run until a PDF is chosen; key page max = page count;
   key-fix flow requires every unresolved question answered before retry.
-- [ ] Offer to empty the page cache once per run when over 500 MB. (Implemented
-  as `PaperModel.takePurgeOffer`; the limit is not reachable in a test yet.)
-- [ ] Session context bar (name, class, sheet count, time) with Sheets /
+- [x] Offer to empty the page cache once per run when over 500 MB.
+- [x] Session context bar (name, class, sheet count, time) with Sheets /
   Analysis / Clear; selecting a test in either tab selects it in both.
-- [ ] Routing: Back works between tabs, sessions and analysis panes.
+- [x] Routing: Back works between tabs, sessions and analysis panes.
 
 ## Scan
-- [ ] Connection badge: Disconnected / Connecting… / Ready to scan / Connected ·
+- [x] Connection badge: Disconnected / Connecting… / Ready to scan / Connected ·
   no session / Needs attention
-- [ ] Port picker (Auto-detect + listed ports), locked while connected
-- [ ] Test name · Class picker · Student matching (+ help) · Questions per form (+ help)
-- [ ] Connect and start session / Start scanning session · End session (confirm) ·
+- [x] Port picker (Auto-detect + listed ports), locked while connected
+- [x] Test name · Class picker · Student matching (+ help) · Questions per form (+ help)
+- [x] Connect and start session / Start scanning session · End session (confirm) ·
   Reset scanner (+ tooltip) · Disconnect
-- [ ] Metrics: sheets captured, latest answered n / N, session name
-- [ ] Workflow card: Start a session → Scan the answer key first → Next: NAME …
+- [x] Metrics: sheets captured, latest answered n / N, session name
+- [x] Workflow card: Start a session → Scan the answer key first → Next: NAME …
   (all variants), roster summary line
-- [ ] Skip absent · Start at first student
-- [ ] Live scans table (newest first): Key / Student N, name + ID, time, Q1…Qn,
+- [x] Skip absent · Start at first student
+- [x] Live scans table (newest first): Key / Student N, name + ID, time, Q1…Qn,
   blank "—" and multiple styling
-- [ ] Clear view (disabled while a session runs, with explanation)
-- [ ] Activity list with kinds, Show/Hide protocol details
-- [ ] Export CSV (Save panel)
+- [x] Clear view (disabled while a session runs, with explanation)
+- [x] Activity list with kinds, Show/Hide protocol details
+- [x] Export CSV (Save panel)
 
 ## Paper
 - [x] Choose PDF (Open panel), file line "name · N pages"
@@ -89,58 +96,66 @@ becomes tested view-model or domain code.
   runtime any more.
 
 ## Sessions
-- [ ] List (when, name, class, sheets) with View / Rename / Delete (confirm)
-- [ ] Refresh · Storage summary and path · Show in Finder
-- [ ] Delete sessions older than N (preview count, confirm, result toast)
-- [ ] Detail: title, summary line, scan table with all Q columns
-- [ ] Click any response to correct it (A–E or Blank), "already what is
+- [x] List (when, name, class, sheets) with View / Rename / Delete (confirm)
+- [x] Refresh · Storage summary and path · Show in Finder
+- [x] Delete sessions older than N (preview count, confirm, result toast)
+- [x] Detail: title, summary line, scan table with all Q columns
+- [x] Click any response to correct it (A–E or Blank), "already what is
   recorded", saved toast
-- [ ] Export CSV · Export item analysis JSON (disabled with reason when not
+- [x] Export CSV · Export item analysis JSON (disabled with reason when not
   scoreable)
-- [ ] Close
+- [x] Close
 
 ## Analysis
-- [ ] Test picker
-- [ ] Metrics: students, average %, KR-20, items to review
-- [ ] Priority callout ("Focus first on item(s) …")
-- [ ] Counts: Priority / Developing / Secure / Flagged
-- [ ] Item table with bars, filters (All / Priority / Developing / Secure / Flagged)
-- [ ] Full statistical diagnostics (toggle)
-- [ ] Student scores table
-- [ ] Review pane: badge count, empty state, rows, sheet viewer, answer fix,
+- [x] Test picker
+- [x] Metrics: students, average %, KR-20, items to review
+- [x] Priority callout ("Focus first on item(s) …")
+- [x] Counts: Priority / Developing / Secure / Flagged
+- [x] Item table with bars, filters (All / Priority / Developing / Secure / Flagged)
+- [x] Full statistical diagnostics (toggle)
+- [x] Student scores table
+- [x] Review pane: badge count, empty state, rows, sheet viewer, answer fix,
   Mark all checked / Untick all, Apply corrections, "N checked off and hidden",
   Show them again
-- [ ] Answer key pane
-- [ ] Send to T-TESS pane (see Settings)
-- [ ] Download item analysis JSON
-- [ ] Error banner "This test cannot be scored"
+- [x] Answer key pane
+- [x] Send to T-TESS pane (see Settings)
+- [x] Download item analysis JSON
+- [x] Error banner "This test cannot be scored"
 
 ## Classes
-- [ ] List (name, students, selected ✓) · Use for scanning · Edit · New class
-- [ ] Editor: class name, roster as `id, name` lines, validation "Fix roster
+- [x] List (name, students, selected ✓) · Use for scanning · Edit · New class
+- [x] Editor: class name, roster as `id, name` lines, validation "Fix roster
   line: …", Save (toast "Saved X with N students"), Delete (confirm)
-- [ ] Rename carries through to sessions
+- [x] Rename carries through to sessions
 
 ## Settings
-- [ ] Connection status, token entry, Connect / Disconnect (confirm)
-- [ ] Upload address and site address, Save address (https only)
-- [ ] Destination summary, Refresh tests
-- [ ] Copy the specification (clipboard)
-- [ ] "What is sent" card
+- [x] Connection status, token entry, Connect / Disconnect (confirm)
+- [x] Upload address and site address, Save address (https only)
+- [x] Destination summary, Refresh tests
+- [x] Copy the specification (clipboard)
+- [x] "What is sent" card
 - [-] Updates card · automatic update check (the store delivers updates)
 - [-] "Quit" (Cmd-Q quits) · "Open in Browser" (there is no server)
 - [-] localStorage class import (`/api/classes/import`)
 
 ## Menu bar (from `app.py`)
-- [ ] Connect · End session · Reset scanner · Disconnect · Clear view
-- [ ] Skip student · Start at first student · Show protocol details
-- [ ] Scan · Paper · Classes · Sessions · Analysis · Settings
-- [ ] Read paper batch (tested, ⌘O) · New class · Edit class
-- [ ] Export CSV · Export analysis · Open session folder
-- [ ] Help · Protocol notes · Report an issue · About
+- [x] Connect · End session · Reset scanner · Disconnect · Clear view
+- [x] Skip student · Start at first student · Show protocol details
+- [x] Scan · Paper · Classes · Sessions · Analysis · Settings
+- [x] Read paper batch (⌘O) · New class · Edit class
+- [x] Export CSV · Export analysis · Open session folder
+- [x] Help · Protocol notes · Report an issue
+- [ ] About: the standard macOS About panel. Only a run of the app can show it.
 - [-] Check for Updates
 
 ## Accessibility (applies to every screen)
+Status: the pieces below are in place but not yet audited as a whole, so none
+is ticked. Covered so far: help buttons are reachable by screen readers
+(`scan_screen_test`), data-table columns carry "Question N" labels, status pills
+carry words as well as colour, and every text/background pair in both themes
+passes WCAG contrast (`palette_test`). Not done: a VoiceOver walk through each
+screen, a keyboard-only pass, and Reduce Motion / larger text.
+
 - [ ] Every control has a VoiceOver label; badges announce their count
 - [ ] Tables expose row and column headers (Semantics)
 - [ ] Full keyboard path: tab strip, dialogs (Esc / Enter), tables, pickers

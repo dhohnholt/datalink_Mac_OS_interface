@@ -96,13 +96,14 @@ class AppServices {
     this.portPollInterval = const Duration(seconds: 2),
     BatchReader? paperReader,
     PageCounter? pageCounter,
+    PageCache? pageCache,
   })  : classBook = ClassBook(store),
         connection = TtessConnection(ttess),
-        pageCache = PageCache(Directory('${dataDirectory.path}/paper-cache')) {
+        pageCache = pageCache ?? PageCache(Directory('${dataDirectory.path}/paper-cache')) {
     paper = PaperModel(
       store: store,
       classBook: classBook,
-      cache: pageCache,
+      cache: this.pageCache,
       reader: paperReader ?? _readWithBundledTemplate,
       pageCounter: pageCounter ?? countPdfPages,
     );

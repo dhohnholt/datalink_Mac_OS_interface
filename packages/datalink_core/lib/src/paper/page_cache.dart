@@ -23,7 +23,10 @@ const int pageViewWidth = 1100;
 const int cacheWarnBytes = 500 * 1024 * 1024;
 
 class PageCache {
-  PageCache(this.root);
+  PageCache(this.root, {this.warnBytes = cacheWarnBytes});
+
+  /// The size past which the teacher is offered the chance to empty it.
+  final int warnBytes;
 
   /// Holds one folder per PDF.
   final Directory root;
@@ -56,8 +59,8 @@ class PageCache {
       'cache_dir': root.path,
       'cache_bytes': bytes,
       'batches': batches,
-      'warn_bytes': cacheWarnBytes,
-      'over_limit': bytes >= cacheWarnBytes,
+      'warn_bytes': warnBytes,
+      'over_limit': bytes >= warnBytes,
     };
   }
 

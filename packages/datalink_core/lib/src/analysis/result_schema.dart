@@ -15,6 +15,7 @@ class ParsedSheet {
     required this.answers,
     required this.scannerScore,
     required this.answerConfidence,
+    this.calibration = const <String, Object?>{},
   });
 
   final String? studentId;
@@ -26,8 +27,8 @@ class ParsedSheet {
   /// reader stored. Empty for a DataLink sheet.
   final Map<int, Object?> answerConfidence;
 
-  /// Always empty here; the paper reader fills it in, this path does not.
-  Map<String, Object?> get calibration => const <String, Object?>{};
+  /// Where the paper reader found the sheet; empty for a DataLink sheet.
+  final Map<String, Object?> calibration;
 }
 
 String? normalizedStudentId(String? value) {

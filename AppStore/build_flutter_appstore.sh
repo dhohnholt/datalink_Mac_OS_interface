@@ -198,7 +198,10 @@ else
   SIGN_ID="$APP_IDENTITY"
   TIMESTAMP="--timestamp"
   RUNTIME="--options runtime"
-  /bin/cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
+  # -X: do not copy extended attributes. A profile downloaded in a browser
+  # carries com.apple.quarantine, which App Store processing refuses (91109).
+  /bin/cp -X "$PROFILE" "$APP/Contents/embedded.provisionprofile"
+  /usr/bin/xattr -c "$APP/Contents/embedded.provisionprofile" 2>/dev/null || true
   say "==> Signing as $APP_IDENTITY"
 fi
 
@@ -310,6 +313,11 @@ if [[ -n "${DATALINK_APPSTORE_TESTABLE:-}" ]]; then
 else
   PKG="$DIST/DataLink-Scanner-$VERSION-flutter-appstore.pkg"
 fi
+# Last look before packaging, after everything was copied in and signed.
+if /usr/bin/xattr -lr "$APP" 2>/dev/null | /usr/bin/grep -q 'com.apple.quarantine'; then
+  stop "the signed bundle contains quarantined files" "Remove com.apple.quarantine and build again."
+fi
+say "    ok: no quarantine attribute anywhere in the bundle"
 say "==> Building the installer, signed as $INSTALLER_IDENTITY"
 /usr/bin/productbuild --component "$APP" /Applications --sign "$INSTALLER_IDENTITY" "$PKG" >/dev/null
 

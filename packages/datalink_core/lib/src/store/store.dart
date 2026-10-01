@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import '../protocol/constants.dart' show minAnswerCount;
 import '../protocol/py_json.dart';
 import '../protocol/python_compat.dart';
 
@@ -338,6 +339,53 @@ class Store {
     if (assignments.isEmpty) return;
     values.add(sessionId);
     _db.execute('UPDATE sessions SET ${assignments.join(', ')} WHERE id = ?', values);
+  }
+
+  /// What scoring [sessionId] out of [count] questions would leave out: how
+  /// many sheets have a mark after question [count], and how many marks.
+  ({int sheets, int marks}) answersBeyond(int sessionId, int count) {
+    var sheets = 0;
+    var marks = 0;
+    for (final scan in sessionScans(sessionId)) {
+      final extra = (scan['responses']! as List).skip(count).where((r) => '$r'.isNotEmpty).length;
+      if (extra > 0) {
+        sheets++;
+        marks += extra;
+      }
+    }
+    return (sheets: sheets, marks: marks);
+  }
+
+  /// Score a session out of fewer questions: drop every sheet's responses after
+  /// question [count] and lower the session's count to match, together or not
+  /// at all.
+  ///
+  /// Only ever downwards. The answers past a session's count were never kept,
+  /// so a larger count could not bring them back; that takes scanning again.
+  /// The analysis is computed from these rows on demand, and its fingerprint
+  /// includes the count, so the next score is a new run, as a correction is.
+  void useFewerQuestions(int sessionId, int count) {
+    _transaction(() {
+      final row = session(sessionId);
+      if (row == null) throw const StoreError('No such session');
+      final current = row['question_count']! as int;
+      if (count < minAnswerCount || count >= current) {
+        throw StoreError(
+          'A test can only be changed to fewer questions than it has now ($current); '
+          'asked for $count.',
+        );
+      }
+      for (final scan in sessionScans(sessionId)) {
+        final responses = (scan['responses']! as List).map((r) => '$r').toList();
+        if (responses.length <= count) continue;
+        final kept = responses.sublist(0, count);
+        _db.execute(
+          'UPDATE scans SET responses = ?, answered_count = ? WHERE session_id = ? AND number = ?',
+          [pyJsonEncode(kept), kept.where((r) => r.isNotEmpty).length, sessionId, scan['number']],
+        );
+      }
+      _db.execute('UPDATE sessions SET question_count = ? WHERE id = ?', [count, sessionId]);
+    });
   }
 
   void rememberRunId(int sessionId, String runId, String fingerprint) {

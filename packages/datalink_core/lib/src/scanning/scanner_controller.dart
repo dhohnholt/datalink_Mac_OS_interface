@@ -312,6 +312,40 @@ class ScannerController {
     );
   }
 
+  /// Score the running session out of fewer questions than it was started
+  /// with: for a key marked for 30 questions in a session set up for 50.
+  /// Returns what was left out, `(sheets, marks)`.
+  ///
+  /// Only downwards, because the answers past the old count were never kept.
+  /// Refused while a sheet waits for review, since its marks are still being
+  /// decided against the old count.
+  ({int sheets, int marks}) changeQuestionCount(int count) {
+    final sessionId = _sessionId;
+    if (sessionId == null) throw const DataLinkError('No session is running');
+    if (_pendingReviews.isNotEmpty) {
+      throw const DataLinkError('Finish the sheet waiting for review first');
+    }
+    if (count < minAnswerCount || count >= _questionCount) {
+      throw DataLinkError(
+        'The question count can only be lowered, from $_questionCount to a number from '
+        '$minAnswerCount to ${_questionCount - 1}',
+      );
+    }
+    final loss = store.answersBeyond(sessionId, count);
+    store.useFewerQuestions(sessionId, count);
+    final before = _questionCount;
+    _questionCount = count;
+    _scanner?.parser.questionCount = count;
+    for (final record in _records) {
+      final kept = List<String>.from(record['responses']! as List).take(count).toList();
+      record['responses'] = kept;
+      record['answered_count'] = kept.where((r) => r.isNotEmpty).length;
+    }
+    _log('Scoring out of $count questions instead of $before.', 'success');
+    _changed();
+    return loss;
+  }
+
   /// Re-send the handshake on the open port.
   ///
   /// This was written believing it was the software equivalent of the Reset

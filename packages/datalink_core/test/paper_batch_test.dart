@@ -118,6 +118,85 @@ void main() {
     expect([answers[2]['answer'], answers[9]['answer']], ['C', 'A']);
   });
 
+  group('a key marked for fewer questions than the batch is set to', () {
+    // A 30-question test, with the count left at the form's 50.
+    List<String> shortKey() => [...cycle(0).take(30), ...List.filled(20, '')];
+
+    File thirtyQuestionBatch() => pdfOf([
+          syntheticSheet(template, answers: shortKey()),
+          syntheticSheet(template, answers: shortKey(), studentId: '111111'),
+        ]);
+
+    test('is caught on the key sheet alone, before the class is read', () async {
+      var reads = 0;
+      await expectLater(
+        readBatch(
+          request: PaperRequest(pdf: thirtyQuestionBatch(), keyPage: 1),
+          orientTemplate: template,
+          cache: cache,
+          workers: 1,
+          onProgress: (_, _) => reads++,
+        ),
+        throwsA(isA<QuestionCountException>()
+            .having((e) => e.suggested, 'suggested', 30)
+            .having((e) => e.current, 'current', 50)
+            .having((e) => e.keyPage, 'key page', 1)
+            .having((e) => e.message, 'message', contains('questions 1 to 30'))),
+      );
+      expect(reads, 0, reason: 'no progress is reported, because the sheets were never read');
+    });
+
+    test('reads as normal once the count is brought down', () async {
+      final report = await readBatch(
+        request: PaperRequest(pdf: thirtyQuestionBatch(), keyPage: 1, questionCount: 30),
+        orientTemplate: template,
+        cache: cache,
+        workers: 1,
+      );
+      expect(((report['exam']! as Map)['answer_key']! as List), hasLength(30));
+      expect((report['students']! as List), hasLength(1));
+    });
+
+    test('keeping the count goes on to the usual key review', () async {
+      await expectLater(
+        readBatch(
+          request: PaperRequest(pdf: thirtyQuestionBatch(), keyPage: 1, checkQuestionCount: false),
+          orientTemplate: template,
+          cache: cache,
+          workers: 1,
+        ),
+        throwsA(isA<AnswerKeyException>()),
+      );
+    });
+
+    test('answers supplied for the rest of the key mean the count was meant', () async {
+      final report = await readBatch(
+        request: PaperRequest(
+          pdf: thirtyQuestionBatch(),
+          keyPage: 1,
+          keyOverrides: {for (var q = 31; q <= 50; q++) q: 'A'},
+        ),
+        orientTemplate: template,
+        cache: cache,
+        workers: 1,
+      );
+      expect(((report['exam']! as Map)['answer_key']! as List), hasLength(50));
+    });
+
+    test('a complete key is read without a word', () async {
+      final report = await readBatch(
+        request: PaperRequest(
+          pdf: pdfOf([syntheticSheet(template, answers: cycle(0)), syntheticSheet(template, answers: cycle(0), studentId: '111111')]),
+          keyPage: 1,
+        ),
+        orientTemplate: template,
+        cache: cache,
+        workers: 1,
+      );
+      expect((report['students']! as List), hasLength(1));
+    });
+  });
+
   group('refusals', () {
     test('a key page outside the selection', () async {
       final file = pdfOf([syntheticSheet(template, answers: cycle(0))]);

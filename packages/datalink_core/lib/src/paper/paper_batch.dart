@@ -13,6 +13,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../analysis/analysis.dart';
+import '../analysis/question_count.dart';
 import '../analysis/result_schema.dart';
 import '../analysis/scoring.dart';
 import '../protocol/python_compat.dart';
@@ -44,6 +45,18 @@ class AnswerKeyException extends PaperException {
   final Map<String, Object?> review;
 }
 
+/// The key sheet has answers through question [suggested] and nothing after,
+/// while the batch was set to [current] questions. Almost certainly the count
+/// was left at its old value. Recoverable: read again with [suggested], or say
+/// to keep [current] and read anyway.
+class QuestionCountException extends PaperException {
+  const QuestionCountException(super.message, this.suggested, this.current, this.keyPage);
+
+  final int suggested;
+  final int current;
+  final int keyPage;
+}
+
 /// The page count of a PDF, for the "key page" field.
 int pdfPageCount(Uint8List bytes) {
   try {
@@ -63,6 +76,7 @@ class PaperRequest {
     this.examName,
     this.keyOverrides = const {},
     this.scanStudentIds = true,
+    this.checkQuestionCount = true,
   });
 
   final File pdf;
@@ -75,6 +89,11 @@ class PaperRequest {
   /// Question -> the answer the teacher says the key sheet carries.
   final Map<int, String> keyOverrides;
   final bool scanStudentIds;
+
+  /// Look at the key sheet first and stop with a [QuestionCountException] if it
+  /// holds fewer answers than [questionCount]. Turned off once the teacher has
+  /// said the count is right.
+  final bool checkQuestionCount;
 }
 
 /// Progress for the page: a fraction from 0 to 1 and a line of words.
@@ -210,6 +229,54 @@ Future<Map<int, PageReading>> _readPages({
   return results;
 }
 
+/// Reads just the key sheet, a few seconds' work, and stops if it was marked
+/// for fewer questions than the batch is set to. Cheaper than finding out after
+/// the whole class has been read. Anything else wrong with the key page is left
+/// for the full read to report in its usual words.
+Future<void> _checkKeyAgainstCount({
+  required PaperRequest request,
+  required Uint8List bytes,
+  required GrayImage template,
+  required String cacheDirectory,
+}) async {
+  final Map<int, PageReading> readings;
+  try {
+    readings = await _readPages(
+      pdf: bytes,
+      template: template,
+      pages: [request.keyPage],
+      cacheDirectory: cacheDirectory,
+      scanIds: false,
+      workers: 1,
+      onDone: (_, _) {},
+    );
+  } on PaperException {
+    return;
+  }
+  final reading = readings[request.keyPage];
+  if (reading is! ProcessedPage) return;
+  final answers = Map<int, String>.of(reading.sheet.answers);
+  for (final entry in request.keyOverrides.entries) {
+    answers[entry.key] = entry.value.toUpperCase();
+  }
+  final suggested = questionCountFromKey(
+    [
+      for (var q = 1; q <= request.questionCount; q++)
+        // Any mark counts as an answer here, several marks included.
+        (answers[q] == null || answers[q] == 'BLANK') ? '' : answers[q]!,
+    ],
+    request.questionCount,
+  );
+  if (suggested == null) return;
+  throw QuestionCountException(
+    'The answer key has answers for questions 1 to $suggested and none after, '
+    'but the batch is set to ${request.questionCount} questions.',
+    suggested,
+    request.questionCount,
+    request.keyPage,
+  );
+}
+
 // ------------------------------------------------------------------- batch
 
 /// Reads the whole batch and returns the analysis report, the same JSON the
@@ -253,6 +320,14 @@ Future<Map<String, Object?>> readBatch({
 
   final cacheDirectory = cache.directoryFor(pdf);
   cacheDirectory.createSync(recursive: true);
+  if (request.checkQuestionCount) {
+    await _checkKeyAgainstCount(
+      request: request,
+      bytes: bytes,
+      template: orientTemplate,
+      cacheDirectory: cacheDirectory.path,
+    );
+  }
   onProgress?.call(0, 'Reading the sheets…');
   final readings = await _readPages(
     pdf: bytes,

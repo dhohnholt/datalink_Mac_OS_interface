@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import '../analysis/analysis.dart';
 import '../analysis/csv_export.dart';
+import '../analysis/question_count.dart';
 import '../paper/page_cache.dart';
 import '../protocol/errors.dart';
 import '../protocol/py_json.dart';
@@ -146,6 +147,45 @@ class Workspace {
         session['question_count']! as int,
       ),
     );
+  }
+
+  /// Whether a saved session looks to have been set up for more questions than
+  /// its test has: its answer key has answers through question N and nothing
+  /// after, while the session counts more. Null when it does not.
+  ///
+  /// `{current, suggested, sheets, marks}`: the two counts, and how many sheets
+  /// have a mark after the suggested count and how many marks that is, which
+  /// would be left out if it were taken up.
+  Map<String, Object?>? questionCountSuggestion(int sessionId) {
+    final session = _require(sessionId);
+    final current = session['question_count']! as int;
+    final keys = store.sessionScans(sessionId).where((scan) => scan['role'] == 'key');
+    if (keys.isEmpty) return null;
+    final suggested = questionCountFromKey(
+      [for (final r in keys.first['responses']! as List) '$r'],
+      current,
+    );
+    if (suggested == null) return null;
+    final loss = store.answersBeyond(sessionId, suggested);
+    return {
+      'current': current,
+      'suggested': suggested,
+      'sheets': loss.sheets,
+      'marks': loss.marks,
+    };
+  }
+
+  /// Score a saved session out of fewer questions. Returns what was left out:
+  /// `{question_count, sheets, marks}`.
+  Map<String, Object?> useFewerQuestions(int sessionId, int count) {
+    _require(sessionId);
+    final loss = store.answersBeyond(sessionId, count);
+    try {
+      store.useFewerQuestions(sessionId, count);
+    } on StoreError catch (error) {
+      throw DataLinkError(error.message);
+    }
+    return {'question_count': count, 'sheets': loss.sheets, 'marks': loss.marks};
   }
 
   /// Settle review items. Doing it twice is not an error.

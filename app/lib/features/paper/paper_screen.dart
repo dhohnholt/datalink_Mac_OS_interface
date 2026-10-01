@@ -123,6 +123,7 @@ class _PaperScreenState extends State<PaperScreen> {
                   _message(context, model.error!, Tone.bad),
                 if (model.file == null && model.error != null && model.phase != PaperPhase.failed)
                   _message(context, model.error!, Tone.bad),
+                if (model.countSuggestion != null) _countFix(context, model),
                 if (model.keyReview != null) _keyFix(context, model),
                 if (model.phase == PaperPhase.done) _done(context, model),
               ],
@@ -285,6 +286,67 @@ class _PaperScreenState extends State<PaperScreen> {
             const SizedBox(width: 8),
             Expanded(child: Text(text)),
           ],
+        ),
+      ),
+    );
+  }
+
+  // The count is typed before the sheets are read, and it is easy to leave at
+  // the form's 50 for a shorter test. The key sheet, read on its own first,
+  // shows it: answers through question 30 and nothing after.
+  Widget _countFix(BuildContext context, PaperModel model) {
+    final suggestion = model.countSuggestion!;
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Semantics(
+        container: true,
+        liveRegion: true,
+        label: 'This looks like a ${suggestion.suggested}-question test',
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Tone.warn.background(theme.colorScheme),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text('This looks like a ${suggestion.suggested}-question test', style: theme.textTheme.titleSmall),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'The answer key (page ${suggestion.keyPage}) has answers for questions 1 to ${suggestion.suggested} '
+                'and none after that, but the batch is set to ${suggestion.current} questions. Scored out of '
+                '${suggestion.current}, every percentage would be wrong.',
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton(
+                    autofocus: true,
+                    onPressed: () {
+                      model.useSuggestedCount();
+                      _run(model);
+                    },
+                    child: Text('Read as ${suggestion.suggested} questions'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () {
+                      model.keepQuestionCount();
+                      _run(model);
+                    },
+                    child: Text('Keep ${suggestion.current} questions'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

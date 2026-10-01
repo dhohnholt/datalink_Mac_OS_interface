@@ -39,6 +39,11 @@ becomes tested view-model or domain code.
   ID read, manual), per-question choices (each option, Blank, Keep X), ID and
   name prefilled from the roster.
 - [x] Question count clamp 1–100 on leaving the field, with the message.
+- [x] New in Flutter: a key that stops short of the count asks "Use 30 questions /
+  Keep 50 questions" the moment it is captured (once per session; keeping is an
+  answer). The count only ever goes down, and the field and the remembered
+  setting follow. `question_count_screens_test`, `scan_model_test`,
+  `question_count_test`.
 - [x] Test name saved 400 ms after typing stops.
 - [x] Export filename: `class - test.csv`, falling back to `datalink-session`.
 - [x] Activity list: protocol lines hidden unless "Show protocol details".
@@ -88,6 +93,14 @@ becomes tested view-model or domain code.
   old form never offered them either; the reader supports them
   (`PaperRequest.pages`, `skipPages`).
 - [x] Read the sheets · progress bar + message
+- [x] New in Flutter: the key page is read on its own first; if it has answers
+  through question 30 and none after while the batch says 50, the batch is not
+  read, and the page asks "Read as 30 questions / Keep 50 questions".
+- [x] New in Flutter, Analysis: a saved test whose key stops short of its count
+  (so it cannot be scored) shows "This looks like a 30-question test" with a
+  one-press "Score out of 30"; marks students made after question 30 are named
+  and need a yes. Never offered for a session still being scanned, and never
+  upwards (the answers past the old count were not kept).
 - [x] Answer-key-needs-a-hand: explanation, per-question radios with what the
   reader saw, Look at the key sheet, Use these and read the batch, Start over
 - [x] Done: message, Open the item analysis, Read another batch

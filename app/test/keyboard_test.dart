@@ -100,7 +100,8 @@ void main() {
     addTearDown(tester.view.reset);
     final clock = TickClock();
     final device = LiveFakeTransport(clock: clock);
-    final services = testServices(transport: device, clock: clock);
+    final store = Store.open(':memory:')..setSetting('question_count', '2');
+    final services = testServices(store: store, transport: device, clock: clock);
     addTearDown(services.dispose);
     await tester.pumpWidget(DataLinkApp(services: services));
     await tester.pumpAndSettle();
@@ -134,7 +135,7 @@ void main() {
     addTearDown(tester.view.reset);
     final clock = TickClock();
     final device = LiveFakeTransport(clock: clock);
-    final store = Store.open(':memory:');
+    final store = Store.open(':memory:')..setSetting('question_count', '2');
     final services = testServices(store: store, transport: device, clock: clock);
     addTearDown(services.dispose);
     await tester.pumpWidget(DataLinkApp(services: services));

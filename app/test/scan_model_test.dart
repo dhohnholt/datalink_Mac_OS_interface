@@ -100,6 +100,92 @@ void main() {
     });
   });
 
+  group('the answer key shows the count was left too high', () {
+    List<String> answers(int n) => List.filled(n, 'A');
+
+    Future<Rig> started() async {
+      final r = await rig(); // 50 questions, the default
+      await r.model.start();
+      return r;
+    }
+
+    test('a key that stops at 30 in a session of 50 raises a suggestion', () async {
+      final r = await started();
+      expect(r.model.countSuggestion, isNull, reason: 'nothing to go on before the key');
+      await feedKey(r, answers: answers(30));
+      expect(r.model.countSuggestion, (suggested: 30, current: 50));
+      await r.model.disconnect();
+    });
+
+    test('a key that fills the count raises nothing', () async {
+      final r = await started();
+      await feedKey(r, answers: answers(50));
+      expect(r.model.countSuggestion, isNull);
+      await r.model.disconnect();
+    });
+
+    test('taking it up lowers the session, remembers 30 for next time and says so', () async {
+      final r = await started();
+      await feedKey(r, answers: answers(30));
+
+      r.model.useSuggestedCount();
+
+      expect(r.model.countSuggestion, isNull);
+      expect(r.model.questionCount, 30);
+      expect(r.model.snapshot.questionCount, 30);
+      expect(r.store.getSetting('question_count'), '30');
+      expect(r.messages.last, 'Scoring out of 30 questions');
+      expect((r.model.snapshot.records.single['responses']! as List), hasLength(30));
+      await r.model.disconnect();
+    });
+
+    test('sheets after it are read at the new count', () async {
+      final r = await started();
+      await feedKey(r, answers: answers(30));
+      r.model.useSuggestedCount();
+
+      r.device.sendRecord(answers(30), studentId: '900011');
+      await pumpUntil(() => r.model.snapshot.pendingReview != null || r.model.snapshot.recordCount > 1);
+
+      expect(r.model.snapshot.questionCount, 30);
+      await r.model.disconnect();
+    });
+
+    test('keeping the count is an answer: it is not asked again this session', () async {
+      final r = await started();
+      await feedKey(r, answers: answers(30));
+      r.model.keepCount();
+      expect(r.model.countSuggestion, isNull);
+      expect(r.model.questionCount, 50);
+
+      r.device.sendRecord(answers(30), studentId: '900011');
+      await pumpUntil(() => r.model.snapshot.pendingReview != null || r.model.snapshot.recordCount > 1);
+      expect(r.model.countSuggestion, isNull);
+      await r.model.disconnect();
+    });
+
+    test('a new session asks afresh', () async {
+      final r = await started();
+      await feedKey(r, answers: answers(30));
+      r.model.keepCount();
+      r.model.end();
+
+      await r.model.start();
+      await feedKey(r, answers: answers(30));
+      expect(r.model.countSuggestion, (suggested: 30, current: 50));
+      await r.model.disconnect();
+    });
+
+    test('is not raised while the key itself waits for a person', () async {
+      final r = await started();
+      // Two marks on question 1 stops the key for review before it is saved.
+      r.device.sendRecord(['AB', ...answers(29)], studentId: '');
+      await pumpUntil(() => r.model.snapshot.pendingReview != null);
+      expect(r.model.countSuggestion, isNull);
+      await r.model.disconnect();
+    });
+  });
+
   group('starting', () {
     test('connects and opens a session in one press', () async {
       final r = await rig();

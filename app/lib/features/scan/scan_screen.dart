@@ -33,11 +33,20 @@ class _ScanScreenState extends State<ScanScreen> {
     final model = Services.of(context).scan;
     _testName.text = model.testName;
     _count.text = '${model.questionCount}';
-    _model = model;
+    _model = model..addListener(_syncCount);
+  }
+
+  /// The count can change behind the field's back, when the answer key shows
+  /// the test is shorter than was typed.
+  void _syncCount() {
+    final model = _model;
+    if (model == null || _countFocus.hasFocus) return;
+    if (_count.text != '${model.questionCount}') _count.text = '${model.questionCount}';
   }
 
   @override
   void dispose() {
+    _model?.removeListener(_syncCount);
     _testName.dispose();
     _count.dispose();
     _countFocus.dispose();

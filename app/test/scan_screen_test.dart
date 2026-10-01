@@ -21,7 +21,9 @@ Future<Rig> open(WidgetTester tester, {void Function(Store)? seed}) async {
   addTearDown(tester.view.reset);
   final clock = TickClock();
   final device = LiveFakeTransport(clock: clock);
-  final store = Store.open(':memory:');
+  final store = Store.open(':memory:')
+    // The keys these tests feed are three answers long.
+    ..setSetting('question_count', '3');
   seed?.call(store);
   final actions = RecordingActions();
   final services = testServices(store: store, transport: device, clock: clock, actions: actions);

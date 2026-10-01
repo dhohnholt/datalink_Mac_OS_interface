@@ -46,6 +46,8 @@ class PaperModel extends ChangeNotifier {
   String _message = '';
   String? _error;
   Map<String, Object?>? _keyReview;
+  ({int suggested, int current, int keyPage})? _countSuggestion;
+  bool _keepCount = false;
   int? _sessionId;
   Map<String, Object?> _storage = const {};
   bool _warnedOverLimit = false;
@@ -61,6 +63,10 @@ class PaperModel extends ChangeNotifier {
 
   /// Set when the key sheet could not be read: `{key_page, unresolved, pages}`.
   Map<String, Object?>? get keyReview => _keyReview;
+
+  /// Set when the key sheet has answers through question N and none after,
+  /// while the batch is set to more: the screen offers to read it as N.
+  ({int suggested, int current, int keyPage})? get countSuggestion => _countSuggestion;
   int? get sessionId => _sessionId;
   Map<String, Object?> get storage => _storage;
 
@@ -94,6 +100,8 @@ class PaperModel extends ChangeNotifier {
     final file = File(path);
     _error = null;
     _sessionId = null;
+    _countSuggestion = null;
+    _keepCount = false;
     if (_phase == PaperPhase.done || _phase == PaperPhase.failed) _phase = PaperPhase.idle;
     try {
       _pageCount = _pageCounter(file);
@@ -127,11 +135,13 @@ class PaperModel extends ChangeNotifier {
 
   void setKeyPage(int value) {
     keyPage = value;
+    _keepCount = false;
     _notify();
   }
 
   void setQuestions(int value) {
     questions = value;
+    _keepCount = false;
     _notify();
   }
 
@@ -145,6 +155,7 @@ class PaperModel extends ChangeNotifier {
     _message = 'Reading the sheets…';
     _error = null;
     _keyReview = null;
+    _countSuggestion = null;
     _sessionId = null;
     _notify();
     try {
@@ -155,6 +166,7 @@ class PaperModel extends ChangeNotifier {
           questionCount: questions,
           examName: name.trim().isEmpty ? null : name.trim(),
           keyOverrides: keyOverrides,
+          checkQuestionCount: !_keepCount,
         ),
         (fraction, message) {
           _progress = fraction.clamp(0.0, 1.0);
@@ -172,6 +184,10 @@ class PaperModel extends ChangeNotifier {
       _phase = PaperPhase.failed;
       _message = e.message;
       _keyReview = e.review;
+    } on QuestionCountException catch (e) {
+      _phase = PaperPhase.failed;
+      _message = e.message;
+      _countSuggestion = (suggested: e.suggested, current: e.current, keyPage: e.keyPage);
     } on PaperException catch (e) {
       _phase = PaperPhase.failed;
       _error = e.message;
@@ -184,9 +200,30 @@ class PaperModel extends ChangeNotifier {
     refreshStorage();
   }
 
+  /// "Read as 30 questions": take the count the key sheet showed. The caller
+  /// reads the batch again.
+  void useSuggestedCount() {
+    final suggestion = _countSuggestion;
+    if (suggestion == null) return;
+    questions = suggestion.suggested;
+    _countSuggestion = null;
+    _keepCount = false;
+    _notify();
+  }
+
+  /// "Keep 50 questions": the count was meant. The caller reads the batch
+  /// again, and the key goes through the usual check for what is missing.
+  void keepQuestionCount() {
+    _countSuggestion = null;
+    _keepCount = true;
+    _notify();
+  }
+
   /// "Start over" on the key panel: drop the review and show the form again.
   void startOver() {
     _keyReview = null;
+    _countSuggestion = null;
+    _keepCount = false;
     _error = null;
     _phase = PaperPhase.idle;
     _notify();
@@ -195,6 +232,8 @@ class PaperModel extends ChangeNotifier {
   /// "Read another batch".
   void readAnother() {
     _sessionId = null;
+    _countSuggestion = null;
+    _keepCount = false;
     _phase = PaperPhase.idle;
     _notify();
   }

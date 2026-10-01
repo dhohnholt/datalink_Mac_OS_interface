@@ -58,6 +58,12 @@ class ScanModel extends ChangeNotifier {
   ReviewPlan? pendingPlan;
   Map<String, Object?>? pendingReview;
 
+  /// Set when the answer key has answers through question N and nothing after,
+  /// while the session counts more: almost certainly the count was left at its
+  /// old value. The shell asks; [useSuggestedCount] and [keepCount] answer.
+  ({int suggested, int current})? countSuggestion;
+  int? _countAnsweredFor;
+
   // ------------------------------------------------------------------ state
 
   /// The controller's state now. Read afresh whenever it has changed, never
@@ -330,6 +336,7 @@ class ScanModel extends ChangeNotifier {
   void _sync() => _react();
 
   void _react() {
+    _checkCount();
     final review = snapshot.pendingReview;
     if (review == null) {
       pendingPlan = null;
@@ -351,6 +358,51 @@ class ScanModel extends ChangeNotifier {
         pendingPlan = plan;
       }
     }
+    notifyListeners();
+  }
+
+  /// Looks at the key once it is captured, which is the earliest the mistake
+  /// can be seen: before any student sheet, when changing the count costs
+  /// nothing. Asked once per session; "keep" is an answer too.
+  void _checkCount() {
+    final snap = snapshot;
+    final session = snap.sessionId;
+    if (session == null) {
+      countSuggestion = null;
+      _countAnsweredFor = null;
+      return;
+    }
+    if (_countAnsweredFor == session || countSuggestion != null || snap.pendingReview != null) return;
+    final keys = snap.records.where((record) => record['role'] == 'key');
+    if (keys.isEmpty) return;
+    final suggested = questionCountFromKey(
+      [for (final r in keys.first['responses']! as List) '$r'],
+      snap.questionCount,
+    );
+    if (suggested != null) countSuggestion = (suggested: suggested, current: snap.questionCount);
+  }
+
+  /// "Use 30 questions".
+  void useSuggestedCount() {
+    final suggestion = countSuggestion;
+    if (suggestion == null) return;
+    countSuggestion = null;
+    _countAnsweredFor = snapshot.sessionId;
+    try {
+      _services.scanner.changeQuestionCount(suggestion.suggested);
+      _questionCount = suggestion.suggested;
+      _services.workspace.updateSettings({'question_count': '${suggestion.suggested}'});
+      onMessage?.call('Scoring out of ${suggestion.suggested} questions');
+    } on DataLinkError catch (error) {
+      onMessage?.call(error.message);
+    }
+    _sync();
+  }
+
+  /// "Keep 50 questions": the count was meant, so do not ask again this session.
+  void keepCount() {
+    countSuggestion = null;
+    _countAnsweredFor = snapshot.sessionId;
     notifyListeners();
   }
 

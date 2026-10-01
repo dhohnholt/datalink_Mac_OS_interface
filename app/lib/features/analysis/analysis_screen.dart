@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../app/navigation.dart';
 import '../../app/scope.dart';
 import '../../ui/widgets.dart';
+import '../scan/question_count_dialog.dart';
 import 'items_pane.dart';
 import 'key_pane.dart';
 import 'review_pane.dart';
@@ -21,6 +22,7 @@ class AnalysisScreen extends StatefulWidget {
 
 class _AnalysisScreenState extends State<AnalysisScreen> {
   Map<String, Object?>? _report;
+  Map<String, Object?>? _countSuggestion;
   String? _error;
   int? _loadedFor;
   bool _loaded = false;
@@ -41,15 +43,53 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     _loadedFor = id;
     _report = null;
     _error = null;
+    _countSuggestion = null;
     if (id == null) return;
-    final workspace = Services.of(context).workspace;
+    final services = Services.of(context);
+    final workspace = services.workspace;
     try {
       _report = workspace.analysisReport(id);
     } on AnalysisError catch (error) {
       _error = error.message;
     } on NotFoundError {
       _error = 'That test is no longer saved.';
+      return;
     }
+    // A test still being scanned is handled where it is scanned; changing it
+    // from here would leave the scanner counting the old number.
+    if (services.scanner.currentSessionId != id) {
+      _countSuggestion = workspace.questionCountSuggestion(id);
+    }
+  }
+
+  Future<void> _useFewerQuestions() async {
+    final suggestion = _countSuggestion;
+    final id = _loadedFor;
+    if (suggestion == null || id == null) return;
+    final suggested = suggestion['suggested']! as int;
+    final marks = suggestion['marks']! as int;
+    final sheets = suggestion['sheets']! as int;
+    // Nothing is lost when no student marked past the new end, so no need to
+    // make a person confirm what only restates the banner.
+    if (marks > 0) {
+      final ok = await questionCountDialog(
+        context,
+        current: suggestion['current']! as int,
+        suggested: suggested,
+        sheets: sheets,
+        marks: marks,
+      );
+      if (!ok || !mounted) return;
+    }
+    try {
+      Services.of(context).workspace.useFewerQuestions(id, suggested);
+    } on DataLinkError catch (error) {
+      if (mounted) showToast(context, error.message);
+      return;
+    }
+    if (!mounted) return;
+    showToast(context, 'Now scored out of $suggested questions');
+    reload();
   }
 
   /// Re-read the report after something changed it.
@@ -115,6 +155,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           ),
           child: const SizedBox.shrink(),
         ),
+        if (_countSuggestion != null)
+          _CountBanner(suggestion: _countSuggestion!, onUse: _useFewerQuestions),
         if (report == null && _error == null)
           const EmptyState(
             title: 'No test selected',
@@ -197,6 +239,53 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     } on AnalysisError catch (error) {
       if (mounted) showToast(context, error.message);
     }
+  }
+}
+
+/// The test was saved with more questions than its answer key has.
+class _CountBanner extends StatelessWidget {
+  const _CountBanner({required this.suggestion, required this.onUse});
+
+  final Map<String, Object?> suggestion;
+  final VoidCallback onUse;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = suggestion['current']! as int;
+    final suggested = suggestion['suggested']! as int;
+    final theme = Theme.of(context);
+    final text = 'The answer key has answers for questions 1 to $suggested and none after that, '
+        'but this test is set to $current questions. If it is a $suggested-question test, score it out of $suggested.';
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: 'This looks like a $suggested-question test. $text',
+      child: Card(
+        color: Tone.warn.background(theme.colorScheme),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ExcludeSemantics(child: Icon(Tone.warn.icon, color: Tone.warn.foreground(theme.colorScheme))),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('This looks like a $suggested-question test', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(text),
+                    const SizedBox(height: 12),
+                    FilledButton(onPressed: onUse, child: Text('Score out of $suggested')),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

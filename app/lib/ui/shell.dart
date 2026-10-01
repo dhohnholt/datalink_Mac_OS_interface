@@ -9,6 +9,7 @@ import '../app/scope.dart';
 import '../features/analysis/analysis_screen.dart';
 import '../features/classes/classes_screen.dart';
 import '../features/paper/paper_screen.dart';
+import '../features/scan/question_count_dialog.dart';
 import '../features/scan/review_dialog.dart';
 import '../features/scan/scan_model.dart';
 import '../features/scan/scan_screen.dart';
@@ -49,6 +50,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   Commands? _commands;
   bool _reviewOpen = false;
+  bool _countOpen = false;
   final MenuCache _menuCache = MenuCache();
   ScanModel? _scan;
 
@@ -76,12 +78,14 @@ class _AppShellState extends State<AppShell> {
     _scan = services.scan;
     services.scan
       ..onMessage = _commands!.toast
-      ..addListener(_maybeReview);
+      ..addListener(_maybeReview)
+      ..addListener(_maybeAskCount);
   }
 
   @override
   void dispose() {
     _scan?.removeListener(_maybeReview);
+    _scan?.removeListener(_maybeAskCount);
     super.dispose();
   }
 
@@ -101,7 +105,42 @@ class _AppShellState extends State<AppShell> {
         animationStyle: reducedMotion(context),
         barrierDismissible: false,
         builder: (context) => ReviewDialog(model: scan),
-      ).whenComplete(() => _reviewOpen = false);
+      ).whenComplete(() {
+        _reviewOpen = false;
+        _maybeAskCount();
+      });
+    });
+  }
+
+  /// Ask whether to score out of fewer questions, once the answer key has shown
+  /// the count is higher than the test. Waits its turn behind a sheet's review.
+  void _maybeAskCount() {
+    final scan = Services.of(context).scan;
+    final suggestion = scan.countSuggestion;
+    if (suggestion == null || scan.pendingPlan != null || _reviewOpen || _countOpen) return;
+    _countOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || scan.countSuggestion == null) {
+        _countOpen = false;
+        return;
+      }
+      final session = scan.snapshot.sessionId;
+      final loss = session == null
+          ? (sheets: 0, marks: 0)
+          : Services.of(context).store.answersBeyond(session, suggestion.suggested);
+      final take = await questionCountDialog(
+        context,
+        current: suggestion.current,
+        suggested: suggestion.suggested,
+        sheets: loss.sheets,
+        marks: loss.marks,
+      );
+      _countOpen = false;
+      if (take) {
+        scan.useSuggestedCount();
+      } else {
+        scan.keepCount();
+      }
     });
   }
 

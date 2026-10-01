@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'appearance.dart';
 import 'commands.dart';
 import 'navigation.dart';
 import 'services.dart';
@@ -122,6 +124,17 @@ List<PlatformMenuItem> buildMenus({
             shortcut: cmd(LogicalKeyboardKey.bracketLeft)),
       ]),
       PlatformMenuItemGroup(members: [
+        // A native menu check mark is not available to Flutter, so the current
+        // choice is marked in the label.
+        PlatformMenu(label: 'Appearance', menus: [
+          for (final mode in ThemeMode.values)
+            item(
+              '${services.appearance.mode == mode ? '✓ ' : '    '}${Appearance.label(mode)}',
+              () => commands.setAppearance(mode),
+            ),
+        ]),
+      ]),
+      PlatformMenuItemGroup(members: [
         item(
           scan.showProtocol ? 'Hide Protocol Details' : 'Show Protocol Details',
           commands.toggleProtocol,
@@ -147,4 +160,57 @@ List<PlatformMenuItem> buildMenus({
       ]),
     ]),
   ];
+}
+
+String _shortcut(MenuSerializableShortcut? shortcut) => switch (shortcut) {
+      SingleActivator(:final trigger, :final meta, :final shift, :final alt, :final control) =>
+        '${trigger.keyId}/$meta$shift$alt$control',
+      CharacterActivator(:final character, :final meta, :final alt, :final control) =>
+        '$character/$meta$alt$control',
+      null => '',
+      _ => 'other',
+    };
+
+/// A fingerprint of what a menu shows and which items are enabled.
+String menuSignature(Iterable<PlatformMenuItem> items) {
+  final out = StringBuffer();
+  void walk(PlatformMenuItem item) {
+    switch (item) {
+      case PlatformMenu(:final label, :final menus):
+        out.write('[$label:');
+        menus.forEach(walk);
+        out.write(']');
+      case PlatformMenuItemGroup(:final members):
+        out.write('{');
+        members.forEach(walk);
+        out.write('}');
+      case PlatformProvidedMenuItem(:final type):
+        out.write('<${type.name}>');
+      default:
+        out.write('(${item.label}|${item.onSelected != null}|${_shortcut(item.shortcut)})');
+    }
+  }
+
+  items.forEach(walk);
+  return out.toString();
+}
+
+/// Hands the native menu bar the *same* list until what it shows changes.
+///
+/// macOS closes an open menu whenever the app replaces its menu bar, and the
+/// scan screen notifies every couple of seconds (it looks for a newly plugged
+/// in scanner). Rebuilding the menus on every notification made an open menu
+/// vanish after a second or two.
+class MenuCache {
+  String? _signature;
+  List<PlatformMenuItem> _menus = const [];
+
+  List<PlatformMenuItem> stable(List<PlatformMenuItem> built) {
+    final signature = menuSignature(built);
+    if (signature != _signature) {
+      _signature = signature;
+      _menus = built;
+    }
+    return _menus;
+  }
 }

@@ -52,12 +52,16 @@ class _DataLinkAppState extends State<DataLinkApp> {
       services: widget.services,
       child: Nav(
         navigation: _navigation,
-        child: MaterialApp(
-          title: 'DataLink Scanner',
-          debugShowCheckedModeBanner: false,
-          theme: Palette.light.theme(),
-          darkTheme: Palette.dark.theme(),
-          home: AppShell(screens: widget.screens),
+        child: ListenableBuilder(
+          listenable: widget.services.appearance,
+          builder: (context, _) => MaterialApp(
+            title: 'DataLink Scanner',
+            debugShowCheckedModeBanner: false,
+            theme: Palette.light.theme(),
+            darkTheme: Palette.dark.theme(),
+            themeMode: widget.services.appearance.mode,
+            home: AppShell(screens: widget.screens),
+          ),
         ),
       ),
     );

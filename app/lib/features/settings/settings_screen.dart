@@ -4,6 +4,7 @@ import 'package:datalink_core/datalink_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/appearance.dart';
 import '../../app/scope.dart';
 import '../../hardware_check/hardware_check_card.dart';
 import '../../ui/widgets.dart';
@@ -114,6 +115,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          SectionCard(
+            title: 'Appearance',
+            subtitle: 'Light, dark, or follow this Mac. Also under View > Appearance.',
+            child: ListenableBuilder(
+              listenable: services.appearance,
+              builder: (context, _) => SegmentedButton<ThemeMode>(
+                showSelectedIcon: false,
+                segments: [
+                  for (final mode in ThemeMode.values)
+                    ButtonSegment(value: mode, label: Text(Appearance.label(mode).replaceFirst('Match System', 'System'))),
+                ],
+                selected: {services.appearance.mode},
+                onSelectionChanged: (selection) => services.appearance.set(selection.first),
+              ),
+            ),
+          ),
           SectionCard(
             title: 'Send scored reports to your own site',
             subtitle: connection.status,

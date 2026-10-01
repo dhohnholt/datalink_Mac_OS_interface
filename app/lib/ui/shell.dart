@@ -49,6 +49,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   Commands? _commands;
   bool _reviewOpen = false;
+  final MenuCache _menuCache = MenuCache();
   ScanModel? _scan;
 
   @override
@@ -112,9 +113,9 @@ class _AppShellState extends State<AppShell> {
     return ListenableBuilder(
       // The menu reflects what is possible right now, so it is rebuilt when
       // the scanner or the navigation changes.
-      listenable: Listenable.merge([services.scan, nav]),
+      listenable: Listenable.merge([services.scan, nav, services.appearance]),
       builder: (context, _) => _withMenuBar(
-        menus: () => buildMenus(commands: commands, services: services, navigation: nav),
+        menus: () => _menuCache.stable(buildMenus(commands: commands, services: services, navigation: nav)),
         child: Scaffold(
           body: Row(
             children: [

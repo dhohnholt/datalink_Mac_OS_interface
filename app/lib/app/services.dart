@@ -13,6 +13,7 @@ import '../features/paper/orient_template.dart';
 import '../features/paper/paper_model.dart';
 import '../features/scan/scan_model.dart';
 import '../features/settings/ttess_connection.dart';
+import 'appearance.dart';
 import 'keychain_store.dart';
 
 /// The few things that need the operating system's own dialogs. Behind an
@@ -118,6 +119,9 @@ class AppServices {
   /// The saved classes and the one scanning is using.
   final ClassBook classBook;
 
+  /// Light, dark or follow the Mac.
+  late final Appearance appearance = Appearance(store);
+
   /// Whether this Mac is connected to the reporting site.
   final TtessConnection connection;
 
@@ -187,6 +191,7 @@ class AppServices {
   Future<void> dispose() async {
     scan.dispose();
     paper.dispose();
+    appearance.dispose();
     classBook.dispose();
     connection.dispose();
     await scanner.dispose();

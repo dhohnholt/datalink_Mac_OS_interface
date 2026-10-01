@@ -1,4 +1,5 @@
 import 'package:datalink_core/datalink_core.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 
 import 'navigation.dart';
 import 'services.dart';
@@ -46,6 +47,8 @@ class Commands {
     final selected = services.classBook.selectedName;
     services.classBook.requestEditor(selected.isEmpty ? null : selected);
   }
+
+  void setAppearance(ThemeMode mode) => services.appearance.set(mode);
 
   // ------------------------------------------------------------------ paper
 

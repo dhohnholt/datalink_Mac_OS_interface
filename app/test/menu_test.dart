@@ -150,11 +150,47 @@ void main() {
       expect(menuItem(r.menus(), 'Back').onSelected, isNotNull);
     });
 
+    test('Appearance offers system, light and dark, and marks the current one', () {
+      final r = rig();
+      String? current() => [
+            for (final item in leaves(r.menus()))
+              if (item.label.startsWith('✓ ')) item.label.substring(2),
+          ].singleOrNull;
+      expect(current(), 'Match System');
+      menuItem(r.menus(), '    Dark').onSelected!();
+      expect(r.services.appearance.mode, ThemeMode.dark);
+      expect(current(), 'Dark');
+      menuItem(r.menus(), '    Light').onSelected!();
+      expect(current(), 'Light');
+    });
+
     test('the protocol item says what it would do', () {
       final r = rig();
       expect(leaves(r.menus()).any((i) => i.label == 'Show Protocol Details'), isTrue);
       r.services.scan.toggleProtocol();
       expect(leaves(r.menus()).any((i) => i.label == 'Hide Protocol Details'), isTrue);
+    });
+  });
+
+  group('the menu bar is only replaced when what it shows changes', () {
+    test('the same list comes back while nothing has changed, even though menus are rebuilt', () {
+      final r = rig();
+      final cache = MenuCache();
+      final first = cache.stable(r.menus());
+      expect(identical(cache.stable(r.menus()), first), isTrue, reason: 'an open menu would close otherwise');
+      r.services.scan.notifyListeners();
+      expect(identical(cache.stable(r.menus()), first), isTrue);
+    });
+
+    test('a change a person can see replaces it', () {
+      final r = rig();
+      final cache = MenuCache();
+      final first = cache.stable(r.menus());
+      r.services.scan.toggleProtocol();
+      expect(identical(cache.stable(r.menus()), first), isFalse);
+      final second = cache.stable(r.menus());
+      r.nav.show(AppView.classes);
+      expect(identical(cache.stable(r.menus()), second), isFalse, reason: 'Back became available');
     });
   });
 

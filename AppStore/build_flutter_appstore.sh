@@ -107,7 +107,9 @@ say "==> Building with Flutter"
 )
 [[ -d "$BUILT" ]] || stop "the build did not produce $BUILT" "Read the Flutter output above."
 
-/bin/rm -rf "$DIST" "$WORK"
+# Only the app and the scratch area are replaced. An installer package already
+# in $DIST is kept: building a copy to open must never delete the one to upload.
+/bin/rm -rf "$APP" "$WORK"
 /bin/mkdir -p "$DIST" "$WORK"
 /usr/bin/ditto "$BUILT" "$APP"
 INFO="$APP/Contents/Info.plist"

@@ -177,7 +177,7 @@ class _PaperScreenState extends State<PaperScreen> {
               ),
             ),
             SizedBox(
-              width: 220,
+              width: 280,
               child: DropdownButtonFormField<String>(
                 isExpanded: true,
                 key: ValueKey('paper-class-${model.className}-${names.length}'),

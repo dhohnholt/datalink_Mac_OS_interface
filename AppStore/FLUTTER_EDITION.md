@@ -93,8 +93,16 @@ anything left will show.
   OpenSSL, but HTTPS to the teacher's own site goes through the encryption
   library inside the Flutter/Dart runtime. Please confirm the declaration still
   holds before submitting.
-* **Screenshots.** `AppStore/screenshots/` shows the Python edition's web
-  interface. They must be retaken from this app.
+* **Screenshots.** `AppStore/screenshots/mac-2560x1600/` holds nine of this app,
+  at the 2560 x 1600 size App Store Connect takes for a Mac. They show only
+  invented names, IDs and answers. Each is the app's content area drawn by
+  Flutter's test renderer with the macOS system font, so there is no window frame
+  or menu bar; if you prefer real window grabs, take them with Shift-Command-4
+  then Space. To remake these: `DATALINK_SCREENSHOT_DIR=AppStore/screenshots/mac-2560x1600
+  flutter test test/screenshots` in `app/` (the font paths in
+  `app/test/screenshots/screenshots_test.dart` are this Mac's). The older
+  `mac-1280x800/` set shows the Python edition's web interface and should not be
+  used for 2.0.
 * **Sample PDF** for App Review: synthetic only, as described in
   `REVIEW_NOTES.md`. Never a real scan.
 * **Updating from the Python store edition.** Same bundle id, same container, the

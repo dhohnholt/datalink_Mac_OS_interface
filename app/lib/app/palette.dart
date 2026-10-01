@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 
 /// Slate and teal. A dark slate navigation rail and a teal accent on a cool
@@ -78,6 +79,8 @@ class Palette {
     error: Color(0xFFF2B8B5),
   );
 
+  static TextStyle get _labelStyle => Typography.material2021(platform: defaultTargetPlatform).black.labelMedium!;
+
   static Palette of(Brightness brightness) => brightness == Brightness.dark ? dark : light;
 
   ThemeData theme() {
@@ -123,8 +126,10 @@ class Palette {
         indicatorColor: railIndicator,
         selectedIconTheme: IconThemeData(color: railSelected),
         unselectedIconTheme: IconThemeData(color: railText),
-        selectedLabelTextStyle: TextStyle(color: railSelected, fontWeight: FontWeight.w600, fontSize: 12),
-        unselectedLabelTextStyle: TextStyle(color: railText, fontSize: 12),
+        // Built on the platform's own label style so the labels use the same
+        // font as everything else; a bare TextStyle here would carry none.
+        selectedLabelTextStyle: _labelStyle.copyWith(color: railSelected, fontWeight: FontWeight.w600, fontSize: 12),
+        unselectedLabelTextStyle: _labelStyle.copyWith(color: railText, fontSize: 12),
       ),
     );
   }

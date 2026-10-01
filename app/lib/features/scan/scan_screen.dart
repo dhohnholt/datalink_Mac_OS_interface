@@ -127,7 +127,7 @@ class _ScanScreenState extends State<ScanScreen> {
                 ),
               ),
               SizedBox(
-                width: 220,
+                width: 280,
                 child: DropdownButtonFormField<String>(
                   isExpanded: true,
                   initialValue: book.classes.any((c) => c['name'] == model.className) ? model.className : '',

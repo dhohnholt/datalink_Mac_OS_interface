@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../ui/widgets.dart';
+
 /// A scanned page in a dialog, for reading off what the reader could not: a
 /// name on a sheet, or the key's marks. Zoom with a pinch or scroll.
 Future<void> showPagePicture(
@@ -12,6 +14,7 @@ Future<void> showPagePicture(
 }) {
   return showDialog<void>(
     context: context,
+    animationStyle: reducedMotion(context),
     builder: (context) => Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760, maxHeight: 900),

@@ -98,6 +98,7 @@ class _AppShellState extends State<AppShell> {
       }
       showDialog<void>(
         context: context,
+        animationStyle: reducedMotion(context),
         barrierDismissible: false,
         builder: (context) => ReviewDialog(model: scan),
       ).whenComplete(() => _reviewOpen = false);
@@ -119,7 +120,11 @@ class _AppShellState extends State<AppShell> {
         child: Scaffold(
           body: Row(
             children: [
-              NavigationRail(
+              // Each side is its own traversal group, so Tab walks the whole rail
+              // and then the whole page, instead of weaving between them by
+              // screen position.
+              FocusTraversalGroup(
+                child: NavigationRail(
                 selectedIndex: views.indexOf(nav.view),
                 onDestinationSelected: (index) => nav.show(views[index]),
                 labelType: NavigationRailLabelType.all,
@@ -144,13 +149,16 @@ class _AppShellState extends State<AppShell> {
                     ),
                 ],
               ),
+              ),
               const VerticalDivider(width: 1),
               Expanded(
-                child: Column(
-                  children: [
-                    const _ContextBar(),
-                    Expanded(child: _screenFor(context, nav.view)),
-                  ],
+                child: FocusTraversalGroup(
+                  child: Column(
+                    children: [
+                      const _ContextBar(),
+                      Expanded(child: _screenFor(context, nav.view)),
+                    ],
+                  ),
                 ),
               ),
             ],

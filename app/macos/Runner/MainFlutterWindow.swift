@@ -7,6 +7,9 @@ class MainFlutterWindow: NSWindow {
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
+    // Below this the layouts, tested down to 1100 x 760 at double text size,
+    // would start to crowd.
+    self.contentMinSize = NSSize(width: 1000, height: 700)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

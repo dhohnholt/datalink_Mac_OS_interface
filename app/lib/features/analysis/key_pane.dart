@@ -103,7 +103,7 @@ class _KeyPaneState extends State<KeyPane> {
             children: [
               for (var i = 0; i < _edited.length; i++)
                 SizedBox(
-                  width: 340,
+                  width: MediaQuery.textScalerOf(context).scale(340),
                   child: Row(
                     children: [
                       SizedBox(

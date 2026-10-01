@@ -319,6 +319,8 @@ class _ScanScreenState extends State<ScanScreen> {
               scrollDirection: Axis.horizontal,
               child: DataTable(
                 columnSpacing: 14,
+                dataRowMinHeight: 48,
+                dataRowMaxHeight: double.infinity, // grows with larger text
                 horizontalMargin: 8,
                 columns: [
                   const DataColumn(label: Text('Scan')),

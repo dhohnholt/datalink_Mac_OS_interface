@@ -78,7 +78,10 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
             children: [
               Semantics(
                 label: 'Test',
-                child: DropdownButton<int?>(
+                child: SizedBox(
+                  width: 440,
+                  child: DropdownButton<int?>(
+                  isExpanded: true,
                   value: sessions.any((s) => s['id'] == nav.sessionId) ? nav.sessionId : null,
                   hint: const Text('Choose a test…'),
                   items: [
@@ -88,6 +91,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                         child: Text(
                           '${(s['name'] as String?)?.isNotEmpty == true ? s['name'] : 'Untitled'} · '
                           '${formatTimestamp(s['started_at'] as String?)} · ${s['scan_count']} sheets',
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                   ],
@@ -98,6 +102,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                       nav.openSession(id, view: AppView.analysis);
                     }
                   },
+                  ),
                 ),
               ),
               if (report != null)
@@ -122,7 +127,11 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
-            child: SegmentedButton<AnalysisPane>(
+            // The five panes do not fit at large text sizes; scroll rather
+            // than clip.
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<AnalysisPane>(
               showSelectedIcon: false,
               segments: [
                 const ButtonSegment(value: AnalysisPane.items, label: Text('Item analysis')),
@@ -147,6 +156,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
               ],
               selected: {nav.pane},
               onSelectionChanged: (selection) => nav.showPane(selection.first),
+              ),
             ),
           ),
           const SizedBox(height: 16),

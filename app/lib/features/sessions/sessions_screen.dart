@@ -259,7 +259,7 @@ class _Detail extends StatelessWidget {
                 columnSpacing: 14,
                 horizontalMargin: 8,
                 dataRowMinHeight: 40,
-                dataRowMaxHeight: 52,
+                dataRowMaxHeight: double.infinity, // grows with larger text
                 columns: [
                   const DataColumn(label: Text('Scan')),
                   const DataColumn(label: Text('Student')),
@@ -350,6 +350,7 @@ class _Detail extends StatelessWidget {
                 : 'Student ${number - 1}'));
     final chosen = await showDialog<String>(
       context: context,
+      animationStyle: reducedMotion(context),
       builder: (context) => _AnswerDialog(
         question: question,
         intro: current.isNotEmpty

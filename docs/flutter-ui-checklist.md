@@ -149,16 +149,28 @@ becomes tested view-model or domain code.
 - [-] Check for Updates
 
 ## Accessibility (applies to every screen)
-Status: the pieces below are in place but not yet audited as a whole, so none
-is ticked. Covered so far: help buttons are reachable by screen readers
-(`scan_screen_test`), data-table columns carry "Question N" labels, status pills
-carry words as well as colour, and every text/background pair in both themes
-passes WCAG contrast (`palette_test`). Not done: a VoiceOver walk through each
-screen, a keyboard-only pass, and Reduce Motion / larger text.
 
-- [ ] Every control has a VoiceOver label; badges announce their count
-- [ ] Tables expose row and column headers (Semantics)
-- [ ] Full keyboard path: tab strip, dialogs (Esc / Enter), tables, pickers
-- [ ] Contrast checked in light and dark; status never conveyed by colour alone
-  (the old pills carried text; keep that)
-- [ ] Respects Reduce Motion and increased text size
+Checked by `accessibility_test`, `semantics_test`, `keyboard_test`,
+`reduce_motion_test` and `palette_test` over every screen, in light and dark.
+What a test cannot say is how it *sounds*; a VoiceOver walk by a person is
+still worth doing before release.
+
+- [x] Every control has a VoiceOver label; badges announce their count.
+  Flutter's labelled-tap-target check passes on all ten screens in both themes;
+  the Review badge reads "Review, N items to review".
+- [x] Tables expose row and column headers (Semantics). Columns read as
+  "Question N"; each pressable cell says whose answer it is and what it holds.
+  Each screen has headings to navigate by, and the chosen tab is marked selected.
+- [x] Full keyboard path. Tab walks the whole navigation rail, then the page
+  (they are separate groups); Space chooses a tab. Escape cancels a dialog,
+  Return confirms a harmless one and never a destructive one; the sheet-review
+  dialog opens with the cursor in the ID box and Return saves; a pop-up menu and
+  a table cell work from the keyboard.
+- [x] Contrast in light and dark, status never by colour alone. Every colour pair
+  passes WCAG (`palette_test`), Flutter's text-contrast check passes on every
+  screen as drawn, and each status pill carries words as well as colour.
+- [x] Respects Reduce Motion and increased text size. Dialogs and toasts appear
+  at once with Reduce Motion on (nothing in the app loops or moves otherwise);
+  every screen has no overflow at 150% and 200% text at 1100 x 760, and the
+  window cannot be made smaller than 1000 x 700. The Analysis panes and test
+  picker scroll or truncate rather than clip at large sizes.

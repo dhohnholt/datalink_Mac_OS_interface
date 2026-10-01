@@ -261,6 +261,10 @@ class CountBadge extends StatelessWidget {
   }
 }
 
+/// With Reduce Motion on, dialogs and toasts appear without sliding or fading.
+AnimationStyle? reducedMotion(BuildContext context) =>
+    MediaQuery.disableAnimationsOf(context) ? AnimationStyle.noAnimation : null;
+
 /// Transient feedback, announced to VoiceOver by the snack bar itself.
 void showToast(BuildContext context, String message) {
   final messenger = ScaffoldMessenger.maybeOf(context);
@@ -273,6 +277,7 @@ void showToast(BuildContext context, String message) {
         width: 480,
         duration: const Duration(milliseconds: 2800),
       ),
+      snackBarAnimationStyle: reducedMotion(context),
     );
 }
 
@@ -286,6 +291,7 @@ Future<bool> confirmDialog(
 }) async {
   final answer = await showDialog<bool>(
     context: context,
+    animationStyle: reducedMotion(context),
     builder: (context) => AlertDialog(
       title: Text(title),
       content: Text(message),
@@ -318,6 +324,7 @@ Future<String?> promptDialog(
   final controller = TextEditingController(text: initial);
   return showDialog<String>(
     context: context,
+    animationStyle: reducedMotion(context),
     builder: (context) => AlertDialog(
       title: Text(title),
       content: TextField(

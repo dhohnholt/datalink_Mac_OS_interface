@@ -53,6 +53,18 @@ class _ScanScreenState extends State<ScanScreen> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          // Said on the first screen as well as in Settings: Apperson's name
+          // is on the product this works with, and it is not our product.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Works with the Apperson DataLink 1200. An independent project, not affiliated '
+              'with or endorsed by Apperson.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
           _connection(context, model, book),
           MetricRow(tiles: [
             MetricTile(label: 'Sheets captured', value: '${model.snapshot.recordCount}'),

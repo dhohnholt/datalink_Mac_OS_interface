@@ -100,7 +100,12 @@ void writePagePicture(Directory directory, int page, GrayImage gray) {
 }
 
 /// The stored picture of [page], or null if it is not (any more) in the cache.
+///
+/// Batches read by the Python edition kept the full 400 dpi render as
+/// `page-NNNNNN.png`; an update that finds the old library still shows those.
 Uint8List? readPagePicture(String directory, int page) {
-  final file = File('$directory/${pagePictureName(page)}');
-  return file.existsSync() ? file.readAsBytesSync() : null;
+  final reduced = File('$directory/${pagePictureName(page)}');
+  if (reduced.existsSync()) return reduced.readAsBytesSync();
+  final full = File('$directory/page-${page.toString().padLeft(6, '0')}.png');
+  return full.existsSync() ? full.readAsBytesSync() : null;
 }

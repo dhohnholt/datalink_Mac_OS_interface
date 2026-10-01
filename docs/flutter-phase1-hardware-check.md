@@ -56,11 +56,12 @@ attached):
 ## The run
 
 The app is already built (ad-hoc signed, no certificate involved). It was built
-with `flutter build macos --release` in `app/`; rebuild if you've changed
-anything:
+in `app/` with the headless checks switched on; they are compiled out of the
+store build, so a plain `flutter build macos --release` will not have them.
+Rebuild if you've changed anything:
 
 ```bash
-cd app && flutter build macos --release
+cd app && flutter build macos --release --dart-define=DATALINK_DIAGNOSTICS=true
 ```
 
 Run it from a terminal so the report prints. It listens for 60 seconds after

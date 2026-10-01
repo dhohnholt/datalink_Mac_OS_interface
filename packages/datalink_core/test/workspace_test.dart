@@ -356,6 +356,9 @@ void main() {
     final without = store.createSession('DataLink', '', 3);
     expect(workspace.sessionPage(withPages, 2), [1, 2, 3]);
     expect(workspace.sessionPage(withPages, 9), isNull);
+    // A batch kept by the Python edition holds full-size PNGs instead.
+    File('${cache.path}/page-000003.png').writeAsBytesSync([9, 9]);
+    expect(workspace.sessionPage(withPages, 3), [9, 9]);
     expect(workspace.sessionPage(without, 2), isNull);
     expect(workspace.sessionDetail(withPages)['has_pages'], isTrue);
     cache.deleteSync(recursive: true);

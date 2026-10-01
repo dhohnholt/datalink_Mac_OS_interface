@@ -12,12 +12,18 @@ import 'hardware_check/hardware_check.dart';
 
 const String appVersion = '2.0.0+1';
 
+/// The headless checks below read an environment variable and print to the
+/// terminal. They exist to test a sandboxed build from the command line, and
+/// are compiled out of the build that goes to the store: build with
+/// `--dart-define=DATALINK_DIAGNOSTICS=true` to have them.
+const bool diagnostics = bool.fromEnvironment('DATALINK_DIAGNOSTICS');
+
 Future<void> main() async {
   // Headless mode for checking the sandboxed build from a terminal, where the
   // report lands on stdout instead of a window:
   //   DATALINK_HARDWARE_CHECK=1 "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
   final env = Platform.environment;
-  if (env['DATALINK_HARDWARE_CHECK'] == '1') {
+  if (diagnostics && env['DATALINK_HARDWARE_CHECK'] == '1') {
     final listen = int.tryParse(env['DATALINK_HARDWARE_LISTEN'] ?? '') ?? 0;
     final check = HardwareCheck(
       transport: PosixSerialTransport(),
@@ -31,7 +37,7 @@ Future<void> main() async {
 
   // Headless check that the signed build may open an outgoing connection:
   //   DATALINK_NETWORK_SELFTEST=127.0.0.1:8765 "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
-  final probe = env['DATALINK_NETWORK_SELFTEST'];
+  final probe = diagnostics ? env['DATALINK_NETWORK_SELFTEST'] : null;
   if (probe != null) {
     final parts = probe.split(':');
     try {
@@ -47,14 +53,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Headless check of the Keychain from a signed, sandboxed build:
   //   DATALINK_KEYCHAIN_SELFTEST=1 "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
-  if (env['DATALINK_KEYCHAIN_SELFTEST'] == '1') {
+  if (diagnostics && env['DATALINK_KEYCHAIN_SELFTEST'] == '1') {
     stdout.writeln(await keychainSelfTest(const KeychainSecretStore()));
     exit(0);
   }
   // Headless check of the whole paper path in the signed, sandboxed build
   // (asset, isolates, file access, cache). Prints counts only:
   //   DATALINK_PAPER_SELFTEST="/path/in/the/container/scan.pdf:KEYPAGE" "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
-  final paperCheck = env['DATALINK_PAPER_SELFTEST'];
+  final paperCheck = diagnostics ? env['DATALINK_PAPER_SELFTEST'] : null;
   if (paperCheck != null) {
     stdout.writeln(await paperSelfTest(paperCheck));
     exit(0);

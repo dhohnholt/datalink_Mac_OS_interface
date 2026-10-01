@@ -66,3 +66,7 @@ DerivedData/
 .dart_tool/
 packages/*/pubspec.lock
 .flutter-plugins*
+
+# Flutter store edition output
+AppStore/flutter-dist/
+AppStore/flutter-work/

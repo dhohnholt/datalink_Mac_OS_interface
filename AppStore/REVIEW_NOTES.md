@@ -4,12 +4,17 @@ Paste the section below into **App Review Information → Notes** in App Store
 Connect. It is written for a reviewer who has never seen an optical mark
 scanner and does not have one on the desk.
 
-Keep it in step with the entitlements. Everything it claims is checkable
-against the build:
+This describes the Flutter edition (2.0 and later). Keep it in step with the
+entitlements; everything it claims is checkable against the build:
 
 ```bash
-codesign -d --entitlements :- "AppStore/dist/DataLink Scanner.app"
+./AppStore/build_flutter_appstore.sh     # or DATALINK_APPSTORE_CHECK=1 for the checks alone
+codesign -d --entitlements :- "AppStore/flutter-dist/DataLink Scanner.app"
 ```
+
+The script fails the build if the signed app carries any entitlement other than
+the four below, or any of get-task-allow, allow-jit, allow-unsigned-executable-memory,
+disable-library-validation or network.server.
 
 ---
 
@@ -24,38 +29,45 @@ The app normally reads sheets from an Apperson DataLink 1200, a USB optical
 mark reader. Since you will not have one, use the **Paper** tab instead: it
 takes a PDF of scanned answer sheets and produces exactly the same result. A
 sample PDF is attached to this submission. Open the app, choose **Paper**,
-select the PDF, and the scored report appears in **Analysis**.
+choose the PDF, enter the page number of the answer key (page 1 in the sample),
+and press **Read the sheets**. The scored report appears under **Analysis**.
 
 No account, no sign-in, and no network connection are needed to review it.
 Everything works offline.
 
+The app is written in Dart with Flutter. It runs no interpreter, compiles no
+code at run time, downloads nothing, and has no self-update mechanism. Reading a
+PDF, finding the marks on each sheet and scoring them are all done inside the
+app; no other program or library is launched or installed.
+
 ### Why each entitlement is here
 
-**com.apple.security.cs.allow-unsigned-executable-memory** — The app is
-written in Python and embeds CPython, which compiles and executes bytecode at
-runtime and cannot start without this. No code is downloaded, fetched or
-installed at any point: OpenCV, NumPy, Pillow and the poppler PDF tools are
-all inside the signed bundle, and the app has no self-update mechanism of any
-kind.
+The app has exactly four, and nothing else.
+
+**com.apple.security.app-sandbox** — Required for the Mac App Store.
 
 **com.apple.security.device.serial** — The DataLink 1200 presents itself as a
 USB serial device. The app opens that port, sends the scanner's documented
-command sequence, and reads back the marks. This is the app's core function.
-It is used for nothing else.
-
-**com.apple.security.network.server** — The interface is a local web page the
-app serves to its own WKWebView over HTTP on 127.0.0.1, on an ephemeral port.
-It binds to loopback only and accepts no connection from outside the machine.
-
-**com.apple.security.network.client** — Two uses. The app's own WKWebView
-connects to that loopback server, which the sandbox counts as an outbound
-connection. Separately, a teacher may choose to send a scored report over
-HTTPS to a web address they enter themselves; the app ships with no address
-configured, so out of the box it makes no outbound connection at all.
+command sequence, and reads back the marks. This is the app's core function. It
+is used for nothing else, and only when the teacher presses **Connect and start
+session** (or **Run check** in Settings).
 
 **com.apple.security.files.user-selected.read-write** — Choosing a PDF through
-an Open panel, and saving a CSV export through a Save panel. The app reaches
-no file it was not handed this way.
+an Open panel, and saving a CSV or JSON export through a Save panel. The app
+reaches no file it was not handed this way.
+
+**com.apple.security.network.client** — One use. A teacher may choose to send a
+scored report over HTTPS to a web address they enter themselves, with a
+connection token that website issued. The app ships with no address configured,
+so out of the box it makes no network connection at all, and it does not start
+one until the teacher presses the upload button. The app does not listen for
+connections: it has no server and no network.server entitlement.
+
+### Keychain
+
+If the teacher connects a website, its connection token is stored in their own
+login Keychain, under this app's name, and nowhere else. The app reads it only
+when the teacher opens Settings or the Send pane.
 
 ### Privacy
 

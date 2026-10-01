@@ -163,6 +163,17 @@ void main() {
     });
   });
 
+  testWidgets('the first screen says the app is independent of Apperson', (tester) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final services = testServices();
+    addTearDown(services.dispose);
+    await tester.pumpWidget(DataLinkApp(services: services));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('independent project, not affiliated with or endorsed by Apperson'), findsOneWidget);
+  });
+
   group('Settings', () {
     testWidgets('says plainly what is sent, and that nothing is sent until asked', (tester) async {
       tester.view.physicalSize = const Size(1500, 2400);

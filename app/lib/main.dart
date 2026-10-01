@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'app/app.dart';
 import 'app/keychain_store.dart';
 import 'app/services.dart';
+import 'features/paper/paper_self_test.dart';
 import 'hardware_check/hardware_check.dart';
 
 const String appVersion = '2.0.0+1';
@@ -48,6 +49,14 @@ Future<void> main() async {
   //   DATALINK_KEYCHAIN_SELFTEST=1 "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
   if (env['DATALINK_KEYCHAIN_SELFTEST'] == '1') {
     stdout.writeln(await keychainSelfTest(const KeychainSecretStore()));
+    exit(0);
+  }
+  // Headless check of the whole paper path in the signed, sandboxed build
+  // (asset, isolates, file access, cache). Prints counts only:
+  //   DATALINK_PAPER_SELFTEST="/path/in/the/container/scan.pdf:KEYPAGE" "DataLink Scanner.app/Contents/MacOS/DataLink Scanner"
+  final paperCheck = env['DATALINK_PAPER_SELFTEST'];
+  if (paperCheck != null) {
+    stdout.writeln(await paperSelfTest(paperCheck));
     exit(0);
   }
   final services = await AppServices.start();

@@ -265,6 +265,17 @@ void main() {
       await r.services.scan.disconnect();
     });
 
+    test('Read Paper Batch shows Paper and offers the Open panel', () async {
+      final r = rig();
+      r.actions.nextPdfPath = '/no/such/scan.pdf';
+      await r.commands.readPaperBatch();
+      expect(r.nav.view, AppView.paper);
+      expect(r.actions.pdfPicks, 1);
+      // The file is not there, so the model says so rather than offering a form.
+      expect(r.services.paper.file, isNull);
+      expect(r.services.paper.error, contains('Could not open the PDF'));
+    });
+
     test('Open Session Folder shows the data folder in Finder', () async {
       final r = rig();
       await r.commands.openSessionFolder();

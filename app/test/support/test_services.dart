@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:datalink_core/datalink_core.dart';
 import 'package:datalink_scanner/app/services.dart';
+import 'package:datalink_scanner/features/paper/paper_model.dart';
 
 import 'live_fake.dart';
 
@@ -21,6 +22,8 @@ class RecordingActions implements PlatformActions {
   final List<String> revealed = [];
   final List<String> opened = [];
   String? nextSavePath = '/tmp/saved';
+  String? nextPdfPath;
+  int pdfPicks = 0;
 
   @override
   Future<String?> saveText({
@@ -37,6 +40,12 @@ class RecordingActions implements PlatformActions {
 
   @override
   Future<void> openUrl(String url) async => opened.add(url);
+
+  @override
+  Future<String?> pickPdf() async {
+    pdfPicks++;
+    return nextPdfPath;
+  }
 }
 
 class MemorySecrets implements SecretStore {
@@ -88,6 +97,8 @@ AppServices testServices({
   DateTime Function()? now,
   MemorySecrets? secrets,
   ScriptedHttp? http,
+  BatchReader? paperReader,
+  PageCounter? pageCounter,
 }) {
   final db = store ?? Store.open(':memory:');
   final directory = Directory.systemTemp.createTempSync('datalink-app-test');
@@ -109,6 +120,8 @@ AppServices testServices({
       sleep: (_) async {},
     ),
     portPollInterval: null,
+    paperReader: paperReader,
+    pageCounter: pageCounter,
   );
 }
 

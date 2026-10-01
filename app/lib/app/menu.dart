@@ -54,6 +54,9 @@ List<PlatformMenuItem> buildMenus({
     ]),
     PlatformMenu(label: 'File', menus: [
       PlatformMenuItemGroup(members: [
+        item('Read Paper Batch…', commands.readPaperBatch, shortcut: cmd(LogicalKeyboardKey.keyO)),
+      ]),
+      PlatformMenuItemGroup(members: [
         item('New Class…', commands.newClass, shortcut: cmd(LogicalKeyboardKey.keyN)),
         item('Edit Selected Class…', commands.editClass),
       ]),
@@ -107,8 +110,8 @@ List<PlatformMenuItem> buildMenus({
     ]),
     PlatformMenu(label: 'View', menus: [
       PlatformMenuItemGroup(members: [
-        // Numbered as in the old app, which also had Paper at 2.
         item('Scan', () => commands.show(AppView.scan), shortcut: cmd(LogicalKeyboardKey.digit1)),
+        item('Paper', () => commands.show(AppView.paper), shortcut: cmd(LogicalKeyboardKey.digit2)),
         item('Classes', () => commands.show(AppView.classes), shortcut: cmd(LogicalKeyboardKey.digit3)),
         item('Sessions', () => commands.show(AppView.sessions), shortcut: cmd(LogicalKeyboardKey.digit4)),
         item('Analysis', () => commands.show(AppView.analysis), shortcut: cmd(LogicalKeyboardKey.digit5)),

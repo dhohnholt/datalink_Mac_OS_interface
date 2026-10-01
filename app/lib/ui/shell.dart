@@ -7,6 +7,7 @@ import '../app/navigation.dart';
 import '../app/scope.dart';
 import '../features/analysis/analysis_screen.dart';
 import '../features/classes/classes_screen.dart';
+import '../features/paper/paper_screen.dart';
 import '../features/scan/review_dialog.dart';
 import '../features/scan/scan_model.dart';
 import '../features/scan/scan_screen.dart';
@@ -33,6 +34,7 @@ class AppShell extends StatefulWidget {
 
   static const labels = <AppView, (String, IconData)>{
     AppView.scan: ('Scan', Icons.document_scanner_outlined),
+    AppView.paper: ('Paper', Icons.description_outlined),
     AppView.sessions: ('Sessions', Icons.history),
     AppView.analysis: ('Analysis', Icons.insights_outlined),
     AppView.classes: ('Classes', Icons.groups_outlined),
@@ -163,6 +165,7 @@ class _AppShellState extends State<AppShell> {
     if (override != null) return override(context);
     return switch (view) {
       AppView.scan => const ScanScreen(),
+      AppView.paper => const PaperScreen(),
       AppView.sessions => const SessionsScreen(),
       AppView.analysis => const AnalysisScreen(),
       AppView.classes => const ClassesScreen(),

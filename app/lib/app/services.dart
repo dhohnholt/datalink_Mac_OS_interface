@@ -9,6 +9,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../features/classes/class_book.dart';
+import '../features/paper/orient_template.dart';
+import '../features/paper/paper_model.dart';
 import '../features/scan/scan_model.dart';
 import '../features/settings/ttess_connection.dart';
 import 'keychain_store.dart';
@@ -29,6 +31,10 @@ abstract interface class PlatformActions {
 
   /// Open a web address in the teacher's own browser, never inside the app.
   Future<void> openUrl(String url);
+
+  /// Offer an Open panel for a scanned PDF. Returns its path, or null if they
+  /// cancelled. Inside the sandbox this is the only way to reach the file.
+  Future<String?> pickPdf();
 }
 
 class SystemPlatformActions implements PlatformActions {
@@ -64,6 +70,16 @@ class SystemPlatformActions implements PlatformActions {
   Future<void> openUrl(String url) async {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
+
+  @override
+  Future<String?> pickPdf() async {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'PDF', extensions: ['pdf'], uniformTypeIdentifiers: ['com.adobe.pdf']),
+      ],
+    );
+    return file?.path;
+  }
 }
 
 /// Everything the screens share: the database, the scanner, and the layer that
@@ -77,8 +93,19 @@ class AppServices {
     required this.dataDirectory,
     required this.ttess,
     this.portPollInterval = const Duration(seconds: 2),
+    BatchReader? paperReader,
+    PageCounter? pageCounter,
   })  : classBook = ClassBook(store),
-        connection = TtessConnection(ttess);
+        connection = TtessConnection(ttess),
+        pageCache = PageCache(Directory('${dataDirectory.path}/paper-cache')) {
+    paper = PaperModel(
+      store: store,
+      classBook: classBook,
+      cache: pageCache,
+      reader: paperReader ?? _readWithBundledTemplate,
+      pageCounter: pageCounter ?? countPdfPages,
+    );
+  }
 
   final Store store;
   final Workspace workspace;
@@ -93,6 +120,19 @@ class AppServices {
 
   /// Whether this Mac is connected to the reporting site.
   final TtessConnection connection;
+
+  /// Page pictures kept from paper batches, so a sheet can be looked at later.
+  final PageCache pageCache;
+
+  /// The Paper tab: choose a PDF, read it, file the result.
+  late final PaperModel paper;
+
+  Future<GrayImage>? _template;
+
+  Future<Map<String, Object?>> _readWithBundledTemplate(PaperRequest request, PaperProgress progress) async {
+    final template = await (_template ??= loadOrientTemplate());
+    return readBatch(request: request, orientTemplate: template, cache: pageCache, onProgress: progress);
+  }
 
   /// What the Scan tab decides. It lives here, not in the screen, because the
   /// old page kept every tab alive at once: a sheet that arrives while the
@@ -146,6 +186,7 @@ class AppServices {
 
   Future<void> dispose() async {
     scan.dispose();
+    paper.dispose();
     classBook.dispose();
     connection.dispose();
     await scanner.dispose();

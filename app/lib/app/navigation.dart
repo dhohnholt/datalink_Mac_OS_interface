@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 /// The tabs, in the order they appear.
-enum AppView { scan, sessions, analysis, classes, settings }
+enum AppView { scan, paper, sessions, analysis, classes, settings }
 
 /// The panes inside Analysis.
 enum AnalysisPane { items, students, review, key, upload }

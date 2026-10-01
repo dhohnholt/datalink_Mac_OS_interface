@@ -47,6 +47,15 @@ class Commands {
     services.classBook.requestEditor(selected.isEmpty ? null : selected);
   }
 
+  // ------------------------------------------------------------------ paper
+
+  /// Shows the Paper tab and offers the Open panel for a scanned PDF.
+  Future<void> readPaperBatch() async {
+    navigation.show(AppView.paper);
+    final path = await services.actions.pickPdf();
+    if (path != null) services.paper.setPdf(path);
+  }
+
   // ---------------------------------------------------------------- exports
 
   bool get _viewingASession => navigation.view == AppView.sessions && navigation.sessionId != null;

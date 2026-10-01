@@ -7,6 +7,11 @@ feature does not exist in the new app on purpose, with the reason.
 
 Legend: `[x]` done and checked · `[ ]` not yet · `[-]` dropped on purpose.
 
+**Status:** the Paper section is ticked against `app/test/paper_screen_test.dart`,
+`menu_test.dart` and `review_sheet_picture_test.dart`. The other sections have
+screens and tests but their boxes have not yet been audited line by line, so
+they stay unticked until that is done.
+
 ## Behaviour that lives in the page and must move into Dart
 
 These are not screens; they are rules the old UI enforced in JavaScript. Each
@@ -45,9 +50,10 @@ becomes tested view-model or domain code.
 - [ ] Upload picker: Course → Section → Unit → Test, each narrowing the next,
   selections surviving a refresh; draft-run detection switches the button to
   "Update draft" and asks before replacing.
-- [ ] Paper: disable Run until a PDF is chosen; key page max = page count;
+- [x] Paper: disable Run until a PDF is chosen; key page max = page count;
   key-fix flow requires every unresolved question answered before retry.
-- [ ] Offer to empty the page cache once per run when over 500 MB.
+- [ ] Offer to empty the page cache once per run when over 500 MB. (Implemented
+  as `PaperModel.takePurgeOffer`; the limit is not reachable in a test yet.)
 - [ ] Session context bar (name, class, sheet count, time) with Sheets /
   Analysis / Clear; selecting a test in either tab selects it in both.
 - [ ] Routing: Back works between tabs, sessions and analysis panes.
@@ -70,13 +76,15 @@ becomes tested view-model or domain code.
 - [ ] Export CSV (Save panel)
 
 ## Paper
-- [ ] Choose PDF (Open panel), file line "name · N pages"
-- [ ] Test name · Class · Key page · Questions (1–50) · (pages / skip-pages)
-- [ ] Read the sheets · progress bar + message
-- [ ] Answer-key-needs-a-hand: explanation, per-question radios with what the
+- [x] Choose PDF (Open panel), file line "name · N pages"
+- [x] Test name · Class · Key page · Questions (1–50). Pages / skip-pages: the
+  old form never offered them either; the reader supports them
+  (`PaperRequest.pages`, `skipPages`).
+- [x] Read the sheets · progress bar + message
+- [x] Answer-key-needs-a-hand: explanation, per-question radios with what the
   reader saw, Look at the key sheet, Use these and read the batch, Start over
-- [ ] Done: message, Open the item analysis, Read another batch
-- [ ] Page cache size line, Empty the cache (confirm)
+- [x] Done: message, Open the item analysis, Read another batch
+- [x] Page cache size line, Empty the cache (confirm)
 - [-] "Paper scanning support" card and Install support: nothing is installed at
   runtime any more.
 
@@ -127,7 +135,7 @@ becomes tested view-model or domain code.
 - [ ] Connect · End session · Reset scanner · Disconnect · Clear view
 - [ ] Skip student · Start at first student · Show protocol details
 - [ ] Scan · Paper · Classes · Sessions · Analysis · Settings
-- [ ] Read paper batch · New class · Edit class
+- [ ] Read paper batch (tested, ⌘O) · New class · Edit class
 - [ ] Export CSV · Export analysis · Open session folder
 - [ ] Help · Protocol notes · Report an issue · About
 - [-] Check for Updates

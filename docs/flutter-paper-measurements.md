@@ -64,3 +64,34 @@ Speed: 14 pages in about 8 s on 4 isolates (AOT).
 The Python app cached every page at 400 dpi (about 6 MB each, 375 MB for four
 batches). Here only a reduced picture (1100 px wide JPEG, about 150 KB) of each
 page is kept, for the Review sheet viewer.
+
+## The orientation template
+
+The reader finds a page's orientation and row offset by matching a crop of the
+printed form (the student-ID grid and header). The first version of the app used
+a crop of the Python edition's reference scan, which carried one student's
+bubbled ID. It was replaced with a crop of a clean key sheet scanned on the same
+ScanSnap, cut with `packages/datalink_core/tool/make_orient_template.dart`.
+
+Calibration: the old crop was matched against the new sheet's render (score
+0.78, the new form sits 47 px lower and 1 px to the left). Row offsets are
+measured against the old reference's frame, so the new crop is cut where the old
+one's content is: x 59, y 426, and `orientTemplateY0` stays 380.
+
+Checked on the 221 real pages, against the original template:
+
+* orientation: identical on every page; match confidence 0.71 or better
+  (mean +0.09), nowhere near the 0.55 cut-off;
+* row offset: identical on 148 pages (67%), one pixel different on 72, and two
+  on one. A different scan of the same form lands at a different sub-pixel
+  position, so some pixel of disagreement is unavoidable; trying fractional
+  shifts of the new template did not improve on 67%;
+* what that does to answers, Python reader on both: student IDs identical
+  everywhere; 61 of about 11,000 answers differ (0.55%), 57 of them on a
+  question already flagged for review and 4 not. Flagged answers overall: 805
+  (old) against 818 (new); mean margin and mark strength: identical to three
+  decimals. The new template is neither better nor worse, only different on the
+  marks that sit on the blank threshold, which is the same kind of difference
+  the renderer produces;
+* the Dart pipeline end to end on one batch: same 15 students, 0 ID differences,
+  2 of 750 answers different.

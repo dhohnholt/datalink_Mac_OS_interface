@@ -106,7 +106,17 @@ anything left will show.
 * **Privacy manifest.** Declares file timestamps and elapsed time; no data
   collected, no tracking. If App Store Connect emails about another required
   reason API, add it to `app/macos/Runner/PrivacyInfo.xcprivacy`.
-* **Orientation template.** `app/assets/orient_template.gray` includes one
-  student's bubbled ID from the reference sheet (not a name). See
-  `docs/flutter-paper-measurements.md`. Decide before submitting.
+* **Orientation template.** Cut from a clean key sheet, so it carries no student data
+  (an earlier commit on this branch has the first version, which did; see the
+  note on history below). Measured against the original in
+  `docs/flutter-paper-measurements.md`.
 * **Icon.** The existing blue icon is used; the interface is slate and teal.
+
+## Before this branch is ever pushed
+
+The first orientation template, which includes one student's bubbled ID, is still
+in this branch's local history (commits from the Paper tab onward). It is not
+in the shipped app any more, but pushing the branch would publish it. Rewrite
+that history first, or push only a squashed copy. The Python edition's
+`src/datalink_scanner/vendor/omr/reference_page.png` is the whole sheet, with a
+student's handwritten name on it, and is already in `main`'s history.

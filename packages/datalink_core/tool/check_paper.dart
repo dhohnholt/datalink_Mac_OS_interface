@@ -10,15 +10,22 @@ import 'package:datalink_core/datalink_core.dart';
 import 'package:image/image.dart' as img;
 
 Future<void> main(List<String> args) async {
-  final reference = img.decodePng(File(args[0]).readAsBytesSync())!;
-  final bytes = reference.getBytes();
-  final channels = reference.numChannels;
-  final template = GrayImage(orientTemplateWidth, orientTemplateHeight);
-  for (var y = 0; y < orientTemplateHeight; y++) {
-    for (var x = 0; x < orientTemplateWidth; x++) {
-      final o = ((y + orientTemplateY0) * reference.width + x + orientTemplateX0) * channels;
-      template.pixels[y * orientTemplateWidth + x] =
-          channels == 1 ? bytes[o] : (bytes[o] * 4899 + bytes[o + 1] * 9617 + bytes[o + 2] * 1868 + 8192) >> 14;
+  // Either a ready-made template (a .gray file) or the old reference sheet
+  // (a png), from which the template is cut at the calibrated origin.
+  final GrayImage template;
+  if (args[0].endsWith('.gray')) {
+    template = GrayImage(orientTemplateWidth, orientTemplateHeight, File(args[0]).readAsBytesSync());
+  } else {
+    final reference = img.decodePng(File(args[0]).readAsBytesSync())!;
+    final bytes = reference.getBytes();
+    final channels = reference.numChannels;
+    template = GrayImage(orientTemplateWidth, orientTemplateHeight);
+    for (var y = 0; y < orientTemplateHeight; y++) {
+      for (var x = 0; x < orientTemplateWidth; x++) {
+        final o = ((y + orientTemplateY0) * reference.width + x + orientTemplateX0) * channels;
+        template.pixels[y * orientTemplateWidth + x] =
+            channels == 1 ? bytes[o] : (bytes[o] * 4899 + bytes[o + 1] * 9617 + bytes[o + 2] * 1868 + 8192) >> 14;
+      }
     }
   }
   final cache = PageCache(Directory.systemTemp.createTempSync('paper-cache-'));

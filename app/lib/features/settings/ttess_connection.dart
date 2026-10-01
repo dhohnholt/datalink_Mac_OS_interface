@@ -13,6 +13,7 @@ class TtessConnection extends ChangeNotifier {
   List<Map<String, Object?>> _destinations = const [];
   String? _error;
   bool _loaded = false;
+  Future<void>? _loading;
 
   bool get connected => _connected;
   List<Map<String, Object?>> get destinations => _destinations;
@@ -29,6 +30,7 @@ class TtessConnection extends ChangeNotifier {
 
   /// The line under the section title.
   String get status {
+    if (!_loaded) return 'Checking your connection…';
     if (!hasEndpoint) return 'No upload address yet. Enter the address of your site below.';
     if (!_connected) return 'Not connected. Paste the connection token your site issued.';
     if (_error != null) return _error!;
@@ -41,7 +43,13 @@ class TtessConnection extends ChangeNotifier {
       ? 'No tests are available to this account yet.'
       : {for (final d in _destinations) d['course_title']}.join(' · ');
 
-  /// On launch: is there a token, and what does the site offer with it?
+  /// Reads the saved token (and asks the site what it offers) the first time a
+  /// screen needs to know, and not before. The token lives in the Keychain, and
+  /// reading it can make macOS ask for a password when another app made the
+  /// entry, so a teacher who never uses this should never be asked.
+  Future<void> ensureLoaded() => _loading ??= load();
+
+  /// Is there a token, and what does the site offer with it?
   Future<void> load() async {
     final token = await _client.token();
     _connected = token != null && token.isNotEmpty;

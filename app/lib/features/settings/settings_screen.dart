@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:datalink_core/datalink_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_seeded) return;
     _seeded = true;
     final connection = Services.of(context).connection;
+    unawaited(connection.ensureLoaded());
     _api.text = connection.apiUrl;
     _site.text = connection.siteUrl;
   }

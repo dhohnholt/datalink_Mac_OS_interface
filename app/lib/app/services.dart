@@ -172,8 +172,8 @@ class AppServices {
         http: IoHttpTransport(),
       ),
     );
-    // Who is connected, and what the site offers: asked once on launch.
-    unawaited(services.connection.load());
+    // Who is connected is not asked here: that reads the Keychain, which can
+    // prompt. Settings and the upload pane ask when first shown.
     return services;
   }
 

@@ -51,8 +51,14 @@ class RecordingActions implements PlatformActions {
 class MemorySecrets implements SecretStore {
   final Map<(String, String), String> items = {};
 
+  /// How many times something asked for a secret.
+  int reads = 0;
+
   @override
-  Future<String?> read(String service, String account) async => items[(service, account)];
+  Future<String?> read(String service, String account) async {
+    reads++;
+    return items[(service, account)];
+  }
 
   @override
   Future<void> write(String service, String account, String secret) async =>

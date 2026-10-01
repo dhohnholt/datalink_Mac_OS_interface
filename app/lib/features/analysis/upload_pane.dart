@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:datalink_core/datalink_core.dart';
 import 'package:flutter/material.dart';
 
@@ -25,7 +27,9 @@ class _UploadPaneState extends State<UploadPane> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final destinations = Services.of(context).connection.destinations;
+    final connection = Services.of(context).connection;
+    unawaited(connection.ensureLoaded());
+    final destinations = connection.destinations;
     final choices = _choices;
     if (choices == null) {
       _choices = UploadChoices(destinations);
@@ -120,7 +124,11 @@ class _UploadPaneState extends State<UploadPane> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              connection.connected ? _picker(context, choices) : _notConnected(context),
+              !connection.loaded
+                  ? const EmptyState(title: 'Checking your connection…', icon: Icons.cloud_queue_outlined)
+                  : connection.connected
+                      ? _picker(context, choices)
+                      : _notConnected(context),
               // Outside the picker, so it survives the pane switching to "not
               // connected" when the site withdraws the token mid-upload.
               if (_error != null)

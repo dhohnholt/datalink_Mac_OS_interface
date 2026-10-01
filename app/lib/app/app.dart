@@ -3,30 +3,10 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 
 import '../ui/shell.dart';
+import 'palette.dart';
 import 'navigation.dart';
 import 'scope.dart';
 import 'services.dart';
-
-ThemeData _theme(Brightness brightness) {
-  final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF2E9E57), brightness: brightness);
-  return ThemeData(
-    colorScheme: scheme,
-    useMaterial3: true,
-    visualDensity: VisualDensity.standard,
-    cardTheme: CardThemeData(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-    ),
-    inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder(), isDense: true),
-    navigationRailTheme: NavigationRailThemeData(
-      backgroundColor: scheme.surfaceContainerLow,
-      minWidth: 84,
-    ),
-  );
-}
 
 /// The whole app once its services exist.
 class DataLinkApp extends StatefulWidget {
@@ -75,8 +55,8 @@ class _DataLinkAppState extends State<DataLinkApp> {
         child: MaterialApp(
           title: 'DataLink Scanner',
           debugShowCheckedModeBanner: false,
-          theme: _theme(Brightness.light),
-          darkTheme: _theme(Brightness.dark),
+          theme: Palette.light.theme(),
+          darkTheme: Palette.dark.theme(),
           home: AppShell(screens: widget.screens),
         ),
       ),

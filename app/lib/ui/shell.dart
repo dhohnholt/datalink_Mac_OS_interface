@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../app/commands.dart';
 import '../app/menu.dart';
+import '../app/palette.dart';
 import '../app/navigation.dart';
 import '../app/scope.dart';
 import '../features/analysis/analysis_screen.dart';
@@ -125,7 +126,13 @@ class _AppShellState extends State<AppShell> {
                   padding: const EdgeInsets.only(top: 12, bottom: 8),
                   child: Semantics(
                     header: true,
-                    child: Text('DataLink', style: Theme.of(context).textTheme.titleSmall),
+                    child: Text(
+                      'DataLink',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Palette.of(Theme.of(context).brightness).railSelected,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
                 destinations: [

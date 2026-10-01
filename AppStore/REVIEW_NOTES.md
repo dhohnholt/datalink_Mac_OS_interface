@@ -28,9 +28,11 @@ scores them against an answer key and shows which questions a class got wrong.
 The app normally reads sheets from an Apperson DataLink 1200, a USB optical
 mark reader. Since you will not have one, use the **Paper** tab instead: it
 takes a PDF of scanned answer sheets and produces exactly the same result. A
-sample PDF is attached to this submission. Open the app, choose **Paper**,
-choose the PDF, enter the page number of the answer key (page 1 in the sample),
-and press **Read the sheets**. The scored report appears under **Analysis**.
+sample PDF is attached to this submission (twelve invented students). Open the
+app, choose **Paper**, choose the PDF, and press **Read the sheets**; the
+defaults (answer key on page 1, 50 questions) are right. The scored report
+appears under **Analysis**: 12 students, class average 75.2%. **Review** lists
+two sheets to look at, one with a double mark and one with an empty ID column.
 
 No account, no sign-in, and no network connection are needed to review it.
 Everything works offline.
@@ -92,11 +94,7 @@ interface says so on its first screen.
 
 ## Before submitting: the sample PDF
 
-The notes promise a sample PDF and the reviewer needs it, because without it
-they cannot exercise the app at all.
-
-**Do not attach a real scan.** Every PDF under `Scans/` carries real students'
-names and ID numbers. Produce a synthetic batch instead: blank forms filled in
-by hand with invented IDs, scanned to PDF.
-
-Attach it in App Store Connect under **App Review Information → Attachment**.
+Attach `AppStore/review-sample/DataLink-Sample-Batch.pdf` in App Store Connect
+under **App Review Information → Attachment**. It is synthetic (see its README
+for what it should read as), so it is safe to attach. **Never attach a real
+scan**: every PDF under `Scans/` carries real students' names and ID numbers.

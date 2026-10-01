@@ -103,8 +103,9 @@ anything left will show.
   `app/test/screenshots/screenshots_test.dart` are this Mac's). The older
   `mac-1280x800/` set shows the Python edition's web interface and should not be
   used for 2.0.
-* **Sample PDF** for App Review: synthetic only, as described in
-  `REVIEW_NOTES.md`. Never a real scan.
+* **Sample PDF** for App Review: `AppStore/review-sample/DataLink-Sample-Batch.pdf`,
+  synthetic, with the result it should give in its README. Attach it in App
+  Store Connect. Never a real scan.
 * **Updating from the Python store edition.** Same bundle id, same container, the
   same `captures/library.sqlite3` and the same schema, so an update opens the
   existing library and the Keychain token without any import. The Dart reader was

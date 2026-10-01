@@ -5,9 +5,11 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../analysis/analysis.dart';
 import '../analysis/csv_export.dart';
+import '../paper/page_cache.dart';
 import '../protocol/errors.dart';
 import '../protocol/py_json.dart';
 import '../protocol/python_compat.dart';
@@ -37,6 +39,15 @@ class Workspace {
 
   Map<String, Object?> _require(int sessionId) =>
       store.session(sessionId) ?? (throw const NotFoundError());
+
+  /// The stored picture of one sheet of a paper session, for reading a name
+  /// off the paper while correcting it. Null when it is not in the cache (any
+  /// more).
+  Uint8List? sessionPage(int sessionId, int page) {
+    final cache = store.session(sessionId)?['page_cache'];
+    if (cache is! String || cache.isEmpty) return null;
+    return readPagePicture(cache, page);
+  }
 
   bool _hasPages(Object? cache) =>
       cache is String && cache.isNotEmpty && Directory(cache).existsSync();

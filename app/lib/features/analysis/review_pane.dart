@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
 import '../../ui/widgets.dart';
+import '../paper/page_viewer.dart';
 import 'review_edit.dart';
 
 /// Everything a person has to decide about a scored test: sheets with no ID,
@@ -108,6 +109,16 @@ class _ReviewPaneState extends State<ReviewPane> {
     }
   }
 
+  void _viewSheet(int sheet) {
+    final picture = Services.of(context).workspace.sessionPage(widget.sessionId, sheet);
+    showPagePicture(
+      context,
+      title: 'Sheet $sheet',
+      note: 'The sheet as it was scanned. Read the name off the paper, then correct the ID behind this.',
+      picture: picture,
+    );
+  }
+
   void _restore() {
     final restored = Services.of(context).workspace.restoreReviews(widget.sessionId);
     showToast(context, 'Brought back $restored item(s)');
@@ -171,6 +182,7 @@ class _ReviewPaneState extends State<ReviewPane> {
         ),
         for (final entry in groups.entries) _SheetGroup(
           sheet: entry.key,
+          onViewSheet: widget.report['has_pages'] == true ? _viewSheet : null,
           rows: entry.value,
           edit: _edits[entry.key],
           checked: _checked,
@@ -192,8 +204,11 @@ class _SheetGroup extends StatelessWidget {
     required this.fixes,
     required this.onToggle,
     required this.onFix,
+    this.onViewSheet,
   });
 
+  /// Opens the scan of a sheet; null when this test has no page pictures.
+  final void Function(int sheet)? onViewSheet;
   final int sheet;
   final List<ReviewRow> rows;
   final ReviewSheetEdit? edit;
@@ -218,7 +233,7 @@ class _SheetGroup extends StatelessWidget {
               if (edit != null)
                 ListenableBuilder(
                   listenable: edit!,
-                  builder: (context, _) => _StudentFields(sheet: sheet, edit: edit!),
+                  builder: (context, _) => _StudentFields(sheet: sheet, edit: edit!, onView: onViewSheet),
                 )
               else
                 Text('This test', style: theme.textTheme.titleSmall),
@@ -239,8 +254,9 @@ class _SheetGroup extends StatelessWidget {
 }
 
 class _StudentFields extends StatelessWidget {
-  const _StudentFields({required this.sheet, required this.edit});
+  const _StudentFields({required this.sheet, required this.edit, this.onView});
 
+  final void Function(int sheet)? onView;
   final int sheet;
   final ReviewSheetEdit edit;
 
@@ -253,7 +269,14 @@ class _StudentFields extends StatelessWidget {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text('Sheet $sheet', style: Theme.of(context).textTheme.titleSmall),
+        if (onView == null)
+          Text('Sheet $sheet', style: Theme.of(context).textTheme.titleSmall)
+        else
+          TextButton.icon(
+            icon: const Icon(Icons.image_outlined, size: 18),
+            onPressed: () => onView!(sheet),
+            label: Text('Sheet $sheet'),
+          ),
         SizedBox(
           width: 170,
           child: _Field(

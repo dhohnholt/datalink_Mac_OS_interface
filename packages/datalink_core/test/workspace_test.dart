@@ -345,4 +345,20 @@ void main() {
       expect(store.session(id)!['name'], 'Keep');
     });
   });
+
+  test('a paper sheet\'s stored picture is served, and its absence is null', () {
+    final cache = Directory.systemTemp.createTempSync('ws-pages-');
+    addTearDown(() {
+      if (cache.existsSync()) cache.deleteSync(recursive: true);
+    });
+    File('${cache.path}/${pagePictureName(2)}').writeAsBytesSync([1, 2, 3]);
+    final withPages = store.createSession('Paper', '', 3, source: 'paper', pageCache: cache.path);
+    final without = store.createSession('DataLink', '', 3);
+    expect(workspace.sessionPage(withPages, 2), [1, 2, 3]);
+    expect(workspace.sessionPage(withPages, 9), isNull);
+    expect(workspace.sessionPage(without, 2), isNull);
+    expect(workspace.sessionDetail(withPages)['has_pages'], isTrue);
+    cache.deleteSync(recursive: true);
+    expect(workspace.sessionDetail(withPages)['has_pages'], isFalse);
+  });
 }

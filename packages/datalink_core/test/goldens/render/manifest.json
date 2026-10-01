@@ -1,0 +1,107 @@
+[
+  {
+    "name": "rgb_jpeg_up",
+    "renders": {
+      "400": {
+        "file": "rgb_jpeg_up_400.gray.gz",
+        "width": 603,
+        "height": 1100
+      },
+      "150": {
+        "file": "rgb_jpeg_up_150.gray.gz",
+        "width": 227,
+        "height": 413
+      }
+    }
+  },
+  {
+    "name": "gray_jpeg_int",
+    "renders": {
+      "400": {
+        "file": "gray_jpeg_int_400.gray.gz",
+        "width": 600,
+        "height": 1100
+      },
+      "150": {
+        "file": "gray_jpeg_int_150.gray.gz",
+        "width": 225,
+        "height": 413
+      }
+    }
+  },
+  {
+    "name": "rgb_flate",
+    "renders": {
+      "400": {
+        "file": "rgb_flate_400.gray.gz",
+        "width": 603,
+        "height": 1100
+      },
+      "150": {
+        "file": "rgb_flate_150.gray.gz",
+        "width": 227,
+        "height": 413
+      }
+    }
+  },
+  {
+    "name": "gray_flate",
+    "renders": {
+      "400": {
+        "file": "gray_flate_400.gray.gz",
+        "width": 603,
+        "height": 1098
+      },
+      "150": {
+        "file": "gray_flate_150.gray.gz",
+        "width": 227,
+        "height": 412
+      }
+    }
+  },
+  {
+    "name": "bilevel",
+    "renders": {
+      "400": {
+        "file": "bilevel_400.gray.gz",
+        "width": 603,
+        "height": 1096
+      },
+      "150": {
+        "file": "bilevel_150.gray.gz",
+        "width": 227,
+        "height": 411
+      }
+    }
+  },
+  {
+    "name": "rotated90",
+    "renders": {
+      "400": {
+        "file": "rotated90_400.gray.gz",
+        "width": 1100,
+        "height": 603
+      },
+      "150": {
+        "file": "rotated90_150.gray.gz",
+        "width": 413,
+        "height": 227
+      }
+    }
+  },
+  {
+    "name": "broken_xref",
+    "renders": {
+      "400": {
+        "file": "broken_xref_400.gray.gz",
+        "width": 603,
+        "height": 1100
+      },
+      "150": {
+        "file": "broken_xref_150.gray.gz",
+        "width": 227,
+        "height": 413
+      }
+    }
+  }
+]

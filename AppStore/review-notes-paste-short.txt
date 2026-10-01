@@ -1,0 +1,20 @@
+DataLink Scanner reads paper multiple-choice answer sheets for teachers, scores them against an answer key, and shows which questions a class got wrong.
+
+You do not need the scanner hardware to review this app. It normally reads sheets from an Apperson DataLink 1200, a USB optical mark reader. Since you will not have one, use the Paper tab: it takes a PDF of scanned answer sheets and gives the same result.
+
+To review: a sample PDF (twelve invented students) is attached. Open the app, choose Paper, choose the PDF, and press Read the sheets. The defaults (answer key on page 1, 50 questions) are right. The scored report appears under Analysis: 12 students, class average 75.2%. Review lists two sheets to look at, one with a double mark and one with an empty ID column.
+
+No account, sign-in or network connection is needed. Everything works offline.
+
+The app is written in Dart with Flutter. It runs no interpreter, compiles no code at run time, downloads nothing, and has no self-update. Reading the PDF, finding the marks and scoring are all done inside the app.
+
+Entitlements (each is explained in App Sandbox Information): app-sandbox; device.serial for the USB scanner, used only when the teacher presses Connect and start session; files.user-selected.read-write for choosing a PDF and saving exports; network.client for one optional use, sending a scored report over HTTPS to a web address the teacher enters themselves. The app ships with no address configured, makes no network connection by default, and does not listen for connections.
+
+If the teacher connects a website, its token is kept in their own login Keychain and read only when they open Settings or Send.
+
+Privacy: nothing is collected. No analytics, crash reporting, advertising, device identifiers or accounts. Sheets, names and ID numbers stay in the app's own container on the teacher's Mac. Nothing is sent anywhere unless the teacher enters their own website's address and chooses to upload.
+
+Privacy policy: https://dhohnholt.github.io/datalink_Mac_OS_interface/privacy.html
+Support: https://dhohnholt.github.io/datalink_Mac_OS_interface/
+
+Apperson makes the DataLink 1200. This is an independent project, not affiliated with or endorsed by Apperson; the app says so on its first screen.

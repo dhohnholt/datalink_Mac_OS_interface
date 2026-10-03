@@ -26,6 +26,31 @@ class _ReviewDialogState extends State<ReviewDialog> {
   String? _error;
   bool _closed = false;
 
+  /// Which roster student this sheet belongs to: an index into the roster,
+  /// [_other] to type an ID instead, or null when nothing is chosen yet.
+  static const int _other = -1;
+  late final List<RosterStudent> _roster = widget.model.walk.students;
+  late int? _pick = _initialPick();
+
+  /// With a class roster, the student is chosen from it and the ID follows,
+  /// rather than typed. Without one, or for a sheet that only needs its
+  /// doubtful marks settled, nothing changes.
+  bool get _picking => _roster.isNotEmpty && _plan.needsStudentId;
+
+  int? _initialPick() {
+    if (_roster.isEmpty || !_plan.needsStudentId) return null;
+    final walk = widget.model.walk;
+    if (_plan.idPrefill.isNotEmpty) {
+      final index = walk.indexForId(_plan.idPrefill);
+      return index >= 0 ? index : _other;
+    }
+    // Nothing was read from the sheet: the student the screen said was next.
+    return walk.current == null ? null : walk.index;
+  }
+
+  /// Nothing came off the sheet to confirm, so the question is simply who.
+  bool get _asksWho => _picking && _plan.idPrefill.isEmpty;
+
   List<Map<String, Object?>> get _ambiguities =>
       ((_review['ambiguities'] as List?) ?? const []).cast<Map<String, Object?>>();
 
@@ -56,10 +81,21 @@ class _ReviewDialogState extends State<ReviewDialog> {
   }
 
   void _save() {
+    var id = _id.text;
+    var name = _name.text;
+    if (_picking && _pick != _other) {
+      final pick = _pick;
+      if (pick == null) {
+        setState(() => _error = 'Choose the student, or "Not on the roster" to type an ID.');
+        return;
+      }
+      id = _roster[pick].id;
+      name = _roster[pick].name;
+    }
     final error = widget.model.resolve(
       {for (final e in _choices.entries) '${e.key}': e.value},
-      _id.text,
-      _name.text,
+      id,
+      name,
     );
     if (error == null) {
       _close();
@@ -72,7 +108,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
   Widget build(BuildContext context) {
     final plan = _plan;
     return AlertDialog(
-      title: Semantics(header: true, child: Text(plan.title)),
+      title: Semantics(header: true, child: Text(_asksWho ? 'Which student is this?' : plan.title)),
       content: SizedBox(
         width: 460,
         child: SingleChildScrollView(
@@ -80,12 +116,34 @@ class _ReviewDialogState extends State<ReviewDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(plan.intro),
+              Text(
+                _asksWho
+                    ? 'Choose the student this sheet belongs to; their ID is filled in for you. '
+                        'If they are not on the roster, choose that and type the ID.'
+                    : plan.intro,
+              ),
               const SizedBox(height: 12),
-              if (plan.needsStudentId) ...[
+              if (_picking) ...[
+                DropdownButtonFormField<int>(
+                  isExpanded: true,
+                  initialValue: _pick,
+                  decoration: const InputDecoration(labelText: 'Student'),
+                  items: [
+                    for (var i = 0; i < _roster.length; i++)
+                      DropdownMenuItem(value: i, child: Text('${_roster[i].name} · ${_roster[i].id}')),
+                    const DropdownMenuItem(value: _other, child: Text('Not on the roster — type an ID')),
+                  ],
+                  onChanged: (value) => setState(() {
+                    _pick = value;
+                    _error = null;
+                  }),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (plan.needsStudentId && (!_picking || _pick == _other)) ...[
                 TextField(
                   controller: _id,
-                  autofocus: true,
+                  autofocus: !_picking,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(labelText: 'Student ID'),
                   onSubmitted: (_) => _save(),
@@ -112,7 +170,11 @@ class _ReviewDialogState extends State<ReviewDialog> {
         ),
       ),
       actions: [
-        FilledButton(onPressed: _save, child: const Text('Save correction')),
+        FilledButton(
+          autofocus: _picking && _pick != null && _pick != _other,
+          onPressed: _save,
+          child: const Text('Save correction'),
+        ),
       ],
     );
   }

@@ -438,8 +438,12 @@ class ScanModel extends ChangeNotifier {
     } on DataLinkError catch (error) {
       return error.message;
     }
-    if (plan.needsStudentId && walk.students.isNotEmpty && plan.matchIndex >= 0) {
-      _rosterIndex[className] = plan.matchIndex + 1;
+    if (plan.needsStudentId && walk.students.isNotEmpty) {
+      // Carry on after the student actually chosen, who need not be the one
+      // the screen expected when sheets are fed out of order.
+      final chosen = walk.indexForId(studentId);
+      final from = chosen >= 0 ? chosen : plan.matchIndex;
+      if (from >= 0) _rosterIndex[className] = from + 1;
     }
     _sync();
     return null;

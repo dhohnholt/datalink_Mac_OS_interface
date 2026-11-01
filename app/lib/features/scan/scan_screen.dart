@@ -347,16 +347,17 @@ class _ScanScreenState extends State<ScanScreen> {
                   const DataColumn(label: Text('Scan')),
                   const DataColumn(label: Text('Student ID')),
                   const DataColumn(label: Text('Time')),
+                  if (model.scanning) const DataColumn(label: Text('Actions')),
                   for (var q = 1; q <= columns; q++)
                     DataColumn(label: Semantics(label: 'Question $q', child: Text('Q$q'))),
                 ],
-                rows: [for (final r in records) _row(context, r, columns)],
+                rows: [for (final r in records) _row(context, model, r, columns)],
               ),
             ),
     );
   }
 
-  DataRow _row(BuildContext context, Map<String, Object?> record, int columns) {
+  DataRow _row(BuildContext context, ScanModel model, Map<String, Object?> record, int columns) {
     final isKey = record['role'] == 'key';
     final number = record['number']! as int;
     final name = (record['student_name'] as String?) ?? '';
@@ -375,6 +376,21 @@ class _ScanScreenState extends State<ScanScreen> {
             )
           : Text(id.isEmpty ? '—' : id)),
       DataCell(Text(time == null ? '—' : '${two(time.hour)}:${two(time.minute)}:${two(time.second)}')),
+      if (model.scanning)
+        DataCell(isKey
+            ? const SizedBox.shrink()
+            : Wrap(spacing: 4, children: [
+                TextButton.icon(
+                  onPressed: () => _rescan(model, record),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Rescan'),
+                ),
+                IconButton(
+                  tooltip: 'Remove bad scan',
+                  onPressed: () => _removeScan(model, record),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ])),
       for (var q = 1; q <= columns; q++)
         DataCell(Builder(builder: (context) {
           final value = q <= responses.length ? responses[q - 1] : '';
@@ -430,6 +446,37 @@ class _ScanScreenState extends State<ScanScreen> {
       destructive: true,
     );
     if (ok) model.clearView();
+  }
+
+  Future<void> _removeScan(ScanModel model, Map<String, Object?> record) async {
+    final student = _studentLabel(record);
+    final ok = await confirmDialog(
+      context,
+      title: 'Remove bad scan',
+      message: 'Remove $student\'s scan from this session? This cannot be undone.',
+      confirmLabel: 'Remove scan',
+      destructive: true,
+    );
+    if (ok) model.removeStudentScan(record);
+  }
+
+  Future<void> _rescan(ScanModel model, Map<String, Object?> record) async {
+    final student = _studentLabel(record);
+    final ok = await confirmDialog(
+      context,
+      title: 'Rescan student',
+      message: 'Remove $student\'s current scan, then feed their sheet again.',
+      confirmLabel: 'Remove and rescan',
+      destructive: true,
+    );
+    if (ok) model.rescanStudent(record);
+  }
+
+  String _studentLabel(Map<String, Object?> record) {
+    final name = (record['student_name'] as String?)?.trim() ?? '';
+    if (name.isNotEmpty) return name;
+    final id = (record['student_id'] as String?)?.trim() ?? '';
+    return id.isNotEmpty ? 'student $id' : 'this student';
   }
 
   Future<void> _export(ScanModel model) async {

@@ -4,6 +4,11 @@ from datetime import datetime, timezone
 import os
 import uuid
 
+try:
+    from analysis_core import is_correct
+except ImportError:  # imported as part of a package, as the scanner app vendors it
+    from .analysis_core import is_correct
+
 SCHEMA_VERSION = "1.0"
 
 
@@ -18,7 +23,7 @@ def build_analysis_result(
     skipped_unsupported, answer_key, students, scores, analysis, stats,
     review_items, applied_corrections, flag_thresholds, run_id=None,
     exam_name=None, scan_student_ids=True, question_count=50,
-    source_type="pdf_scan",
+    source_type="pdf_scan", version=None,
 ):
     corrected_fields = {
         (entry["page"], entry["field"]) for entry in applied_corrections
@@ -30,12 +35,15 @@ def build_analysis_result(
         answers = []
         for question in range(1, question_count + 1):
             response = extraction["answers"].get(question, "BLANK")
+            marks = extraction.get("marks", {}).get(question)
             confidence = extraction.get("answer_confidence", {}).get(question, {})
             answers.append({
                 "question": question,
                 "response": response,
+                # The letters behind a MULTIPLE response, when they are known.
+                **({"marks": marks} if marks else {}),
                 "correct_answer": answer_key[question],
-                "correct": response == answer_key[question],
+                "correct": is_correct(response, answer_key[question], marks),
                 "confidence": confidence,
                 "manually_corrected": (page, f"answer_{question}") in corrected_fields,
             })
@@ -44,6 +52,7 @@ def build_analysis_result(
             "student_id": normalized_student_id(extraction.get("student_id")),
             "student_id_read": extraction.get("student_id"),
             "student_name": extraction.get("student_name"),
+            "version": extraction.get("version"),
             "student_id_manually_corrected": (page, "student_id") in corrected_fields,
             "score": {
                 "correct": score["correct"], "incorrect": score["incorrect"],
@@ -94,6 +103,7 @@ def build_analysis_result(
             "student_id_scanning": scan_student_ids,
             "question_count": question_count,
             "key_page": key_page,
+            "version": version,
             "answer_key": [
                 {"question": q, "answer": answer_key[q]}
                 for q in range(1, question_count + 1)

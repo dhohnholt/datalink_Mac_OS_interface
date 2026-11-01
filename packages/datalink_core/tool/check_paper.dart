@@ -1,6 +1,6 @@
 // Runs a whole PDF batch through the Dart pipeline and writes the report JSON.
 //
-//   dart run tool/check_paper.dart <reference_page.png> <file.pdf> <key page> <out.json> [questions]
+//   dart run tool/check_paper.dart <reference_page.png> <file.pdf> <key page|auto> <out.json> [questions] [version]
 //
 // For development against local PDFs; the report holds real student data, so
 // write it somewhere untracked.
@@ -34,8 +34,9 @@ Future<void> main(List<String> args) async {
     final report = await readBatch(
       request: PaperRequest(
         pdf: File(args[1]),
-        keyPage: int.parse(args[2]),
+        keyPage: args[2] == 'auto' ? null : int.parse(args[2]),
         questionCount: args.length > 4 ? int.parse(args[4]) : 50,
+        version: args.length > 5 ? args[5] : null,
       ),
       orientTemplate: template,
       cache: cache,

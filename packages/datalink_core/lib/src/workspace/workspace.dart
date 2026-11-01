@@ -231,10 +231,12 @@ class Workspace {
         if (responses.length != expected) {
           throw DataLinkError('Sheet $number needs exactly $expected responses');
         }
+        // Matching on the printable sheets runs to O; everything else is A-E.
+        final letters = session['package'] == null ? validAnswerLetters : 'ABCDEFGHIJKLMNO';
         for (final value in responses) {
           if (value.isNotEmpty &&
               value != '*' &&
-              !value.split('').every((letter) => validAnswerLetters.contains(letter))) {
+              !value.split('').every(letters.contains)) {
             throw DataLinkError('${pyRepr(value)} is not a valid response');
           }
         }

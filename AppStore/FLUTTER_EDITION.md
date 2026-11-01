@@ -50,9 +50,9 @@ No certificate name, team id, profile or API key is stored in this repository.
    ./AppStore/build_flutter_appstore.sh
    ```
 
-   Version and build number come from `app/pubspec.yaml` (`2.0.0+3`; builds 1 and 2 are spent). To upload
+   Version and build number come from `app/pubspec.yaml` (`2.1.0+5`; builds 1–4 are spent, and 2.0.0 build 4 is the one Apple approved). To upload
    a second build of the same version, raise the build number:
-   `DATALINK_APPSTORE_BUILD_NUMBER=2`.
+   `DATALINK_APPSTORE_BUILD_NUMBER=6`.
 
 3. **A copy you can open** (the upload build will not open on this Mac, because a
    store profile provisions no devices):

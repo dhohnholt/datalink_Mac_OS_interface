@@ -8,6 +8,8 @@ import 'dart:math' as math;
 
 import '../../protocol/py_math.dart';
 import '../gray_image.dart';
+import 'answer_sheet_75.dart';
+import 'key_decides_sheets.dart';
 import 'template_match.dart';
 
 // --- Calibrated grid (400 dpi scan, portrait 2384x4384 reference page) ---
@@ -69,6 +71,11 @@ class SheetExtraction {
     required this.optionBaselines,
     required this.answerConfidence,
     required this.calibration,
+    this.form = accuScanFormName,
+    this.isKey = false,
+    this.version,
+    this.versionRead,
+    this.marks = const {},
   });
 
   /// Six characters of digits, `_` for an empty column and `?` for an unclear
@@ -81,7 +88,26 @@ class SheetExtraction {
   /// Question -> `{mark_strength, margin, needs_review}`.
   final Map<int, Map<String, Object?>> answerConfidence;
   final Map<String, Object?> calibration;
+
+  /// [accuScanFormName] or [customFormName].
+  final String form;
+
+  /// The ANSWER KEY bubble is filled. Only the 75-question sheet has one.
+  final bool isKey;
+
+  /// The bubbled version, 1-4; null when none or several were marked, and
+  /// always on the AccuScan form.
+  final String? version;
+
+  /// What the version bubbles showed: a digit, `_` or `?`. Null on AccuScan.
+  final String? versionRead;
+
+  /// The letters behind each MULTIPLE answer, by question.
+  final Map<int, String> marks;
 }
+
+const String accuScanFormName = 'accuscan';
+const int accuScanQuestionCount = 50;
 
 class SheetReader {
   SheetReader(GrayImage orientTemplate) : _matcher = TemplateMatcher(orientTemplate) {
@@ -95,6 +121,14 @@ class SheetReader {
   /// `process_page`: classify a page and, if it is the form, read it.
   PageReading read(GrayImage gray, {double minMatch = minMatchConfidence, bool scanStudentId = true}) {
     if (isBlankPage(gray)) return const BlankPage();
+    final printed = locatePrintedSheet(gray);
+    if (printed != null) {
+      final (canon, angle, confidence, form) = printed;
+      final layout = keyDecidesLayout(form);
+      return ProcessedPage(layout == null
+          ? extractCustomSheet(canon, angle, confidence, scanStudentId: scanStudentId)
+          : extractKeyDecidesSheet(canon, layout, angle, confidence, scanStudentId: scanStudentId));
+    }
     final (oriented, angle, confidence, location) = _fixOrientation(gray);
     if (confidence < minMatch) {
       return UnsupportedPage(pyRound(confidence, 2));
@@ -160,9 +194,11 @@ class SheetReader {
 
     final answers = <int, String>{};
     final confidences = <int, Map<String, Object?>>{};
+    final marks = <int, String>{};
     for (final entry in raw.entries) {
       answers[entry.key] = decideAnswer(entry.value, baselines);
       confidences[entry.key] = answerConfidence(entry.value, baselines);
+      if (answers[entry.key] == 'MULTIPLE') marks[entry.key] = markedOptions(entry.value, baselines);
     }
     return SheetExtraction(
       studentId: studentId,
@@ -177,6 +213,7 @@ class SheetReader {
         'orientation_angle': angle,
         'orientation_confidence': orientationConfidence,
       },
+      marks: marks,
     );
   }
 
@@ -285,6 +322,15 @@ String decideAnswer(
   }
   if (secondValue >= blank && secondValue >= multi * topValue) return 'MULTIPLE';
   return options[order[0]];
+}
+
+/// `marked_options`: the letters behind a MULTIPLE decision, every option
+/// close enough to the darkest that [decideAnswer] could not choose.
+String markedOptions(List<double> ratios, [List<double>? baselines, double blank = adjBlankThreshold]) {
+  final adjusted = _adjustedOptionRatios(ratios, baselines);
+  final top = adjusted.reduce(math.max);
+  final floor = math.max(blank, adjMultiRatio * top);
+  return [for (var j = 0; j < adjusted.length; j++) if (adjusted[j] >= floor) options[j]].join();
 }
 
 /// `answer_confidence`: strength and separation, for deciding what to review.

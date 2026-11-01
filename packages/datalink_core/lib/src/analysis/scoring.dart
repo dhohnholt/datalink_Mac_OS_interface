@@ -24,6 +24,24 @@ class KeyValidation {
   final Map<int, String> invalid;
 }
 
+/// `is_multiple_answer_key`: two or more letters, in order, each once. A
+/// student must fill exactly those bubbles.
+bool isMultipleAnswerKey(String? answer) {
+  if (answer == null || answer.length < 2) return false;
+  final letters = answer.split('');
+  if (!letters.every(validAnswers.contains)) return false;
+  final sorted = (letters.toSet().toList()..sort()).join();
+  return sorted == answer;
+}
+
+/// `is_correct`: the key's letter, or for a multiple-answer key, several
+/// marks that are exactly the key's. [marks] are the letters behind a
+/// MULTIPLE response, when known.
+bool isCorrect(String? given, String? key, [String? marks]) {
+  if (isMultipleAnswerKey(key)) return given == 'MULTIPLE' && marks == key;
+  return given == key;
+}
+
 KeyValidation validateAnswerKey(Map<int, String> answerKey, [int questionCount = 50]) {
   final missing = <int>[
     for (var q = 1; q <= questionCount; q++)
@@ -31,7 +49,9 @@ KeyValidation validateAnswerKey(Map<int, String> answerKey, [int questionCount =
   ];
   final invalid = <int, String>{
     for (var q = 1; q <= questionCount; q++)
-      if (answerKey.containsKey(q) && !validAnswers.contains(answerKey[q]))
+      if (answerKey.containsKey(q) &&
+          !validAnswers.contains(answerKey[q]) &&
+          !isMultipleAnswerKey(answerKey[q]))
         q: answerKey[q]!,
   };
   return KeyValidation(
@@ -46,6 +66,7 @@ Map<String, Object?> scoreStudent(
   Map<int, String> answers,
   Map<int, String> answerKey, [
   int questionCount = 50,
+  Map<int, String> marks = const {},
 ]) {
   final validation = validateAnswerKey(answerKey, questionCount);
   if (!validation.valid) {
@@ -59,7 +80,7 @@ Map<String, Object?> scoreStudent(
   for (var q = 1; q <= questionCount; q++) {
     final given = answers[q] ?? 'BLANK';
     final key = answerKey[q];
-    if (given == key) {
+    if (isCorrect(given, key, marks[q])) {
       correct++;
     } else if (given == 'BLANK') {
       blank++;
@@ -113,16 +134,19 @@ Map<int, Map<String, Object?>> itemAnalysis(
   Map<int, String> answerKey, {
   int questionCount = 50,
   List<int> flagThresholds = const [25, 40, 50],
+  List<Map<int, String>>? allMarks,
 }) {
   final validation = validateAnswerKey(answerKey, questionCount);
   if (!validation.valid) throw StateError('answer key is unresolved');
 
   final n = allAnswers.length;
+  final marks = allMarks ?? [for (var i = 0; i < n; i++) const <int, String>{}];
+  bool right(int i, int q) => isCorrect(allAnswers[i][q], answerKey[q], marks[i][q]);
   final totals = <int>[
-    for (final answers in allAnswers)
+    for (var i = 0; i < n; i++)
       [
         for (var q = 1; q <= questionCount; q++)
-          if (answers[q] == answerKey[q]) 1,
+          if (right(i, q)) 1,
       ].length,
   ];
   final choices = <String>[...(validAnswers.toList()..sort()), ...unresolved];
@@ -135,13 +159,16 @@ Map<int, Map<String, Object?>> itemAnalysis(
       counts[given] = (counts[given] ?? 0) + 1;
     }
     final key = answerKey[q]!;
-    final nCorrect = counts[key] ?? 0;
+    final itemScores = <int>[for (var i = 0; i < n; i++) right(i, q) ? 1 : 0];
+    final nCorrect = itemScores.fold<int>(0, (a, b) => a + b);
     final pctCorrect = n > 0 ? pyRound(nCorrect / n * 100, 1) : 0.0;
 
     String? mostCommonWrong;
     var best = 0;
     for (final entry in counts.entries) {
-      if (validAnswers.contains(entry.key) && entry.key != key && entry.value > 0) {
+      // Python's `k not in key`: for a multiple-answer key, none of its letters
+      // is a wrong answer.
+      if (validAnswers.contains(entry.key) && !key.contains(entry.key) && entry.value > 0) {
         if (mostCommonWrong == null || entry.value > best) {
           mostCommonWrong = entry.key;
           best = entry.value;
@@ -149,9 +176,6 @@ Map<int, Map<String, Object?>> itemAnalysis(
       }
     }
 
-    final itemScores = <int>[
-      for (final answers in allAnswers) answers[q] == key ? 1 : 0,
-    ];
     final groupN = n > 0 ? math.max(1, pyRoundInt(n * 0.27)) : 0;
 
     // Stable, like Python's sort: equal totals keep their sheet order.
@@ -212,7 +236,10 @@ Map<String, Object?> classStatistics(
     'kr20': null,
   };
   if (questionCount > 1 && raw.length > 1) {
-    final variance = pyVarianceInts(raw);
+    // Each p*q is a population variance (divided by n), so the total-score
+    // variance must be too; dividing by n - 1 overstated KR-20. Matches
+    // omr_final's analysis_core.
+    final variance = pyPVarianceInts(raw);
     if (variance > 0) {
       final pqSum = pySumFloats(
         itemRows.values.map((row) {

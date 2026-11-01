@@ -80,6 +80,143 @@ Future<void> pane(WidgetTester tester, String label) async {
 }
 
 void main() {
+  screenTest('scan navigation saves edits only when chosen and returns to saved details', (tester) async {
+    final services = await open(tester);
+    await pane(tester, 'Review');
+    await tester.tap(find.text('Review all scans'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('review-scan-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 of 4'), findsOneWidget);
+    expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'Previous')).onPressed, isNull);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review scan · Sheet 3'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Student name').last, 'Manual name');
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stay here'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review scan · Sheet 3'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save and continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review scan · Sheet 4'), findsOneWidget);
+    final session = services.store.listSessions().single['id']! as int;
+    expect(services.store.sessionScans(session).firstWhere((s) => s['number'] == 3)['student_name'], 'Manual name');
+    await tester.tap(find.text('Previous'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'Manual name'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Student name').last, 'Discard this');
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard changes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('4 of 4'), findsOneWidget);
+    expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'Next')).onPressed, isNull);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(services.store.sessionScans(session).firstWhere((s) => s['number'] == 3)['student_name'], 'Manual name');
+  });
+
+  screenTest('all scans stay reviewable with no flags and answer changes rescore only the chosen sheet', (tester) async {
+    final services = await open(tester);
+    final session = services.store.listSessions().single['id']! as int;
+    await pane(tester, 'Review');
+    await tester.tap(find.text('Mark all checked'));
+    await tester.tap(find.text('Apply corrections'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nothing to review'), findsOneWidget);
+    await tester.ensureVisible(find.text('Review all scans'));
+    await tester.tap(find.text('Review all scans'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('review-scan-2')));
+    await tester.tap(find.byKey(const ValueKey('review-scan-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('Review scan · Sheet 2'), findsOneWidget);
+    final question = find.byWidgetPredicate((w) => w is DropdownButtonFormField<String> && w.decoration.labelText == 'Question 1');
+    await tester.ensureVisible(question);
+    await tester.tap(question);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('B').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(services.store.sessionScans(session).firstWhere((s) => s['number'] == 2)['responses'], ['A', 'B', 'C', 'D', 'E']);
+    await tester.tap(find.byKey(const ValueKey('review-scan-2')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(question);
+    await tester.tap(question);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('B').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    final scans = services.store.sessionScans(session);
+    expect(scans.firstWhere((s) => s['number'] == 2)['responses'], ['B', 'B', 'C', 'D', 'E']);
+    expect(scans.firstWhere((s) => s['number'] == 1)['responses'], ['A', 'B', 'C', 'D', 'E']);
+    final report = services.workspace.analysisReport(session);
+    final student = (report['students'] as List).cast<Map<String, Object?>>().firstWhere((s) => s['page'] == 2);
+    expect((student['score'] as Map)['correct'], 4);
+  });
+
+  screenTest('a missing student can be added to the roster while correcting their sheet', (tester) async {
+    final services = await open(tester);
+    final before = services.classBook.studentsOf('P4');
+    await pane(tester, 'Student scores');
+    await tester.tap(find.byTooltip('Edit student on sheet 3'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Student ID'), '598504');
+    await tester.tap(find.text('Add to P4 roster'));
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter the student name to add them to the roster'), findsOneWidget);
+    expect(services.classBook.studentsOf('P4'), before);
+    await tester.enterText(find.widgetWithText(TextField, 'Student name'), 'Missing student');
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    expect(services.classBook.studentsOf('P4'), [...before, (id: '598504', name: 'Missing student')]);
+    services.classBook.load();
+    expect(services.classBook.studentsOf('P4').last, (id: '598504', name: 'Missing student'));
+    expect(find.text('Missing student'), findsOneWidget);
+    await tester.tap(find.byTooltip('Edit student on sheet 3'));
+    await tester.pumpAndSettle();
+    expect(find.text('Already on the P4 roster'), findsOneWidget);
+    expect(() => services.classBook.addStudent('P4', id: '598504', name: 'Duplicate'), throwsA(isA<DataLinkError>()));
+    expect(services.classBook.studentsOf('P4').length, 5);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  });
+
+  screenTest('every score row can edit identity, cancel, and persist changes', (tester) async {
+    final services = await open(tester);
+    await pane(tester, 'Student scores');
+    // Sheet 2 has no review problems; it must still be editable.
+    await tester.tap(find.byTooltip('Edit student on sheet 2'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Student name'), 'Cancelled name');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cancelled name'), findsNothing);
+    expect(find.text('Ada'), findsOneWidget);
+    await tester.tap(find.byTooltip('Edit student on sheet 2'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Student ID'), '123456');
+    await tester.enterText(find.widgetWithText(TextField, 'Student name'), 'Added name');
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Added name'), findsOneWidget);
+    expect(find.text('123456'), findsOneWidget);
+    final session = services.store.listSessions().single['id']! as int;
+    final saved = services.store.sessionScans(session).firstWhere((s) => s['number'] == 2);
+    expect(saved['student_name'], 'Added name');
+    expect(saved['student_id'], '123456');
+    expect(saved['responses'], ['A', 'B', 'C', 'D', 'E']);
+  });
+
   screenTest('nothing selected says so', (tester) async {
     await open(tester, seed: false);
     expect(find.text('No test selected'), findsOneWidget);
@@ -285,6 +422,26 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Answer key saved and sheets rescored'), findsOneWidget);
       expect(services.store.sessionScans(1).first['responses'], ['A', 'B', 'C', 'E', 'E']);
+    });
+
+    screenTest('several correct answers make a multiple-answer question', (tester) async {
+      final services = await open(tester);
+      await pane(tester, 'Answer key');
+      await tester.tap(find.text('Allow several correct answers per question'));
+      await tester.pumpAndSettle();
+      // Question 2 is B; adding A makes it AB.
+      await tester.tap(find.bySemanticsLabel('Question 2, answer A'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save answer key'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      expect(services.store.sessionScans(1).first['responses'], ['A', 'AB', 'C', 'D', 'E']);
+      // Cy filled A and B on question 2, exactly the key; Ada filled only B.
+      final students = (services.workspace.scoredSession(1).report['students']! as List).cast<Map<String, Object?>>();
+      final byName = {for (final s in students) s['student_name']: (s['score']! as Map)['correct']};
+      expect(byName['Cy'], 5);
+      expect(byName['Ada'], 4);
     });
 
     screenTest('cancelling the confirmation saves nothing', (tester) async {

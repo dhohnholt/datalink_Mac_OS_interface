@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 enum AppView { scan, paper, sessions, analysis, classes, settings }
 
 /// The panes inside Analysis.
-enum AnalysisPane { items, students, review, key, upload }
+enum AnalysisPane { items, students, standards, review, key, upload }
 
 /// Where the teacher is, and the history Back walks through.
 ///

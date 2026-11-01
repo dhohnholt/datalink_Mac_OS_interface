@@ -112,6 +112,15 @@ def decide_answer(
     return top_opt, ratio_by_option
 
 
+def marked_options(ratio_by_option, option_baselines=None):
+    """The letters behind a MULTIPLE decision: every option close enough to
+    the darkest that decide_answer could not choose between them."""
+    adjusted = _adjusted_option_ratios(ratio_by_option, option_baselines)
+    top = max(adjusted.values())
+    floor = max(ADJ_BLANK_THRESH, ADJ_MULTI_RATIO * top)
+    return "".join(sorted(opt for opt, value in adjusted.items() if value >= floor))
+
+
 def answer_confidence(ratio_by_option, option_baselines=None):
     """Return review-oriented strength and separation measures."""
     adjusted_by_option = _adjusted_option_ratios(ratio_by_option, option_baselines)
@@ -192,16 +201,20 @@ def extract_gray_page(gray, orient_angle=0, orient_conf=None, scan_student_id=Tr
 
     answers = {}
     answer_confidences = {}
+    marks = {}
     for q, darkness in raw_darkness.items():
         answer, _ = decide_answer(darkness, option_baselines=option_baselines)
         confidence = answer_confidence(darkness, option_baselines)
         answers[q] = answer
         answer_confidences[q] = confidence
+        if answer == "MULTIPLE":
+            marks[q] = marked_options(darkness, option_baselines)
 
     return {
         "student_id": student_id,
         "id_raw_darkness": id_confidences,
         "answers": answers,
+        "marks": marks,
         "raw_darkness": raw_darkness,
         "option_ink_baselines": option_baselines,
         "answer_confidence": answer_confidences,

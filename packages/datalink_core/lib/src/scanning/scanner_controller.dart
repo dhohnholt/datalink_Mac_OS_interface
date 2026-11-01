@@ -426,7 +426,13 @@ class ScannerController {
     final sessionId = _sessionId!;
     final output = _outputFile;
     final public = record.publicDict();
-    public['number'] = _records.length + _pendingReviews.length + 1;
+    // Removed scans leave a gap. Use the greatest number still in the session
+    // so a later scan cannot reuse the number of a different saved sheet.
+    final usedNumbers = <int>[
+      for (final item in _records) item['number']! as int,
+      for (final item in _pendingReviews) item['number']! as int,
+    ];
+    public['number'] = usedNumbers.isEmpty ? 1 : usedNumbers.reduce((a, b) => a > b ? a : b) + 1;
     public['role'] = public['number'] == 1 ? 'key' : 'student';
     final number = public['number']! as int;
     final role = public['role']! as String;
@@ -580,6 +586,27 @@ class ScannerController {
       // log and on screen.
       _log('Could not save sheet ${public['number']} to history: ${_message(error)}', 'error');
     }
+  }
+
+  /// Remove a completed student scan while its session is still running.
+  Map<String, Object?> removeStudentScan(int number) {
+    final sessionId = _sessionId;
+    if (sessionId == null) throw const DataLinkError('No session is running');
+    final index = _records.indexWhere((record) => record['number'] == number);
+    if (index < 0) throw const DataLinkError('That scan is no longer available');
+    final record = _records[index];
+    if (record['role'] == 'key') {
+      throw const DataLinkError('The answer key cannot be removed during a session');
+    }
+    if (!store.deleteStudentScan(sessionId, number)) {
+      throw const DataLinkError('That scan could not be removed from the saved session');
+    }
+    _records.removeAt(index);
+    final name = (record['student_name'] as String?)?.trim() ?? '';
+    final id = (record['student_id'] as String?)?.trim() ?? '';
+    final student = name.isNotEmpty ? name : (id.isNotEmpty ? 'ID $id' : 'student');
+    _log('Removed the scan for $student.', 'warning');
+    return Map<String, Object?>.from(record);
   }
 
   Future<void> disconnect() async {

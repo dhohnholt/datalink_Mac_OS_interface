@@ -62,7 +62,7 @@ becomes tested view-model or domain code.
   changed. Saving rescores every sheet", confirm before saving.
 - [x] Upload picker: Course → Section → Unit → Test, each narrowing the next,
   selections surviving a refresh; draft-run detection switches the button to
-  "Update draft" and asks before replacing.
+  "Add results" by default; "Replace draft results" refreshes the remote draft and asks before replacing.
 - [x] Paper: disable Run until a PDF is chosen; key page max = page count;
   key-fix flow requires every unresolved question answered before retry.
 - [x] Offer to empty the page cache once per run when over 500 MB.

@@ -87,13 +87,13 @@ void main() {
     ]);
     expect(scans[2]['responses'], hasLength(50));
     expect((scans[2]['responses']! as List)[4], '');
-    expect((scans[2]['responses']! as List)[5], '*');
+    // A double mark is kept as its letters, as the DataLink reports one.
+    expect((scans[2]['responses']! as List)[5], 'AB');
   });
 
   test('a key that cannot be read comes back with what was seen, and overrides settle it', () async {
     final key = cycle(0);
     key[2] = ''; // nothing marked
-    key[9] = '*'; // two marks
     final pages = [
       syntheticSheet(template, answers: key),
       syntheticSheet(template, answers: cycle(0), studentId: '111111'),
@@ -102,9 +102,8 @@ void main() {
     await expectLater(
       readBatch(request: request, orientTemplate: template, cache: cache, workers: 1),
       throwsA(isA<AnswerKeyException>()
-          .having((e) => e.message, 'message', 'The answer key could not be read on question 3, question 10.')
+          .having((e) => e.message, 'message', 'The answer key could not be read on question 3.')
           .having((e) => (e.review['unresolved']! as Map)['3'], 'question 3 seen', 'BLANK')
-          .having((e) => (e.review['unresolved']! as Map)['10'], 'question 10 seen', 'MULTIPLE')
           .having((e) => e.review['key_page'], 'key page', 1)),
     );
 
@@ -116,6 +115,29 @@ void main() {
     );
     final answers = ((report['exam']! as Map)['answer_key']! as List).cast<Map<String, Object?>>();
     expect([answers[2]['answer'], answers[9]['answer']], ['C', 'A']);
+  });
+
+  test('a key row with two marks is a multiple-answer question, right only when matched exactly', () async {
+    final key = cycle(0)..[9] = '*'; // A and B filled on question 10
+    final pages = [
+      syntheticSheet(template, answers: key),
+      syntheticSheet(template, answers: key, studentId: '111111'),
+      syntheticSheet(template, answers: cycle(0), studentId: '222222'), // A only on 10
+    ];
+    final report = await readBatch(
+      request: PaperRequest(pdf: pdfOf(pages), keyPage: 1),
+      orientTemplate: template,
+      cache: cache,
+      workers: 1,
+    );
+    final keyRows = ((report['exam']! as Map)['answer_key']! as List).cast<Map<String, Object?>>();
+    expect(keyRows[9]['answer'], 'AB');
+    final students = (report['students']! as List).cast<Map<String, Object?>>();
+    expect([for (final s in students) (s['score']! as Map)['correct']], [50, 49]);
+    final tenth = ((students[0]['answers']! as List)[9] as Map);
+    expect([tenth['response'], tenth['marks'], tenth['correct']], ['MULTIPLE', 'AB', true]);
+    expect((report['review_items']! as List).where((i) => (i as Map)['question'] == 10), isEmpty,
+        reason: 'two marks are the expected answer there');
   });
 
   group('a key marked for fewer questions than the batch is set to', () {
@@ -226,7 +248,12 @@ void main() {
             throwsA(isA<PaperException>().having((e) => e.message, 'message', contains(text))),
           );
       await refuses(PaperRequest(pdf: file, keyPage: 0), 'Choose which page');
-      await refuses(PaperRequest(pdf: file, keyPage: 1, questionCount: 51), 'from 1 to 50');
+      await refuses(PaperRequest(pdf: file, keyPage: 1, questionCount: 76), 'from 1 to 75');
+      await refuses(
+        PaperRequest(pdf: file, keyPage: 1, questionCount: 51, checkQuestionCount: false),
+        'holds 50 questions',
+      );
+      await refuses(PaperRequest(pdf: file, keyPage: 1, version: '5'), 'no version 5');
       await refuses(PaperRequest(pdf: file, keyPage: 1, pages: '1,x'), 'invalid page entry');
       await refuses(PaperRequest(pdf: file, keyPage: 1, pages: '9'), 'outside this PDF');
     });

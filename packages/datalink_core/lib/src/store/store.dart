@@ -154,6 +154,9 @@ class Store {
     addSession('source', "source TEXT NOT NULL DEFAULT 'datalink'");
     // Where the rendered page images for a paper batch live.
     addSession('page_cache', 'page_cache TEXT');
+    // A test given in several versions: the item map, standards and answers
+    // as JSON (see analysis/test_package.dart). NULL for an ordinary test.
+    addSession('package', 'package TEXT');
 
     final scanColumns = {
       for (final row in _db.select('PRAGMA table_info(scans)')) row['name']! as String,
@@ -165,6 +168,8 @@ class Store {
     addScan('pending_review', 'pending_review INTEGER NOT NULL DEFAULT 0');
     addScan('scanner_score', 'scanner_score INTEGER');
     addScan('confidence', 'confidence TEXT');
+    // The version bubbled on a printable sheet, for a package session.
+    addScan('version', 'version TEXT');
   }
 
   /// Fold the write-ahead log back into the database before closing, so no
@@ -304,10 +309,11 @@ class Store {
     String? logPath,
     String source = 'datalink',
     String? pageCache,
+    String? package,
   }) {
     _db.execute(
       'INSERT INTO sessions(name, class_name, question_count, started_at, '
-      'log_path, source, page_cache) VALUES(?, ?, ?, ?, ?, ?, ?)',
+      'log_path, source, page_cache, package) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
       [
         name,
         className,
@@ -316,6 +322,7 @@ class Store {
         logPath,
         source.isEmpty ? 'datalink' : source,
         pageCache,
+        package,
       ],
     );
     return _db.lastInsertRowId;
@@ -403,7 +410,7 @@ class Store {
     _db.execute(
       'INSERT INTO scans(session_id, number, role, student_id, student_name, '
       'received_at, answered_count, responses, demo, confidence, '
-      'pending_review, scanner_score) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'pending_review, scanner_score, version) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         sessionId,
         _int(scan['number'], 0),
@@ -417,6 +424,7 @@ class Store {
         _truthy(confidence) ? pyJsonEncode(confidence) : null,
         _truthy(scan['pending_review']) ? 1 : 0,
         scan['scanner_score'],
+        scan['version'],
       ],
     );
     return _db.lastInsertRowId;
@@ -456,6 +464,16 @@ class Store {
     _db.execute(
       'UPDATE scans SET ${assignments.join(', ')} WHERE session_id = ? AND number = ?',
       values,
+    );
+    return _db.updatedRows > 0;
+  }
+
+  /// Delete one student sheet from a session. The answer key is deliberately
+  /// protected because every score in the session depends on it.
+  bool deleteStudentScan(int sessionId, int number) {
+    _db.execute(
+      "DELETE FROM scans WHERE session_id = ? AND number = ? AND role != 'key'",
+      [sessionId, number],
     );
     return _db.updatedRows > 0;
   }
@@ -500,11 +518,16 @@ class Store {
   StoreRow? session(int sessionId) {
     final rows = _db.select(
       'SELECT id, name, class_name, question_count, started_at, ended_at, '
-      '       log_path, analysis_run_id, analysis_fingerprint, source, page_cache '
+      '       log_path, analysis_run_id, analysis_fingerprint, source, page_cache, package '
       'FROM sessions WHERE id = ?',
       [sessionId],
     );
-    return rows.isEmpty ? null : Map<String, Object?>.from(rows.first);
+    if (rows.isEmpty) return null;
+    // Only a package session carries the key, so an ordinary one reads exactly
+    // as it always has.
+    final row = Map<String, Object?>.from(rows.first);
+    if (row['package'] == null) row.remove('package');
+    return row;
   }
 
   /// Fill in names the roster knows, for sheets that have an ID but none.
@@ -550,7 +573,7 @@ class Store {
     final rows = _db.select(
       'SELECT number, role, student_id, student_name, received_at, '
       '       answered_count, responses, demo, confidence, pending_review, '
-      '       scanner_score '
+      '       scanner_score, version '
       'FROM scans WHERE session_id = ? ORDER BY number',
       [sessionId],
     );
@@ -562,6 +585,7 @@ class Store {
           scan['demo'] = scan['demo'] != 0;
           scan['confidence'] =
               _truthy(scan['confidence']) ? _decodeMap(scan['confidence']) : <String, Object?>{};
+          if (scan['version'] == null) scan.remove('version');
           return scan;
         }(),
     ];

@@ -80,6 +80,29 @@ class ClassBook extends ChangeNotifier {
     return students.length;
   }
 
+  /// Validate an append without replacing any existing student.
+  String? newStudentProblem(String className, String id, String name) {
+    if (byName(className) == null) return 'Choose a saved class before adding a student';
+    if (!pyIsDigit(id.trim())) return 'Enter a student ID using digits only';
+    if (name.trim().isEmpty) return 'Enter the student name to add them to the roster';
+    if (studentsOf(className).any((s) => sameStudentId(s.id, id.trim()))) {
+      return 'Student ID ${id.trim()} is already on the $className roster';
+    }
+    return null;
+  }
+
+  /// Append one missing student, preserving the rest of the class and its order.
+  void addStudent(String className, {required String id, required String name}) {
+    final problem = newStudentProblem(className, id, name);
+    if (problem != null) throw DataLinkError(problem);
+    _store.saveClass(className, [
+      for (final student in studentsOf(className)) {'id': student.id, 'name': student.name},
+      {'id': id.trim(), 'name': name.trim()},
+    ]);
+    _classes = _store.listClasses();
+    notifyListeners();
+  }
+
   void delete(String name) {
     _store.deleteClass(name);
     if (_selected == name) {

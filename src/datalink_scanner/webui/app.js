@@ -1908,12 +1908,21 @@ function uniqueBy(rows, key, label) {
   return [...seen.entries()];
 }
 
+let uploadBusy = false;
+
+function replacementDraft(destination) {
+  const run = destination?.draft_run;
+  return run?.run_id && !run.finalized_at && !run.finalized && run.status !== "finalized" &&
+    (!run.exam_id || run.exam_id === destination.exam_id) ? run : null;
+}
+
 function renderUploadPicker() {
   const hasReport = Boolean(analysisReport);
   $("#uploadNotConnected").classList.toggle("hidden", connected);
   $("#uploadPicker").classList.toggle("hidden", !connected);
   if (!connected) {
     $("#uploadButton").disabled = true;
+    $("#replaceDraftButton").disabled = true;
     return;
   }
 
@@ -1946,7 +1955,7 @@ function renderUploadPicker() {
   fillSelect($("#uploadTest"), tests, $("#uploadTest").value);
 
   const chosen = selectedDestination();
-  const draft = chosen?.draft_run || null;
+  const draft = replacementDraft(chosen);
   $("#uploadDetail").textContent = chosen
     ? `Uploads to ${chosen.course_title} · ${chosen.unit_title} · ${chosen.exam_title} · code ${chosen.test_code}` +
       (chosen.grade_cap ? ` · grade cap ${chosen.grade_cap}` : "")
@@ -1956,14 +1965,15 @@ function renderUploadPicker() {
     const uploaded = draft.created_at
       ? new Date(draft.created_at).toLocaleString()
       : "an earlier upload";
-    $("#uploadModeTitle").textContent = "Update current draft results";
+    $("#uploadModeTitle").textContent = "Draft available for replacement";
     $("#uploadModeDetail").textContent =
       `${draft.student_count || 0} student${draft.student_count === 1 ? "" : "s"} · ` +
       `${draft.question_count || 0} questions · uploaded ${uploaded}. ` +
       "The corrected scan will replace this draft; finalized results cannot be replaced.";
   }
-  $("#uploadButton").textContent = draft ? "Update draft" : "Upload";
-  $("#uploadButton").disabled = !chosen || !hasReport;
+  $("#uploadButton").textContent = uploadBusy ? "Uploading…" : "Add results";
+  $("#uploadButton").disabled = uploadBusy || !chosen || !hasReport;
+  $("#replaceDraftButton").disabled = uploadBusy || !draft || !hasReport;
 }
 
 function selectedDestination() {
@@ -1980,16 +1990,14 @@ for (const id of ["uploadCourse", "uploadSection", "uploadUnit", "uploadTest"]) 
   });
 }
 
-$("#uploadButton").addEventListener("click", async () => {
+async function uploadResults(replacement = false) {
+  if (uploadBusy) return;
   const destination = selectedDestination();
   const sessionId = $("#analysisSession").value;
   if (!destination || !sessionId) return;
-  const draft = destination.draft_run || null;
-  const replaceRunId = draft?.run_id || null;
-  if (replaceRunId && !confirm(
-    `Replace the current unfinalized results for ${destination.exam_title}? ` +
-    "The corrected scan becomes the test's current draft."
-  )) return;
+  const candidate = replacementDraft(destination)?.run_id;
+  const report = analysisReport;
+  let replaceRunId = null;
   const error = $("#uploadError");
   const success = $("#uploadSuccess");
   error.textContent = "";
@@ -1997,11 +2005,28 @@ $("#uploadButton").addEventListener("click", async () => {
   success.classList.add("hidden");
   $("#uploadButton").disabled = true;
   $("#uploadButton").textContent = "Uploading…";
+  uploadBusy = true;
+  renderUploadPicker();
   try {
+    if (replacement) {
+      const state = await request("/api/destinations");
+      destinations = state.destinations || [];
+      renderUploadPicker();
+      if (!candidate || replacementDraft(selectedDestination())?.run_id !== candidate) {
+        throw new Error("The draft is no longer available for replacement. Use Add results to upload additional students.");
+      }
+      if (!confirm(`Replace the current unfinalized results for ${destination.exam_title}? ` +
+        "The corrected scan becomes the test's current draft.")) return;
+      replaceRunId = candidate;
+    }
+    if (selectedDestination()?.exam_id !== destination.exam_id || analysisReport !== report ||
+        $("#analysisSession").value !== sessionId) {
+      throw new Error("The selected test or analysis changed. Choose an action again.");
+    }
     const result = await post("/api/sessions/upload", {
       session_id: Number(sessionId),
       exam_id: destination.exam_id,
-      replace_run_id: replaceRunId,
+      ...(replaceRunId ? {replace_run_id: replaceRunId} : {}),
     });
     $("#uploadRunId").textContent = result.run_id || "—";
     $("#uploadReviewLink").href = result.review_url;
@@ -2022,10 +2047,12 @@ $("#uploadButton").addEventListener("click", async () => {
     // An invalid token is cleared server side; reflect that here.
     if (/reconnect/i.test(failure.message)) loadConnection();
   } finally {
-    $("#uploadButton").disabled = false;
+    uploadBusy = false;
     renderUploadPicker();
   }
-});
+}
+$("#uploadButton").addEventListener("click", () => uploadResults());
+$("#replaceDraftButton").addEventListener("click", () => uploadResults(true));
 
 $("#uploadReviewLink").addEventListener("click", event => {
   if (!window.datalinkNative) return;   // the shell opens external links itself

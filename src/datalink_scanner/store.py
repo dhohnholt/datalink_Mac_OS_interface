@@ -141,6 +141,10 @@ class Store:
         # session has none: the scanner sends letters, never a picture.
         if "page_cache" not in columns:
             self._connection.execute("ALTER TABLE sessions ADD COLUMN page_cache TEXT")
+        # A test given in several versions (the store edition's test packages).
+        # Added here too so both editions open the same library unchanged.
+        if "package" not in columns:
+            self._connection.execute("ALTER TABLE sessions ADD COLUMN package TEXT")
         # How sure the reader was about each mark. Only a paper batch has it;
         # the scanner reports letters, not strengths. Kept so a faint mark can
         # be put in front of the teacher instead of being scored silently.
@@ -156,6 +160,8 @@ class Store:
             )
         if "confidence" not in scan_columns:
             self._connection.execute("ALTER TABLE scans ADD COLUMN confidence TEXT")
+        if "version" not in scan_columns:
+            self._connection.execute("ALTER TABLE scans ADD COLUMN version TEXT")
 
     def close(self) -> None:
         """Fold the write-ahead log back into the database before closing.

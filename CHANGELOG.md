@@ -9,6 +9,101 @@ clocks: the Homebrew build updates with `brew upgrade`, and the Mac App Store
 build updates only when Apple approves a new submission. An entry says which
 edition it changed when it is not both.
 
+**Unreleased**
+
+* **Several versions of one test in one run** (Flutter edition). Choose the
+  scanned PDF and its test package CSV together on the Paper tab. Each student is
+  scored on their own bubbled version; item analysis is per item across versions;
+  a new **Standards** pane shows the class and each student by standard and by
+  section. With answers in the package, key sheets need not be scanned, and any
+  that are get checked against it. **Copy prompt** on the Paper tab copies the
+  instructions for the assistant that writes the versions. Such a test shows
+  Standards in place of Send to your site, which takes one key per test.
+  Sessions gain a `package` column and scans a `version` column (both editions'
+  stores, so either opens the other's library).
+* **The vocabulary quiz and the 50-question + 15-term matching sheet are read**
+  (Flutter edition), and saved from the Paper tab with the vocabulary teacher
+  guide. Their key decides which rows count; each is filed as a one-version
+  package whose sections are the sheet's parts. Matching letters run to O.
+* **Multiple-answer keys:** a key row with several bubbles filled is right only
+  when a sheet has exactly those bubbles, on every sheet and in both editions. A
+  double mark is stored as its letters ("AC"), and editing a sheet in Review now
+  keeps them.
+* KR-20 uses the population variance of the totals, matching its p×q terms; it
+  read slightly high before, most of all for small classes.
+
+* Removed rebuildable macOS compiler caches, Flutter test output, and PyInstaller intermediates while retaining application products, debug symbols, packages, configurations, and documents.
+
+
+* Removed regenerable, untracked Python bytecode caches from the local workspace.
+
+
+* Scan review shows the image beside an independently scrolling correction
+  panel. Review all scans now sits at the right of the analysis tab buttons.
+  The macOS window opens larger by default and remembers its size and position.
+  (Flutter edition.)
+
+* Scan viewers now have Previous and Next buttons and a scan counter, so
+  reviewing a batch does not require closing each sheet. The editable
+  reviewer stays open after saving; moving with unsaved edits offers Save
+  and continue, Discard changes, or Stay here. (Flutter edition.)
+
+* View on a saved session now opens its analysis immediately. The Sheets
+  button still opens the session’s recorded responses. (Flutter edition.)
+
+* Review now offers all student scans, including sheets with no flagged
+  issues. Open any sheet to inspect its image, correct its student details
+  or answers, and save to refresh scores. (Flutter edition.)
+
+* Fixed red-tinted scan previews in the sheet viewer. New previews save
+  proper grayscale colours; existing affected previews are repaired for
+  display without rescanning or changing the stored images. Diagnostic
+  images remain untouched. (Flutter edition.)
+
+* Updated the existing-upload message to match the website: another scan can
+  add missing students or update matching students. Upload dates now use a
+  readable local date and time. (Flutter edition.)
+
+* The student editor can add a missing student to the session’s class roster
+  while saving their name and ID. Existing students and roster order are
+  preserved; an ID already listed cannot be added twice. (Flutter edition.)
+
+* Every row in Student scores now has an Edit action for correcting the
+  student ID or adding a name, even when the sheet has no review flags. The
+  editor includes the class roster and scanned sheet when available; Save
+  changes persists the details and refreshes the report. (Flutter edition.)
+
+* Improved recognition of scanned 75-question sheets with grey registration
+  squares and lighter pencil. Bubble sampling avoids printed centre letters
+  and requires enough filled area to keep empty bubbles blank. Verified the
+  first classroom batch recognizes all 15 pages (one key and 14 students),
+  with weak answers still flagged for review. (Flutter edition.)
+
+* A printable 75-question answer sheet, for when the bubble forms run out.
+  **Save answer sheet…** on the Paper tab saves the one-page PDF; print it on
+  plain Letter paper at Actual Size. It has lines for name, course, test name
+  and period, a bubbled version (1–4) and six-digit student ID, and an ANSWER
+  KEY bubble. Pencil or dark pen both read. A paper batch reads these sheets
+  alongside AccuScan forms, finds the key sheet by its bubble when asked, scores
+  only the chosen version, and flags students who left the version blank.
+  Batches now take up to 75 questions; the AccuScan form still holds 50. The
+  PDF in `app/assets/` comes from omr_final's `make_answer_sheet.py`, and its
+  layout is mirrored in `packages/datalink_core/lib/src/paper/omr/answer_sheet_75.dart`.
+  (Flutter edition.)
+
+* Fixed uploads incorrectly reporting that the analysis changed: regenerating
+  a report timestamp no longer invalidates unchanged results. Upload tests now
+  advance the clock between analysis reads.
+
+* Send to your site defaults to Add results, preserving earlier and finalized
+  imports. Replace draft results is a separate action that refreshes and verifies
+  the selected test’s draft before confirmation. Failed or stale replacements
+  never fall back to adding; stable run IDs still protect duplicate uploads.
+
+* A student scan can now be removed or replaced from the live scanning table
+  without ending the session. Rescanning also returns roster-order scanning to
+  that student before the replacement sheet is fed.
+
 ## 1.9.5
 
 **Both editions**

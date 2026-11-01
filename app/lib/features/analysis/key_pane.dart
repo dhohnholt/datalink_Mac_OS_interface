@@ -28,6 +28,22 @@ class _KeyPaneState extends State<KeyPane> {
   ];
   late List<String> _edited = List.of(_original);
 
+  /// A question with several letters is a multiple-answer question: a sheet is
+  /// right only with exactly those bubbles. With this on, a letter is added or
+  /// removed instead of replacing the answer.
+  late bool _several = _original.any((answer) => answer.length > 1);
+
+  void _choose(int i, String letter) => setState(() {
+        if (!_several) {
+          _edited[i] = letter;
+          return;
+        }
+        final letters = _edited[i].split('').toSet();
+        if (!letters.remove(letter)) letters.add(letter);
+        // A question always keeps at least one correct answer.
+        if (letters.isNotEmpty) _edited[i] = (letters.toList()..sort()).join();
+      });
+
   int get _changes {
     var count = 0;
     for (var i = 0; i < _original.length; i++) {
@@ -97,6 +113,16 @@ class _KeyPaneState extends State<KeyPane> {
                 ),
               ),
             ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _several,
+            onChanged: (value) => setState(() => _several = value),
+            title: const Text('Allow several correct answers per question'),
+            subtitle: const Text(
+              'A question with several letters is right only when a sheet has exactly those bubbles filled.',
+            ),
+          ),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 24,
             runSpacing: 8,
@@ -122,15 +148,18 @@ class _KeyPaneState extends State<KeyPane> {
                           padding: const EdgeInsets.only(right: 4),
                           child: Semantics(
                             label: 'Question ${i + 1}, answer $letter'
-                                '${_edited[i] != _original[i] && _edited[i] == letter ? ', changed' : ''}',
+                                '${_edited[i] != _original[i] && _edited[i].contains(letter) ? ', changed' : ''}',
                             excludeSemantics: true,
-                            selected: _edited[i] == letter,
+                            selected: _edited[i].contains(letter),
                             button: true,
                             child: ChoiceChip(
                               label: Text(letter),
-                              selected: _edited[i] == letter,
+                              selected: _edited[i].contains(letter),
+                              // A checkmark on every chosen letter would
+                              // widen the row past its room; the fill shows it.
+                              showCheckmark: !_several,
                               visualDensity: VisualDensity.compact,
-                              onSelected: (_) => setState(() => _edited[i] = letter),
+                              onSelected: (_) => _choose(i, letter),
                             ),
                           ),
                         ),

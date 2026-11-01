@@ -209,6 +209,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
+    // View opens the analysis; the response table stays on Sessions.
+    await tester.tap(find.text('Sessions').first);
+    await tester.pumpAndSettle();
 
     Focus.of(tester.element(find.text('C').first)).requestFocus();
     await tester.pump();

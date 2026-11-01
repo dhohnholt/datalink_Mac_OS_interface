@@ -270,6 +270,28 @@ void main() {
       expect(saved.last['scanner_score'], 2);
     });
 
+    test('a completed student scan can be removed without removing the key', () async {
+      await keyAndStudent();
+      final sessionId = controller.snapshot().sessionId!;
+      final removed = controller.removeStudentScan(2);
+      expect(removed['student_name'], 'Ada');
+      expect(controller.snapshot().records, hasLength(1));
+      expect(controller.snapshot().records.single['role'], 'key');
+      expect(store.sessionScans(sessionId), hasLength(1));
+      expect(() => controller.removeStudentScan(1), throwsA(isA<DataLinkError>()));
+    });
+
+    test('a scan after removal gets a new number instead of reusing one', () async {
+      await keyAndStudent();
+      device.sendRecord(['A', 'B', 'C'], studentId: '900012');
+      await pumpUntil(() => controller.snapshot().pendingReview != null);
+      controller.resolveReview(3, const {}, '900012', 'Bo');
+      controller.removeStudentScan(2);
+      device.sendRecord(['A', 'C', 'C'], studentId: '900013');
+      await pumpUntil(() => controller.snapshot().pendingReview != null);
+      expect(controller.snapshot().pendingReview!['number'], 4);
+    });
+
     test('resolving a review files the sheet, keeps the scanner score, and logs it', () async {
       device.sendRecord(['A', 'B', 'C']);
       await pumpUntil(() => controller.snapshot().recordCount == 1);

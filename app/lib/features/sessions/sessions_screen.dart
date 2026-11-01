@@ -2,6 +2,7 @@ import 'package:datalink_core/datalink_core.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/scope.dart';
+import '../../app/navigation.dart';
 import '../../ui/widgets.dart';
 import 'format.dart';
 
@@ -50,7 +51,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                       _SessionRow(
                         row: row,
                         selected: row['id'] == selected,
-                        onView: () => nav.openSession(row['id']! as int),
+                        onView: () => nav.openSession(row['id']! as int, view: AppView.analysis),
                         onRename: () => _rename(row),
                         onDelete: () => _delete(row),
                       ),

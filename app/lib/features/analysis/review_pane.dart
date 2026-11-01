@@ -5,6 +5,7 @@ import '../../app/scope.dart';
 import '../../ui/widgets.dart';
 import '../paper/page_viewer.dart';
 import 'review_edit.dart';
+import 'student_identity_dialog.dart';
 
 /// Everything a person has to decide about a scored test: sheets with no ID,
 /// doubtful marks, disagreements with the scanner's own marking.
@@ -14,11 +15,13 @@ class ReviewPane extends StatefulWidget {
     required this.sessionId,
     required this.report,
     required this.onChanged,
+    this.showAllScans = false,
   });
 
   final int sessionId;
   final Map<String, Object?> report;
   final VoidCallback onChanged;
+  final bool showAllScans;
 
   @override
   State<ReviewPane> createState() => _ReviewPaneState();
@@ -64,7 +67,8 @@ class _ReviewPaneState extends State<ReviewPane> {
   Map<int, List<String>> get _answers => {
         for (final s in (widget.report['students']! as List).cast<Map<String, Object?>>())
           s['page']! as int: [
-            for (final a in (s['answers']! as List).cast<Map<String, Object?>>()) a['response']! as String,
+            for (final a in (s['answers']! as List).cast<Map<String, Object?>>())
+              (a['marks'] ?? a['response'])! as String,
           ],
       };
 
@@ -114,6 +118,9 @@ class _ReviewPaneState extends State<ReviewPane> {
     showPagePicture(
       context,
       title: 'Sheet $sheet',
+      page: sheet,
+      pages: [for (final student in (widget.report['students']! as List).cast<Map<String, Object?>>()) student['page']! as int]..sort(),
+      loadPage: (page) => Services.of(context).workspace.sessionPage(widget.sessionId, page),
       note: 'The sheet as it was scanned. Read the name off the paper, then correct the ID behind this.',
       picture: picture,
     );
@@ -137,18 +144,43 @@ class _ReviewPaneState extends State<ReviewPane> {
             TextButton(onPressed: _restore, child: const Text('Show them again')),
           ]);
 
-    if (_rows.isEmpty) {
-      return SectionCard(
-        title: 'Review',
-        child: Column(children: [
-          const EmptyState(
-            title: 'Nothing to review',
-            message: 'Every sheet has an ID and clear marks.',
-            icon: Icons.check_circle_outline,
+    final allScans = SectionCard(
+      title: 'All student scans',
+      subtitle: 'Check any sheet, even when no issue was flagged.',
+      child: Column(children: [
+        for (final student in (widget.report['students']! as List).cast<Map<String, Object?>>())
+          ListTile(
+            title: Text((student['student_name'] as String?)?.isNotEmpty == true
+                ? student['student_name']! as String : 'Unnamed student'),
+            subtitle: Text('Sheet ${student['page']} · ID ${student['student_id'] ?? student['student_id_read'] ?? 'not read'}'),
+            trailing: OutlinedButton(
+              key: ValueKey('review-scan-${student['page']}'),
+              child: const Text('Review scan'),
+              onPressed: () async {
+                final saved = await editStudentIdentity(context,
+                    sessionId: widget.sessionId, report: widget.report, student: student, reviewAnswers: true);
+                if (saved && mounted) widget.onChanged();
+              },
+            ),
           ),
-          ?restoreLine,
-        ]),
-      );
+      ]),
+    );
+
+    if (_rows.isEmpty) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionCard(
+          title: 'Review',
+          child: Column(children: [
+            const EmptyState(
+              title: 'Nothing to review',
+              message: 'No issues were flagged. Use Review all scans to check any sheet.',
+              icon: Icons.check_circle_outline,
+            ),
+            ?restoreLine,
+          ]),
+        ),
+        if (widget.showAllScans) allScans,
+      ]);
     }
 
     final groups = <int, List<ReviewRow>>{};
@@ -180,6 +212,7 @@ class _ReviewPaneState extends State<ReviewPane> {
           ),
           child: restoreLine ?? const SizedBox.shrink(),
         ),
+        if (widget.showAllScans) allScans,
         for (final entry in groups.entries) _SheetGroup(
           sheet: entry.key,
           onViewSheet: widget.report['has_pages'] == true ? _viewSheet : null,
@@ -233,7 +266,7 @@ class _SheetGroup extends StatelessWidget {
               if (edit != null)
                 ListenableBuilder(
                   listenable: edit!,
-                  builder: (context, _) => _StudentFields(sheet: sheet, edit: edit!, onView: onViewSheet),
+                  builder: (context, _) => StudentIdentityFields(sheet: sheet, edit: edit!, onView: onViewSheet),
                 )
               else
                 Text('This test', style: theme.textTheme.titleSmall),
@@ -253,12 +286,13 @@ class _SheetGroup extends StatelessWidget {
   }
 }
 
-class _StudentFields extends StatelessWidget {
-  const _StudentFields({required this.sheet, required this.edit, this.onView});
+class StudentIdentityFields extends StatelessWidget {
+  const StudentIdentityFields({super.key, required this.sheet, required this.edit, this.onView, this.alwaysShowName = false});
 
   final void Function(int sheet)? onView;
   final int sheet;
   final ReviewSheetEdit edit;
+  final bool alwaysShowName;
 
   @override
   Widget build(BuildContext context) {
@@ -311,7 +345,7 @@ class _StudentFields extends StatelessWidget {
               ),
             ),
           ),
-        if (!edit.nameBoxHidden)
+        if (alwaysShowName || !edit.nameBoxHidden)
           SizedBox(
             width: 240,
             child: _Field(

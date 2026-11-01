@@ -159,6 +159,27 @@ List<ReviewRow> reviewProblems(Map<String, Object?> report) {
             'one you fed. Re-key the scanner, or ignore its scores for this test.',
         read: 'key',
       ));
+    } else if (field == 'note') {
+      // A test package and a scanned key sheet disagree: the words say which
+      // version, question and item, and what each one holds.
+      rows.add(ReviewRow(
+        sheet: 0,
+        student: null,
+        key: key,
+        kind: ReviewKind.note,
+        question: item['question'] as int?,
+        problem: '${item['value']}',
+        read: 'key',
+      ));
+    } else if (field == 'version') {
+      rows.add(ReviewRow(
+        sheet: page!,
+        student: student,
+        key: key,
+        kind: ReviewKind.note,
+        problem: 'No version was bubbled on this sheet. It was scored as the only version in the package.',
+        read: 'version',
+      ));
     } else if (field == 'sheet' && reason == 'score_disagreement') {
       // The machine read the same bubbles and got a different answer.
       rows.add(ReviewRow(

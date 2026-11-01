@@ -44,7 +44,28 @@ void two(Store store) {
   store.addScan(b, scan(1, 'key', ['A', 'B', 'C']));
 }
 
+Future<void> viewSheets(WidgetTester tester, Finder button) async {
+  await tester.tap(button);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Sheets'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  testWidgets('View opens the selected session analysis directly', (tester) async {
+    await open(tester, seed: two);
+    await tester.tap(find.text('View').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Average'), findsOneWidget);
+    expect(find.text('KR-20'), findsOneWidget);
+    expect(find.text('No test selected'), findsNothing);
+    expect(find.text('Unit 1'), findsWidgets);
+    // The sheets remain one click away from analysis.
+    await tester.tap(find.text('Sheets'));
+    await tester.pumpAndSettle();
+    expect(find.text('Ada'), findsOneWidget);
+  });
+
   group('formatting', () {
     test('bytes, as the old page wrote them', () {
       expect(formatBytes(0), '0 KB');
@@ -90,15 +111,13 @@ void main() {
 
   testWidgets('View shows the sheets with every question column', (tester) async {
     await open(tester, seed: two);
-    await tester.tap(find.text('View').first);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').first);
     // Two sessions are listed newest first, so the first View is the untitled one.
     expect(find.text('Untitled session'), findsNWidgets(2), reason: 'context bar and card title');
     await tester.tap(find.text('Close'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     expect(find.text('Key'), findsOneWidget);
     expect(find.text('Student 1'), findsOneWidget, reason: 'the row label, as the old page had it');
     expect(find.text('Ada'), findsOneWidget, reason: 'and the name in the Student column');
@@ -111,8 +130,7 @@ void main() {
 
   testWidgets('clicking a response corrects it, rescoring on the way', (tester) async {
     final services = await open(tester, seed: two);
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
 
     await tester.tap(find.text('D'));
     await tester.pumpAndSettle();
@@ -130,8 +148,7 @@ void main() {
 
   testWidgets('choosing what is already recorded changes nothing and says so', (tester) async {
     final services = await open(tester, seed: two);
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     await tester.tap(find.text('D'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save'));
@@ -142,8 +159,7 @@ void main() {
 
   testWidgets('a blank can be recorded as blank', (tester) async {
     final services = await open(tester, seed: two);
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     await tester.tap(find.text('D'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Blank'));
@@ -186,8 +202,7 @@ void main() {
 
   testWidgets('deleting the open session closes it', (tester) async {
     await open(tester, seed: two);
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     expect(find.text('Key'), findsOneWidget);
     await tester.tap(find.text('Delete').last);
     await tester.pumpAndSettle();
@@ -199,8 +214,7 @@ void main() {
   testWidgets('export CSV hands the file to the Save panel with a safe name', (tester) async {
     final actions = RecordingActions();
     await open(tester, seed: two, actions: actions);
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     await tester.tap(find.text('Export CSV'));
     await tester.pumpAndSettle();
     expect(actions.saved.single.name, 'Unit 1.csv');
@@ -212,8 +226,7 @@ void main() {
   testWidgets('cancelling the Save panel is silent', (tester) async {
     final actions = RecordingActions()..nextSavePath = null;
     await open(tester, seed: two, actions: actions);
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     await tester.tap(find.text('Export CSV'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Saved Unit'), findsNothing);
@@ -223,15 +236,13 @@ void main() {
     final actions = RecordingActions();
     await open(tester, seed: two, actions: actions);
     // The untitled session has a key and no students: not scoreable.
-    await tester.tap(find.text('View').first);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').first);
     var button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Export item analysis'));
     expect(button.onPressed, isNull);
 
     await tester.tap(find.text('Close'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('View').last);
-    await tester.pumpAndSettle();
+    await viewSheets(tester, find.text('View').last);
     button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Export item analysis'));
     expect(button.onPressed, isNotNull);
     await tester.tap(find.text('Export item analysis'));

@@ -16,16 +16,26 @@ import '../analysis/analysis.dart';
 import '../analysis/question_count.dart';
 import '../analysis/result_schema.dart';
 import '../analysis/scoring.dart';
+import '../analysis/test_package.dart';
+import '../protocol/py_json.dart';
 import '../protocol/python_compat.dart';
 import '../store/store.dart';
 import 'gray_image.dart';
+import 'omr/answer_sheet_75.dart';
+import 'omr/key_decides_sheets.dart';
 import 'omr/omr.dart';
 import 'page_cache.dart';
 import 'page_selection.dart';
 import 'pdf/pdf_document.dart';
 import 'pdf/pdf_scan.dart';
 
-const int maxQuestions = 50;
+/// The most questions any supported form holds: the printable sheet. The
+/// AccuScan form holds [accuScanQuestions].
+const int maxQuestions = customQuestionCount;
+const int accuScanQuestions = accuScanQuestionCount;
+
+/// The versions the printable sheet can be bubbled with.
+const String sheetVersions = customVersions;
 
 /// A failure worth showing the teacher, in their words.
 class PaperException implements Exception {
@@ -69,18 +79,27 @@ int pdfPageCount(Uint8List bytes) {
 class PaperRequest {
   const PaperRequest({
     required this.pdf,
-    required this.keyPage,
-    this.questionCount = maxQuestions,
+    this.keyPage,
+    this.version,
+    this.questionCount = accuScanQuestions,
     this.pages = 'all',
     this.skipPages = '',
     this.examName,
     this.keyOverrides = const {},
     this.scanStudentIds = true,
     this.checkQuestionCount = true,
+    this.package,
   });
 
   final File pdf;
-  final int keyPage;
+
+  /// The page holding the key, or null to use the printable sheet whose
+  /// ANSWER KEY bubble is filled.
+  final int? keyPage;
+
+  /// Score only printable sheets bubbled with this version (1-4), against the
+  /// key bubbled with it. Needed when one PDF holds keys for several.
+  final String? version;
   final int questionCount;
   final String pages;
   final String skipPages;
@@ -94,6 +113,10 @@ class PaperRequest {
   /// holds fewer answers than [questionCount]. Turned off once the teacher has
   /// said the count is right.
   final bool checkQuestionCount;
+
+  /// Score every version of the test in one session. The key page, version
+  /// and question count are then not used.
+  final TestPackage? package;
 }
 
 /// Progress for the page: a fraction from 0 to 1 and a line of words.
@@ -244,7 +267,7 @@ Future<void> _checkKeyAgainstCount({
     readings = await _readPages(
       pdf: bytes,
       template: template,
-      pages: [request.keyPage],
+      pages: [request.keyPage!],
       cacheDirectory: cacheDirectory,
       scanIds: false,
       workers: 1,
@@ -255,7 +278,17 @@ Future<void> _checkKeyAgainstCount({
   }
   final reading = readings[request.keyPage];
   if (reading is! ProcessedPage) return;
-  final answers = Map<int, String>.of(reading.sheet.answers);
+  _checkKeySheetCount(request, reading.sheet, request.keyPage!);
+}
+
+/// Stops with a [QuestionCountException] when [key] shows the batch is set to
+/// the wrong number of questions: answers through N and none after while set
+/// to more, or, on the printable sheet, answers past the count.
+void _checkKeySheetCount(PaperRequest request, SheetExtraction key, int keyPage) {
+  // On the vocabulary and matching sheets the key decides which rows count,
+  // so there is no count to get wrong.
+  if (keyDecidesLayout(key.form) != null) return;
+  final answers = Map<int, String>.of(key.answers);
   for (final entry in request.keyOverrides.entries) {
     answers[entry.key] = entry.value.toUpperCase();
   }
@@ -267,14 +300,104 @@ Future<void> _checkKeyAgainstCount({
     ],
     request.questionCount,
   );
-  if (suggested == null) return;
-  throw QuestionCountException(
-    'The answer key has answers for questions 1 to $suggested and none after, '
-    'but the batch is set to ${request.questionCount} questions.',
-    suggested,
-    request.questionCount,
-    request.keyPage,
-  );
+  if (suggested != null) {
+    throw QuestionCountException(
+      'The answer key has answers for questions 1 to $suggested and none after, '
+      'but the batch is set to ${request.questionCount} questions.',
+      suggested,
+      request.questionCount,
+      keyPage,
+    );
+  }
+  if (key.form != customFormName) return;
+  var last = 0;
+  for (var q = 1; q <= customQuestionCount; q++) {
+    final answer = answers[q];
+    if (answer != null && answer != 'BLANK') last = q;
+  }
+  if (last > request.questionCount) {
+    throw QuestionCountException(
+      'The answer key has answers for questions 1 to $last, '
+      'but the batch is set to ${request.questionCount} questions.',
+      last,
+      request.questionCount,
+      keyPage,
+    );
+  }
+}
+
+/// The key page and the student pages scored against it. A port of
+/// omr_final's `select_key_and_students`.
+///
+/// Key sheets are printable sheets with the ANSWER KEY bubble filled, plus
+/// the page named in [keyPage]. When a version is known -- asked for, or
+/// bubbled on the key -- only students bubbled with it are scored; a student
+/// who left the version blank is scored, and flagged, when no other version's
+/// key is in the batch.
+({int keyPage, List<int> students, List<(int, String)> excluded, List<int> missingVersion}) selectKeyAndStudents(
+  Map<int, SheetExtraction> results, {
+  int? keyPage,
+  String? version,
+}) {
+  final marked = [for (final page in results.keys.toList()..sort()) if (results[page]!.isKey) page];
+  final excluded = <(int, String)>[];
+  if (keyPage == null) {
+    final candidates = [
+      for (final page in marked)
+        if (version == null || results[page]!.version == version) page,
+    ];
+    if (candidates.isEmpty) {
+      throw PaperException(version == null
+          ? 'No answer key sheet was found. Fill the ANSWER KEY bubble on the key sheet, '
+              'or say which page holds the key.'
+          : 'No answer key sheet bubbled with version $version was found.');
+    }
+    final versions = {for (final page in candidates) results[page]!.version ?? 'none'}.toList()..sort();
+    if (version == null && versions.length > 1) {
+      throw PaperException(
+        'This PDF holds answer keys for versions ${versions.join(', ')}. '
+        'Choose a version and read the batch once for each.',
+      );
+    }
+    keyPage = candidates.first;
+    excluded.addAll([for (final page in candidates.skip(1)) (page, 'another key sheet, not scored')]);
+  } else if (!results.containsKey(keyPage)) {
+    throw PaperException(
+      'page $keyPage was not processed as a supported answer sheet. Check which page holds the answer key.',
+    );
+  }
+
+  final effective = version ?? results[keyPage]!.version;
+  final otherKeyVersions = {
+    for (final page in marked)
+      if (results[page]!.version case final v? when v != effective) v,
+  };
+  final students = <int>[];
+  final missingVersion = <int>[];
+  for (final page in results.keys.toList()..sort()) {
+    if (page == keyPage || marked.contains(page)) continue;
+    final sheet = results[page]!;
+    // The vocabulary and matching sheets number their questions their own
+    // way, so they are scored only against a key on the same form.
+    final keyForm = results[keyPage]!.form;
+    if (sheet.form != keyForm && (keyDecidesLayout(sheet.form) != null || keyDecidesLayout(keyForm) != null)) {
+      excluded.add((page, 'a different answer sheet from the key'));
+      continue;
+    }
+    if (effective == null || sheet.version == effective || sheet.form != customFormName) {
+      students.add(page);
+    } else if (sheet.version == null) {
+      if (otherKeyVersions.isNotEmpty) {
+        excluded.add((page, 'no version bubbled'));
+      } else {
+        students.add(page);
+        missingVersion.add(page);
+      }
+    } else {
+      excluded.add((page, 'version ${sheet.version}'));
+    }
+  }
+  return (keyPage: keyPage, students: students, excluded: excluded, missingVersion: missingVersion);
 }
 
 // ------------------------------------------------------------------- batch
@@ -292,11 +415,16 @@ Future<Map<String, Object?>> readBatch({
 }) async {
   final pdf = request.pdf;
   if (!pdf.existsSync()) throw PaperException('There is no file at ${pdf.path}');
-  if (request.keyPage < 1) throw const PaperException('Choose which page holds the answer key.');
-  if (request.questionCount < 1 || request.questionCount > maxQuestions) {
+  if (request.package == null && (request.keyPage ?? 1) < 1) {
+    throw const PaperException('Choose which page holds the answer key.');
+  }
+  if (request.package == null && (request.questionCount < 1 || request.questionCount > maxQuestions)) {
     throw const PaperException(
-      'The paper form holds $maxQuestions questions, so the count must be from 1 to $maxQuestions.',
+      'The answer sheets hold at most $maxQuestions questions, so the count must be from 1 to $maxQuestions.',
     );
+  }
+  if (request.version case final v? when !sheetVersions.contains(v) || v.length != 1) {
+    throw PaperException('There is no version $v; the sheet has versions 1 to ${sheetVersions.length}.');
   }
   final bytes = pdf.readAsBytesSync();
   final int totalPages;
@@ -314,13 +442,13 @@ Future<Map<String, Object?>> readBatch({
     throw PaperException('invalid page selection: ${error.message}');
   }
   if (selected.isEmpty) throw const PaperException('the page selection contains no pages to analyze');
-  if (!selected.contains(request.keyPage)) {
+  if (request.keyPage != null && !selected.contains(request.keyPage)) {
     throw PaperException('key page ${request.keyPage} is excluded by the page selection');
   }
 
   final cacheDirectory = cache.directoryFor(pdf);
   cacheDirectory.createSync(recursive: true);
-  if (request.checkQuestionCount) {
+  if (request.checkQuestionCount && request.keyPage != null) {
     await _checkKeyAgainstCount(
       request: request,
       bytes: bytes,
@@ -355,18 +483,66 @@ Future<Map<String, Object?>> readBatch({
     }
   }
 
-  final keySheet = results[request.keyPage];
-  if (keySheet == null) {
-    throw PaperException(
-      'page ${request.keyPage} was not processed as a valid Template A sheet. '
-      'Check which page holds the answer key.',
+  final package = request.package;
+  if (package != null) {
+    return _packageReport(
+      package: package,
+      request: request,
+      results: results,
+      processed: processed,
+      blank: blank,
+      unsupported: unsupported,
+      selected: selected,
+      totalPages: totalPages,
+      cacheDirectory: cacheDirectory.path,
+      now: (now ?? DateTime.now)(),
+      onProgress: onProgress,
     );
   }
 
-  final answerKey = Map<int, String>.of(keySheet.answers);
+  final selection = selectKeyAndStudents(results, keyPage: request.keyPage, version: request.version);
+  final keyPage = selection.keyPage;
+  final keySheet = results[keyPage]!;
+  final layout = keyDecidesLayout(keySheet.form);
+  if (layout != null) {
+    return _keyDecidesReport(
+      layout: layout,
+      request: request,
+      results: results,
+      keyPage: keyPage,
+      selection: selection,
+      processed: processed,
+      blank: blank,
+      unsupported: unsupported,
+      selected: selected,
+      totalPages: totalPages,
+      cacheDirectory: cacheDirectory.path,
+      now: (now ?? DateTime.now)(),
+      onProgress: onProgress,
+    );
+  }
+  if (keySheet.form == accuScanFormName && request.questionCount > accuScanQuestions) {
+    throw PaperException(
+      'The key is on the AccuScan form, which holds $accuScanQuestions questions; '
+      'set the count to $accuScanQuestions or fewer.',
+    );
+  }
+  if (request.checkQuestionCount && request.keyPage == null) {
+    // The key was found by reading every page, so its count is checked here
+    // rather than before the read.
+    _checkKeySheetCount(request, keySheet, keyPage);
+  }
+  final keyVersion = request.version ?? keySheet.version;
+
+  // A key row with several bubbles filled is a multiple-answer question: its
+  // answer is those letters, and a student must fill exactly them.
+  final answerKey = <int, String>{...keySheet.answers, ...keySheet.marks};
   for (final entry in request.keyOverrides.entries) {
-    final answer = entry.value.toUpperCase();
-    if (entry.key < 1 || entry.key > request.questionCount || !validAnswers.contains(answer)) {
+    final letters = entry.value.toUpperCase().replaceAll(RegExp('[ ,]'), '').split('').toSet().toList()..sort();
+    final answer = letters.join();
+    if (entry.key < 1 ||
+        entry.key > request.questionCount ||
+        !(validAnswers.contains(answer) || isMultipleAnswerKey(answer))) {
       throw PaperException('could not apply answer-key overrides: invalid key override ${entry.key}: $answer');
     }
     answerKey[entry.key] = answer;
@@ -384,14 +560,14 @@ Future<Map<String, Object?>> readBatch({
     throw AnswerKeyException(
       'The answer key could not be read on ${questions.map((q) => 'question $q').join(', ')}.',
       <String, Object?>{
-        'key_page': request.keyPage,
+        'key_page': keyPage,
         'unresolved': <String, Object?>{for (final q in questions) '$q': unresolved[q]},
         'pages': cacheDirectory.path,
       },
     );
   }
 
-  final studentPages = processed.where((page) => page != request.keyPage).toList();
+  final studentPages = selection.students;
   final students = <int, ParsedSheet>{
     for (final page in studentPages)
       page: ParsedSheet(
@@ -401,13 +577,15 @@ Future<Map<String, Object?>> readBatch({
         scannerScore: null,
         answerConfidence: results[page]!.answerConfidence,
         calibration: results[page]!.calibration,
+        marks: results[page]!.marks,
+        version: results[page]!.version,
       ),
   };
   final scores = <int, Map<String, Object?>>{
     for (final page in studentPages)
       page: <String, Object?>{
         'student_id': results[page]!.studentId,
-        ...scoreStudent(results[page]!.answers, answerKey, request.questionCount),
+        ...scoreStudent(results[page]!.answers, answerKey, request.questionCount, results[page]!.marks),
       },
   };
   const thresholds = [25, 40, 50];
@@ -416,19 +594,23 @@ Future<Map<String, Object?>> readBatch({
     answerKey,
     questionCount: request.questionCount,
     flagThresholds: thresholds,
+    allMarks: [for (final page in studentPages) results[page]!.marks],
   );
   final stats = classStatistics(scores, analysis, request.questionCount);
 
-  final reviewItems = <Map<String, Object?>>[];
-  for (final page in processed) {
-    if (page == request.keyPage) continue;
+  final reviewItems = <Map<String, Object?>>[
+    for (final page in selection.missingVersion) {'page': page, 'field': 'version', 'value': null},
+  ];
+  for (final page in studentPages) {
     final sheet = results[page]!;
     final id = sheet.studentId;
     if (request.scanStudentIds && id != null && (id.contains('_') || id.contains('?'))) {
       reviewItems.add({'page': page, 'field': 'student_id', 'value': id});
     }
     for (final entry in sheet.answerConfidence.entries) {
-      if (entry.key <= request.questionCount && entry.value['needs_review'] == true) {
+      // Several marks are the expected answer to a multiple-answer question.
+      final expected = sheet.answers[entry.key] == 'MULTIPLE' && isMultipleAnswerKey(answerKey[entry.key]);
+      if (entry.key <= request.questionCount && entry.value['needs_review'] == true && !expected) {
         reviewItems.add({
           'page': page,
           'field': 'answer',
@@ -443,7 +625,7 @@ Future<Map<String, Object?>> readBatch({
   final report = buildAnalysisResult(
     pdfPath: pdf.path,
     examName: request.examName,
-    keyPage: request.keyPage,
+    keyPage: keyPage,
     selectedPages: selected,
     processedPages: processed,
     skippedBlank: blank,
@@ -460,14 +642,25 @@ Future<Map<String, Object?>> readBatch({
     createdAt: (now ?? DateTime.now)(),
     scanStudentIds: request.scanStudentIds,
     questionCount: request.questionCount,
+    version: keyVersion,
   );
+  final printed = [for (final page in processed) if (results[page]!.form == customFormName) page];
   report['_page_cache'] = cacheDirectory.path;
   report['_log'] = <String>[
     'Selected ${selected.length} of $totalPages pages for analysis.',
-    'Processed as Template A: ${processed.length} pages',
+    'Processed as Template A: ${processed.length - printed.length} pages',
+    'Processed as 75-question sheet: ${printed.length} pages',
     'Skipped as blank: ${blank.length} pages -> $blank',
-    if (unsupported.isNotEmpty) 'Skipped as NOT Template A (unsupported layout): ${[for (final u in unsupported) u.$1]}',
+    if (unsupported.isNotEmpty) 'Skipped as an unsupported layout: ${[for (final u in unsupported) u.$1]}',
+    'Answer key: page $keyPage${keySheet.isKey ? ' (found from its ANSWER KEY bubble)' : ''}'
+        '${keyVersion == null ? '' : ', version $keyVersion'}',
+    for (final (page, reason) in selection.excluded) 'Not scored: page $page ($reason)',
+    if (selection.missingVersion.isNotEmpty)
+      'No version bubbled (scored against version $keyVersion, flagged for review): ${selection.missingVersion}',
   ].join('\n');
+  report['_not_scored'] = [
+    for (final (page, reason) in selection.excluded) <String, Object?>{'page': page, 'reason': reason},
+  ];
   onProgress?.call(0.98, 'Filing the results…');
   return report;
 }
@@ -482,7 +675,9 @@ List<String> _responses(List<Object?> answers, int questionCount) {
     for (var q = 1; q <= questionCount; q++)
       switch (((byQuestion[q]?['response'] as String?) ?? '').toUpperCase()) {
         'BLANK' => '',
-        'MULTIPLE' => '*',
+        // Stored as the letters, the way the DataLink reports a double mark,
+        // so a multiple-answer key and its students can be scored later.
+        'MULTIPLE' => (byQuestion[q]?['marks'] as String?) ?? '*',
         final other => other,
       },
   ];
@@ -492,6 +687,7 @@ List<String> _responses(List<Object?> answers, int questionCount) {
 /// returns its id.
 int sessionFromReport(Store store, Map<String, Object?> report, {String name = '', String className = ''}) {
   final exam = (report['exam'] as Map<String, Object?>?) ?? const {};
+  if (exam['form'] == 'package') return _packageSession(store, report, name: name, className: className);
   final questionCount = (exam['question_count'] as int?) ?? maxQuestions;
   final students = ((report['students'] as List?) ?? const []).cast<Map<String, Object?>>();
   if (students.isEmpty) throw const PaperException('No student sheets were read from that PDF.');
@@ -557,3 +753,275 @@ int sessionFromReport(Store store, Map<String, Object?> report, {String name = '
 
 /// A date for logs, shared with the rest of the package.
 String paperStamp(DateTime when) => pyIsoUtc(when);
+
+// --------------------------------------------------------- package batches
+
+/// What a sheet showed, by question, for a package: a double mark as its
+/// letters, so a multiple-answer key can be matched.
+Map<int, String> _packageResponses(SheetExtraction sheet) => {
+      for (final entry in sheet.answers.entries)
+        entry.key: entry.value == 'MULTIPLE' ? (sheet.marks[entry.key] ?? 'MULTIPLE') : entry.value,
+    };
+
+/// Every version in one go: scores the batch against the package (which also
+/// checks it, so a problem is reported before anything is filed) and keeps
+/// what [sessionFromReport] needs to file it.
+Map<String, Object?> _packageReport({
+  required TestPackage package,
+  required PaperRequest request,
+  required Map<int, SheetExtraction> results,
+  required List<int> processed,
+  required List<int> blank,
+  required List<(int, double)> unsupported,
+  required Set<int> selected,
+  required int totalPages,
+  required String cacheDirectory,
+  required DateTime now,
+  PaperProgress? onProgress,
+}) {
+  PackageSheet sheetOf(int page) {
+    final sheet = results[page]!;
+    return PackageSheet(
+      page: page,
+      version: sheet.version,
+      responses: _packageResponses(sheet),
+      studentId: sheet.studentId,
+      confidence: sheet.answerConfidence,
+    );
+  }
+
+  final keyPages = [for (final page in processed) if (results[page]!.isKey) page];
+  final studentPages = [for (final page in processed) if (!results[page]!.isKey) page];
+  final Map<String, Object?> report;
+  try {
+    report = buildPackageAnalysis(
+      package: package,
+      keySheets: [for (final page in keyPages) sheetOf(page)],
+      sheets: [for (final page in studentPages) sheetOf(page)],
+      examName: request.examName ?? request.pdf.uri.pathSegments.last.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), ''),
+      sourceFile: request.pdf.uri.pathSegments.last,
+      runId: newRunId(),
+      createdAt: paperStamp(now),
+    );
+  } on TestPackageException catch (error) {
+    throw PaperException(error.message);
+  }
+  final notScored = (report['not_scored']! as List).cast<Map<String, Object?>>();
+  final mismatches = (report['key_mismatches']! as List).cast<Map<String, Object?>>();
+  report['_package'] = package.toJson();
+  report['_key_sheets'] = [
+    for (final page in keyPages)
+      <String, Object?>{
+        'page': page,
+        'version': results[page]!.version,
+        'responses': [
+          for (var q = 1; q <= package.questionCount; q++) _packageResponses(results[page]!)[q] ?? 'BLANK',
+        ],
+      },
+  ];
+  report['_page_cache'] = cacheDirectory;
+  report['_log'] = <String>[
+    'Selected ${selected.length} of $totalPages pages for analysis.',
+    'Test package: ${package.items.length} items, versions ${package.versions.join(', ')}; '
+        '${package.hasAnswers ? 'answers from the package' : 'answers from the key sheets'}',
+    'Skipped as blank: ${blank.length} pages -> $blank',
+    if (unsupported.isNotEmpty) 'Skipped as an unsupported layout: ${[for (final u in unsupported) u.$1]}',
+    for (final page in keyPages) 'Key sheet: page $page, version ${results[page]!.version ?? 'not bubbled'}',
+    for (final m in mismatches)
+      'KEY CHECK: version ${m['version']} question ${m['question']} (${m['item']}): '
+          'package says ${m['package']}, key sheet (page ${m['key_page']}) shows ${m['key_sheet']}',
+    for (final n in notScored) 'Not scored: page ${n['page']} (${n['reason']})',
+  ].join('\n');
+  onProgress?.call(0.98, 'Filing the results…');
+  return report;
+}
+
+String _stored(String response) => switch (response) {
+      'BLANK' => '',
+      'MULTIPLE' => '*',
+      final other => other,
+    };
+
+int _packageSession(Store store, Map<String, Object?> report, {String name = '', String className = ''}) {
+  final exam = report['exam']! as Map<String, Object?>;
+  final package = TestPackage.fromJson((report['_package']! as Map).cast<String, Object?>());
+  final students = (report['students']! as List).cast<Map<String, Object?>>();
+  if (students.isEmpty) throw const PaperException('No student sheets were read from that PDF.');
+  final roster = <String, String>{};
+  if (className.isNotEmpty) {
+    for (final student in ((store.getClass(className)?['students'] as List?) ?? const []).cast<Map<String, Object?>>()) {
+      roster[((student['id'] as String?) ?? '').trim()] = (student['name'] as String?) ?? '';
+    }
+  }
+  final createdAt = (report['created_at'] as String?) ?? '';
+  final examName = exam['name'] as String?;
+  final sessionId = store.createSession(
+    name.isNotEmpty ? name : (examName != null && examName.isNotEmpty ? examName : 'Paper scan'),
+    className,
+    package.questionCount,
+    source: 'paper',
+    pageCache: report['_page_cache'] as String?,
+    package: pyJsonEncode(package.toJson()),
+  );
+  for (final key in ((report['_key_sheets'] as List?) ?? const []).cast<Map<String, Object?>>()) {
+    final responses = [for (final r in (key['responses']! as List)) _stored(r! as String)];
+    store.addScan(sessionId, <String, Object?>{
+      'number': key['page'],
+      'role': 'key',
+      'version': key['version'],
+      'received_at': createdAt,
+      'answered_count': responses.where((r) => r.isNotEmpty).length,
+      'responses': responses,
+      'demo': false,
+    });
+  }
+  for (final student in students) {
+    final answers = (student['answers']! as List).cast<Map<String, Object?>>();
+    final responses = [for (final a in answers) _stored(((a['marks'] ?? a['response']) as String?) ?? 'BLANK')];
+    final id = (student['student_id'] as String?) ?? '';
+    store.addScan(sessionId, <String, Object?>{
+      'number': student['page'],
+      'role': 'student',
+      'version': student['version'],
+      'student_id': id.isEmpty ? null : id,
+      'student_name': roster[id.trim()],
+      'received_at': createdAt,
+      'answered_count': responses.where((r) => r.isNotEmpty).length,
+      'responses': responses,
+      'demo': false,
+      'confidence': <String, Object?>{
+        for (final a in answers)
+          if (a['confidence'] case final Map<String, Object?> c when c.isNotEmpty) '${a['question']}': c,
+      },
+    });
+  }
+  return sessionId;
+}
+
+// ------------------------------------------- vocabulary and matching sheets
+
+/// A vocabulary or matching sheet's key, read as a one-version test package:
+/// the rows it marks are the items, its parts the sections. Scored, reviewed
+/// and filed the same way as a teacher's package.
+Map<String, Object?> _keyDecidesReport({
+  required KeyDecidesLayout layout,
+  required PaperRequest request,
+  required Map<int, SheetExtraction> results,
+  required int keyPage,
+  required ({int keyPage, List<int> students, List<(int, String)> excluded, List<int> missingVersion}) selection,
+  required List<int> processed,
+  required List<int> blank,
+  required List<(int, double)> unsupported,
+  required Set<int> selected,
+  required int totalPages,
+  required String cacheDirectory,
+  required DateTime now,
+  PaperProgress? onProgress,
+}) {
+  final key = results[keyPage]!;
+  final version = request.version ?? key.version ?? '1';
+  final answers = <int, String>{};
+  final unresolved = <int, String>{};
+  for (var q = 1; q <= layout.questionCount; q++) {
+    final read = key.answers[q] ?? 'BLANK';
+    if (read == 'BLANK') continue;
+    if (read == 'MULTIPLE') {
+      final letters = key.marks[q];
+      if (letters != null && layout.allowsSeveral(q)) {
+        answers[q] = letters;
+      } else {
+        unresolved[q] = read;
+      }
+    } else {
+      answers[q] = read;
+    }
+  }
+  for (final entry in request.keyOverrides.entries) {
+    final q = entry.key;
+    final letters = (entry.value.toUpperCase().replaceAll(RegExp('[ ,-]'), '').split('').toSet().toList()..sort()).join();
+    if (q < 1 || q > layout.questionCount) {
+      throw PaperException('could not apply answer-key overrides: there is no question $q on this sheet');
+    }
+    unresolved.remove(q);
+    if (letters.isEmpty) {
+      answers.remove(q);
+      continue;
+    }
+    if (!letters.split('').every(layout.lettersOf(q).contains) || (letters.length > 1 && !layout.allowsSeveral(q))) {
+      throw PaperException('could not apply answer-key overrides: invalid key override $q: $letters');
+    }
+    answers[q] = letters;
+  }
+  if (unresolved.isNotEmpty) {
+    final questions = unresolved.keys.toList()..sort();
+    throw AnswerKeyException(
+      'The answer key could not be read on ${questions.map((q) => 'question $q').join(', ')}.',
+      <String, Object?>{
+        'key_page': keyPage,
+        'unresolved': <String, Object?>{for (final q in questions) '$q': unresolved[q]},
+        'pages': cacheDirectory,
+      },
+    );
+  }
+  if (answers.isEmpty) throw const PaperException('The answer key sheet has no answers marked.');
+
+  final questions = answers.keys.toList()..sort();
+  String item(int q) => 'Q$q';
+  final package = TestPackage(
+    items: [for (final q in questions) item(q)],
+    versions: [version],
+    numbers: {version: {for (final q in questions) item(q): q}},
+    answers: {version: {for (final q in questions) item(q): answers[q]!}},
+    sections: {for (final q in questions) item(q): layout.sectionOf(q)},
+    standards: {for (final q in questions) item(q): ''},
+    form: layout.form,
+    options: {
+      for (final q in questions)
+        if (layout.lettersOf(q) != 'ABCDE') item(q): layout.lettersOf(q),
+    },
+  );
+  final Map<String, Object?> report;
+  try {
+    report = buildPackageAnalysis(
+      package: package,
+      keySheets: const [],
+      sheets: [
+        for (final page in selection.students)
+          PackageSheet(
+            page: page,
+            version: version,
+            responses: _packageResponses(results[page]!),
+            studentId: results[page]!.studentId,
+            confidence: results[page]!.answerConfidence,
+          ),
+      ],
+      examName: request.examName ?? request.pdf.uri.pathSegments.last.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), ''),
+      sourceFile: request.pdf.uri.pathSegments.last,
+      runId: newRunId(),
+      createdAt: paperStamp(now),
+    );
+  } on TestPackageException catch (error) {
+    throw PaperException(error.message);
+  }
+  report['_package'] = package.toJson();
+  report['_key_sheets'] = [
+    <String, Object?>{
+      'page': keyPage,
+      'version': version,
+      'responses': [for (var q = 1; q <= package.questionCount; q++) answers[q] ?? 'BLANK'],
+    },
+  ];
+  report['not_scored'] = [
+    for (final (page, reason) in selection.excluded) <String, Object?>{'page': page, 'reason': reason},
+  ];
+  report['_page_cache'] = cacheDirectory;
+  report['_log'] = <String>[
+    'Selected ${selected.length} of $totalPages pages for analysis.',
+    'Answer key: page $keyPage (${layout.form}), version $version; scoring ${questions.length} question(s) the key marks',
+    'Skipped as blank: ${blank.length} pages -> $blank',
+    if (unsupported.isNotEmpty) 'Skipped as an unsupported layout: ${[for (final u in unsupported) u.$1]}',
+    for (final (page, reason) in selection.excluded) 'Not scored: page $page ($reason)',
+  ].join('\n');
+  onProgress?.call(0.98, 'Filing the results…');
+  return report;
+}

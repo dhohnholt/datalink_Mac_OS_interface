@@ -109,6 +109,8 @@ def math_cases(rng: random.Random) -> dict:
             entry["variance"] = {"v": statistics.variance(data)}
             entry["variance"]["type"] = kind(entry["variance"]["v"])
             entry["stdev"] = {"v": statistics.stdev(data), "type": "float"}
+            entry["pvariance"] = {"v": statistics.pvariance(data)}
+            entry["pvariance"]["type"] = kind(entry["pvariance"]["v"])
         stats.append(entry)
     return {"round": rounds, "round_int": round_ints, "sum": sums, "stats": stats}
 
@@ -179,7 +181,10 @@ def make_session(rng: random.Random, index: int) -> dict:
             elif roll < 0.06:
                 responses.append(rng.choice(["AC", "*", "BD", "ABC"]))
             elif rng.random() < correct_chance:
-                responses.append(key_answers[q] if key_answers[q] in LETTERS else "A")
+                # A multiple-answer key ("AC") is answered by filling those letters.
+                ok = key_answers[q] in LETTERS or (
+                    len(key_answers[q]) > 1 and set(key_answers[q]) <= set(LETTERS))
+                responses.append(key_answers[q] if ok else "A")
             else:
                 responses.append(rng.choice(LETTERS))
         if rng.random() < 0.1 and question_count > 2:

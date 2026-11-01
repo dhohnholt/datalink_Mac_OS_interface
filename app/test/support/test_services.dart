@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:datalink_core/datalink_core.dart';
 import 'package:datalink_scanner/app/services.dart';
@@ -23,6 +24,7 @@ class RecordingActions implements PlatformActions {
   final List<String> opened = [];
   String? nextSavePath = '/tmp/saved';
   String? nextPdfPath;
+  String? nextPackagePath;
   int pdfPicks = 0;
 
   @override
@@ -32,6 +34,19 @@ class RecordingActions implements PlatformActions {
     required String extension,
   }) async {
     saved.add((name: suggestedName, text: text, extension: extension));
+    return nextSavePath;
+  }
+
+  final List<({String name, Uint8List bytes, String extension})> savedBytes = [];
+
+  @override
+  Future<String?> saveBytes({
+    required String suggestedName,
+    required Uint8List bytes,
+    required String extension,
+    required String mimeType,
+  }) async {
+    savedBytes.add((name: suggestedName, bytes: bytes, extension: extension));
     return nextSavePath;
   }
 
@@ -45,6 +60,12 @@ class RecordingActions implements PlatformActions {
   Future<String?> pickPdf() async {
     pdfPicks++;
     return nextPdfPath;
+  }
+
+  @override
+  Future<List<String>> pickScanFiles() async {
+    pdfPicks++;
+    return [?nextPdfPath, ?nextPackagePath];
   }
 }
 

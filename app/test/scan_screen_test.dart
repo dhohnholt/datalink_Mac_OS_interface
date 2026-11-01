@@ -176,6 +176,32 @@ void main() {
     await disconnect(tester);
   });
 
+  testWidgets('a live student scan can be removed or queued for rescan', (tester) async {
+    final rig = await open(tester, seed: (s) {
+      s.saveClass('P4', [
+        {'id': '900011', 'name': 'Ada'},
+      ]);
+      s.setSetting('selected_class', 'P4');
+    });
+    await connect(tester);
+    rig.device.sendRecord(['A', 'B', 'C'], studentId: '');
+    await settle(tester);
+    rig.device.sendRecord(['A', 'B', 'C'], studentId: '900011');
+    await settle(tester);
+    expect(find.text('Rescan'), findsOneWidget);
+    expect(find.byTooltip('Remove bad scan'), findsOneWidget);
+    await tester.tap(find.text('Rescan'));
+    await tester.pumpAndSettle();
+    expect(find.text("Remove Ada's current scan, then feed their sheet again."), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove and rescan'));
+    await settle(tester);
+    expect(find.text('Rescan: Ada'), findsOneWidget);
+    expect(find.text("The old scan was removed. Feed this student's replacement sheet now."), findsOneWidget);
+    expect(find.text('Ada'), findsNothing);
+    expect(rig.services.store.sessionScans(rig.services.scanner.currentSessionId!), hasLength(1));
+    await disconnect(tester);
+  });
+
   testWidgets('a doubtful mark opens a dialog with a choice per question', (tester) async {
     final rig = await open(tester);
     await connect(tester);

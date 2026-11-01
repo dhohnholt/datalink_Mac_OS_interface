@@ -12,6 +12,7 @@ import '../protocol/py_math.dart';
 import '../protocol/python_compat.dart';
 import 'result_schema.dart';
 import 'scoring.dart';
+import 'test_package.dart';
 
 const List<int> defaultFlagThresholds = [25, 40, 50];
 
@@ -66,6 +67,22 @@ String normalizeResponse(Object? value) {
     return 'MULTIPLE';
   }
   throw AnalysisError('Unsupported response value ${pyRepr(text)}');
+}
+
+/// The letters behind each combined reading such as AC, sorted. A key
+/// bubbled this way is a multiple-answer question; a student's are compared
+/// with it. `*` carries no letters and has no entry.
+Map<int, String> _marks(ScanRow scan, int questionCount) {
+  final responses = List<Object?>.from((scan['responses'] as List?) ?? const []);
+  final found = <int, String>{};
+  for (var number = 1; number <= math.min(questionCount, responses.length); number++) {
+    final value = responses[number - 1];
+    final text = pyStrip(value == null ? '' : value.toString()).toUpperCase();
+    if (text.length > 1 && text.split('').every(validAnswerLetters.contains)) {
+      found[number] = (text.split('').toSet().toList()..sort()).join();
+    }
+  }
+  return found;
 }
 
 Map<int, String> _answers(ScanRow scan, int questionCount) {
@@ -123,6 +140,69 @@ List<T> _stableSorted<T>(List<T> items, num Function(T) key) {
 /// [dismissed] names review items the teacher has already settled. They are
 /// left out of the report entirely, so the count on screen and the warnings
 /// sent to the website agree with what was decided.
+/// A response as stored on a sheet, read for a package session: a letter,
+/// `BLANK`, `MULTIPLE` when the letters are unknown, or the letters of a
+/// double mark.
+String _packageResponse(Object? value) {
+  final text = pyStrip(value == null ? '' : value.toString()).toUpperCase();
+  if (text.isEmpty) return 'BLANK';
+  if (text == '*') return 'MULTIPLE';
+  // Matching on the printable sheets runs to O.
+  if (text.split('').every((c) => 'ABCDEFGHIJKLMNO'.contains(c))) {
+    return (text.split('').toSet().toList()..sort()).join();
+  }
+  throw AnalysisError('Unsupported response value ${pyRepr(text)}');
+}
+
+PackageSheet _packageSheet(ScanRow scan) {
+  final responses = List<Object?>.from((scan['responses'] as List?) ?? const []);
+  final confidence = <int, Object?>{};
+  final stored = scan['confidence'];
+  if (stored is Map) {
+    for (final entry in stored.entries) {
+      confidence[int.parse(entry.key.toString())] = entry.value;
+    }
+  }
+  final id = pyStrip((scan['student_id'] as String?) ?? '');
+  final name = pyStrip((scan['student_name'] as String?) ?? '');
+  return PackageSheet(
+    page: _orZero(scan['number']),
+    version: scan['version'] as String?,
+    responses: {for (var q = 1; q <= responses.length; q++) q: _packageResponse(responses[q - 1])},
+    studentId: id.isEmpty ? null : id,
+    studentName: name.isEmpty ? null : name,
+    confidence: confidence,
+  );
+}
+
+Map<String, Object?> _packageAnalysis(
+  TestPackage package,
+  SessionRow session,
+  List<ScanRow> scans,
+  String runId,
+  DateTime createdAt,
+  String? examName,
+  List<int> flagThresholds,
+  Set<String> dismissed,
+) {
+  try {
+    return buildPackageAnalysis(
+      package: package,
+      keySheets: [for (final scan in scans) if (scan['role'] == 'key') _packageSheet(scan)],
+      sheets: [for (final scan in scans) if (scan['role'] != 'key') _packageSheet(scan)],
+      examName: examName ?? ((session['name'] as String?)?.isNotEmpty == true ? session['name']! as String : 'Paper scan'),
+      sourceFile: '${session['name'] ?? 'session'}.pdf',
+      runId: runId,
+      createdAt: pyIsoUtc(createdAt),
+      flagThresholds: flagThresholds,
+      dismissed: dismissed,
+      reviewKeyOf: reviewKey,
+    );
+  } on TestPackageException catch (error) {
+    throw AnalysisError(error.message);
+  }
+}
+
 Map<String, Object?> buildSessionAnalysis(
   SessionRow session,
   List<ScanRow> scans, {
@@ -137,6 +217,11 @@ Map<String, Object?> buildSessionAnalysis(
     throw const AnalysisError('This session has no question count recorded');
   }
 
+  final package = packageOf(session);
+  if (package != null) {
+    return _packageAnalysis(package, session, scans, runId, createdAt, examName, flagThresholds, dismissed);
+  }
+
   final keys = [for (final scan in scans) if (scan['role'] == 'key') scan];
   final students = [for (final scan in scans) if (scan['role'] != 'key') scan];
   if (keys.length != 1) {
@@ -148,7 +233,7 @@ Map<String, Object?> buildSessionAnalysis(
     throw const AnalysisError('This session has no student sheets to score');
   }
 
-  final answerKey = _answers(keys.first, questionCount);
+  final answerKey = {..._answers(keys.first, questionCount), ..._marks(keys.first, questionCount)};
   final validation = validateAnswerKey(answerKey, questionCount);
   if (!validation.valid) {
     final unresolvedQuestions = <int>{...validation.missing, ...validation.invalid.keys}.toList()
@@ -181,6 +266,7 @@ Map<String, Object?> buildSessionAnalysis(
       studentId: id.isEmpty ? null : id,
       studentName: name.isEmpty ? null : name,
       answers: _answers(scan, questionCount),
+      marks: _marks(scan, questionCount),
       scannerScore: scan['scanner_score'] is int ? scan['scanner_score']! as int : null,
       answerConfidence: confidence,
     );
@@ -190,7 +276,7 @@ Map<String, Object?> buildSessionAnalysis(
     for (final entry in parsed.entries)
       entry.key: <String, Object?>{
         'student_id': entry.value.studentId,
-        ...scoreStudent(entry.value.answers, answerKey, questionCount),
+        ...scoreStudent(entry.value.answers, answerKey, questionCount, entry.value.marks),
       },
   };
   final analysis = itemAnalysis(
@@ -198,6 +284,7 @@ Map<String, Object?> buildSessionAnalysis(
     answerKey,
     questionCount: questionCount,
     flagThresholds: flagThresholds,
+    allMarks: [for (final row in parsed.values) row.marks],
   );
   final stats = classStatistics(scores, analysis, questionCount);
 
@@ -210,7 +297,9 @@ Map<String, Object?> buildSessionAnalysis(
       reviewItems.add({'page': number, 'field': 'student_id', 'value': null});
     }
     for (final answer in row.answers.entries) {
-      if (answer.value == 'MULTIPLE') {
+      // Several marks are the expected answer to a multiple-answer
+      // question, not something to check.
+      if (answer.value == 'MULTIPLE' && answerKey[answer.key]!.length == 1) {
         reviewItems.add({
           'page': number,
           'field': 'answer',

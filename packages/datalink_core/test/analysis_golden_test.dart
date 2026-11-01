@@ -66,6 +66,7 @@ void main() {
         if (data.length > 1) {
           check('variance', pyVarianceInts(data), map(e['variance']), data);
           expect(pyStdevInts(data), map(e['stdev'])['v'], reason: 'stdev of $data');
+          check('pvariance', pyPVarianceInts(data), map(e['pvariance']), data);
         }
       }
     });

@@ -166,7 +166,9 @@ class _Diagnostics extends StatelessWidget {
               DataCell(Text(number(item['point_biserial']))),
               DataCell(Text(number(item['upper_lower_discrimination']))),
               for (final c in _choices)
-                DataCell(Text('${((item['distribution']! as Map)[c] as Map)['pct']}')),
+                // A test in several versions has no combined A-E spread: a
+                // letter means a different choice on each version.
+                DataCell(Text('${(((item['distribution'] as Map?)?[c]) as Map?)?['pct'] ?? '—'}')),
               DataCell(Text((item['flags']! as List).isEmpty ? '—' : (item['flags']! as List).join(', '))),
             ]),
         ],

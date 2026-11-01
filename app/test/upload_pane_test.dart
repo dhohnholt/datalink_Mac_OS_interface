@@ -65,7 +65,13 @@ Future<Rig> open(
   if (connected) secrets.items[(keychainService, keychainAccount)] = 'dlk_live_abc';
   final http = ScriptedHttp(answers);
   final actions = RecordingActions();
-  final services = testServices(store: store, secrets: secrets, http: http, actions: actions);
+  // Production regenerates report timestamps on every read. A frozen clock
+  // hides false "analysis changed" failures in the upload guard.
+  var reportReads = 0;
+  final services = testServices(
+    store: store, secrets: secrets, http: http, actions: actions,
+    now: () => DateTime.utc(2026, 10, 20, 12).add(Duration(seconds: reportReads++)),
+  );
   await services.connection.load();
   await tester.pumpWidget(DataLinkApp(services: services));
   await tester.tap(find.text('Sessions').first);
@@ -98,8 +104,8 @@ void main() {
       tests([dest('a'), dest('b', unit: 'u2')]),
     ]);
     expect(find.text('Uploads to Course 1 · Unit u1 · Exam a · code CODE-a'), findsOneWidget);
-    expect(find.text('Upload'), findsOneWidget);
-    expect(find.text('Update current draft results'), findsNothing);
+    expect(find.text('Add results'), findsOneWidget);
+    expect(find.text('Upload another scan to add missing student scores or update existing scores for matching students.'), findsNothing);
   });
 
   testWidgets('choosing another unit changes the test on offer', (tester) async {
@@ -119,7 +125,7 @@ void main() {
       reply(201, {'run_id': 'db-run-9', 'status': 'imported', 'review_url': 'https://example.org/r/9'}),
       tests([dest('a')]),
     ]);
-    await tester.tap(find.text('Upload'));
+    await tester.tap(find.text('Add results'));
     await tester.pumpAndSettle();
 
     expect(find.text('Uploaded to your site'), findsOneWidget);
@@ -144,9 +150,9 @@ void main() {
       tests([dest('a')]),
       reply(201, {'run_id': 'r'}),
     ]);
-    await tester.tap(find.text('Upload'));
+    await tester.tap(find.text('Add results'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Upload'));
+    await tester.tap(find.text('Add results'));
     await tester.pumpAndSettle();
     final posts = rig.http.calls.where((c) => c.method == 'POST').toList();
     expect(posts, hasLength(2));
@@ -154,18 +160,20 @@ void main() {
     expect(runId(posts[0].body!), runId(posts[1].body!), reason: 'unchanged inputs, same audit record');
   });
 
-  testWidgets('a draft on the site switches to updating it, after asking', (tester) async {
+  testWidgets('replacement refreshes and confirms the selected draft', (tester) async {
     final rig = await open(tester, answers: [
       tests([
         dest('a', draft: {'run_id': 'old-run', 'created_at': '2026-09-16T18:00:00+00:00', 'student_count': 3, 'question_count': 3}),
       ]),
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
       reply(200, {'run_id': 'new-run', 'status': 'updated', 'replaced_run_id': 'old-run'}),
       tests([dest('a')]),
     ]);
-    expect(find.text('Update current draft results'), findsOneWidget);
-    expect(find.text('Update draft'), findsOneWidget);
+    expect(find.text('Upload another scan to add missing student scores or update existing scores for matching students.'), findsOneWidget);
+    expect(find.text('Replace draft results'), findsOneWidget);
 
-    await tester.tap(find.text('Update draft'));
+    await tester.tap(find.text('Replace draft results'));
     await tester.pumpAndSettle();
     expect(
       find.text("Replace the current unfinalized results for Exam a? The corrected scan becomes the test's current draft."),
@@ -175,7 +183,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(rig.http.calls.where((c) => c.method == 'POST'), isEmpty);
 
-    await tester.tap(find.text('Update draft'));
+    await tester.tap(find.text('Replace draft results'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Replace'));
     await tester.pumpAndSettle();
@@ -184,12 +192,70 @@ void main() {
     expect(find.text('Updated draft results on your site'), findsOneWidget);
   });
 
+  testWidgets('a real answer change while confirming still blocks replacement', (tester) async {
+    final rig = await open(tester, answers: [
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
+    ]);
+    await tester.tap(find.text('Replace draft results'));
+    await tester.pumpAndSettle();
+    rig.services.store.updateScan(1, 2, responses: ['C', 'B', 'C']);
+    await tester.tap(find.widgetWithText(FilledButton, 'Replace'));
+    await tester.pumpAndSettle();
+    expect(rig.http.calls.where((c) => c.method == 'POST'), isEmpty);
+    expect(find.text('The selected test or analysis changed. Choose an action again.'), findsOneWidget);
+  });
+
+  testWidgets('a draft finalized elsewhere blocks replacement and allows adding', (tester) async {
+    final rig = await open(tester, answers: [
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
+      tests([dest('a')]),
+      reply(201, {'run_id': 'added'}),
+      tests([dest('a')]),
+    ]);
+    await tester.tap(find.text('Replace draft results'));
+    await tester.pumpAndSettle();
+    expect(rig.http.calls.where((c) => c.method == 'POST'), isEmpty);
+    expect(find.text('The draft is no longer available for replacement. Use Add results to upload additional students.'), findsOneWidget);
+    await tester.tap(find.text('Add results'));
+    await tester.pumpAndSettle();
+    final post = rig.http.calls.firstWhere((c) => c.method == 'POST');
+    expect((jsonDecode(utf8.decode(post.body!)) as Map).containsKey('replace_run_id'), isFalse);
+  });
+
+  testWidgets('Add results omits replacement even with an existing draft', (tester) async {
+    final rig = await open(tester, answers: [
+      tests([dest('a', draft: {'run_id': 'earlier-draft'})]),
+      reply(201, {'run_id': 'additional-student'}),
+      tests([dest('a')]),
+    ]);
+    await tester.tap(find.text('Add results'));
+    await tester.pumpAndSettle();
+    final posts = rig.http.calls.where((c) => c.method == 'POST').toList();
+    expect(posts, hasLength(1));
+    expect((jsonDecode(utf8.decode(posts.single.body!)) as Map).containsKey('replace_run_id'), isFalse);
+  });
+
+  testWidgets('rejected replacement never falls back to adding', (tester) async {
+    final rig = await open(tester, answers: [
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
+      tests([dest('a', draft: {'run_id': 'old-run'})]),
+      reply(409, {'error': {'code': 'run_not_replaceable', 'message': 'Finalized results cannot be replaced from DataLink.'}}),
+    ]);
+    await tester.tap(find.text('Replace draft results'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Replace'));
+    await tester.pumpAndSettle();
+    expect(rig.http.calls.where((c) => c.method == 'POST'), hasLength(1));
+    expect(find.text('Finalized results cannot be replaced from DataLink.'), findsOneWidget);
+  });
+
   testWidgets("the site's own words are shown when it refuses", (tester) async {
     await open(tester, answers: [
       tests([dest('a')]),
       reply(409, {'error': {'code': 'duplicate_run', 'message': 'Already uploaded'}}),
     ]);
-    await tester.tap(find.text('Upload'));
+    await tester.tap(find.text('Add results'));
     await tester.pumpAndSettle();
     expect(find.text('Already uploaded'), findsOneWidget);
     expect(find.text('Uploaded to your site'), findsNothing);
@@ -200,7 +266,7 @@ void main() {
       tests([dest('a')]),
       reply(401, {'error': {'code': 'invalid_token'}}),
     ]);
-    await tester.tap(find.text('Upload'));
+    await tester.tap(find.text('Add results'));
     await tester.pumpAndSettle();
     expect(find.text('The connection token is no longer valid. Open Settings and paste a new one.'), findsOneWidget);
     expect(find.text('DataLink is not connected to a site yet.'), findsOneWidget);
@@ -209,7 +275,7 @@ void main() {
   testWidgets('with no tests to upload to, nothing can be sent', (tester) async {
     await open(tester, answers: [tests([])]);
     expect(find.text('No test matches this combination.'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Upload')).onPressed, isNull);
+    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Add results')).onPressed, isNull);
   });
 
   testWidgets('Refresh tests asks the site again', (tester) async {

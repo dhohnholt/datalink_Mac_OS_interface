@@ -95,6 +95,19 @@ def _answers(scan: dict, question_count: int) -> dict[int, str]:
     }
 
 
+def _marks(scan: dict, question_count: int) -> dict[int, str]:
+    """The letters behind each combined reading such as AC, sorted. A key
+    bubbled this way is a multiple-answer question; a student's are compared
+    with it. `*` carries no letters and so has no entry."""
+    responses = list(scan.get("responses") or [])
+    found = {}
+    for number in range(1, min(question_count, len(responses)) + 1):
+        text = str(responses[number - 1] or "").strip().upper()
+        if len(text) > 1 and all(letter in VALID_ANSWERS for letter in text):
+            found[number] = "".join(sorted(set(text)))
+    return found
+
+
 def scan_fingerprint(session: dict, scans: list[dict]) -> str:
     """Identify the inputs a score was computed from.
 
@@ -149,7 +162,7 @@ def build_session_analysis(
     if not students:
         raise AnalysisError("This session has no student sheets to score")
 
-    answer_key = _answers(keys[0], question_count)
+    answer_key = {**_answers(keys[0], question_count), **_marks(keys[0], question_count)}
     validation = validate_answer_key(answer_key, question_count)
     if not validation["valid"]:
         unresolved = sorted({*validation["missing"], *validation["invalid"]})
@@ -168,6 +181,7 @@ def build_session_analysis(
             "student_id": (scan.get("student_id") or "").strip() or None,
             "student_name": (scan.get("student_name") or "").strip() or None,
             "answers": _answers(scan, question_count),
+            "marks": _marks(scan, question_count),
             # Keyed by question number the way the reader reports it; the
             # database keys JSON objects by string.
             # The machine's own marking of this sheet, to set beside ours.
@@ -182,7 +196,7 @@ def build_session_analysis(
     scores = {
         number: {
             "student_id": row["student_id"],
-            **score_student(row["answers"], answer_key, question_count),
+            **score_student(row["answers"], answer_key, question_count, row["marks"]),
         }
         for number, row in parsed.items()
     }
@@ -191,6 +205,7 @@ def build_session_analysis(
         answer_key,
         question_count=question_count,
         flag_thresholds=flag_thresholds,
+        all_marks=[row["marks"] for row in parsed.values()],
     )
     stats = class_statistics(scores, analysis, question_count)
 
@@ -199,7 +214,9 @@ def build_session_analysis(
         if not row["student_id"] or not row["student_id"].isdigit():
             review_items.append({"page": number, "field": "student_id", "value": None})
         for question, response in row["answers"].items():
-            if response == "MULTIPLE":
+            # Several marks are the expected answer to a multiple-answer
+            # question, not something to check.
+            if response == "MULTIPLE" and len(answer_key[question]) == 1:
                 review_items.append(
                     {
                         "page": number,

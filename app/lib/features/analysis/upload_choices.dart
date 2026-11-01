@@ -80,7 +80,12 @@ class UploadChoices {
   /// The unfinalized run already on the site for this test, if any.
   Map<String, Object?>? get draft {
     final run = selected?['draft_run'];
-    return run is Map ? run.cast<String, Object?>() : null;
+    if (run is! Map || run['run_id'] is! String || (run['run_id'] as String).isEmpty ||
+        run['finalized_at'] != null || run['finalized'] == true || run['status'] == 'finalized' ||
+        (run['exam_id'] != null && run['exam_id'] != _exam)) {
+      return null;
+    }
+    return run.cast<String, Object?>();
   }
 
   /// "Update current draft results" text, or null when there is no draft.
@@ -90,15 +95,19 @@ class UploadChoices {
     final students = _count(run['student_count']);
     final questions = _count(run['question_count']);
     final created = run['created_at'];
-    final uploaded = (created is String && created.isNotEmpty)
-        ? (DateTime.tryParse(created)?.toLocal().toString().split('.').first ?? 'an earlier upload')
-        : 'an earlier upload';
-    return '$students student${students == 1 ? '' : 's'} · $questions questions · '
-        'uploaded $uploaded. The corrected scan will replace this draft; '
-        'finalized results cannot be replaced.';
+    final uploaded = created is String ? DateTime.tryParse(created)?.toLocal() : null;
+    final timestamp = uploaded == null ? 'Upload time unavailable' : 'Uploaded ${_uploadTime(uploaded)}';
+    return '$students student${students == 1 ? '' : 's'} · $questions questions · $timestamp';
   }
 
-  String get buttonLabel => draft != null ? 'Update draft' : 'Upload';
+  static String _uploadTime(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '${months[date.month - 1]} ${date.day}, ${date.year} at $hour:$minute ${date.hour < 12 ? 'AM' : 'PM'}';
+  }
+
+  String get buttonLabel => 'Add results';
 
   // ---------------------------------------------------------------- internals
 

@@ -96,7 +96,13 @@ void writePagePicture(Directory directory, int page, GrayImage gray) {
   if (image.width > pageViewWidth) {
     image = img.copyResize(image, width: pageViewWidth, interpolation: img.Interpolation.average);
   }
-  File('${directory.path}/${pagePictureName(page)}').writeAsBytesSync(img.encodeJpg(image, quality: 82));
+  // The JPEG encoder reads RGB channels literally; a one-channel image has
+  // zero green/blue and would therefore save white paper as bright red.
+  final rgb = img.Image(width: image.width, height: image.height);
+  for (final pixel in image) {
+    rgb.setPixelRgb(pixel.x, pixel.y, pixel.r, pixel.r, pixel.r);
+  }
+  File('${directory.path}/${pagePictureName(page)}').writeAsBytesSync(img.encodeJpg(rgb, quality: 82));
 }
 
 /// The stored picture of [page], or null if it is not (any more) in the cache.
@@ -105,7 +111,36 @@ void writePagePicture(Directory directory, int page, GrayImage gray) {
 /// `page-NNNNNN.png`; an update that finds the old library still shows those.
 Uint8List? readPagePicture(String directory, int page) {
   final reduced = File('$directory/${pagePictureName(page)}');
-  if (reduced.existsSync()) return reduced.readAsBytesSync();
+  if (reduced.existsSync()) return _readablePreview(reduced.readAsBytesSync());
   final full = File('$directory/page-${page.toString().padLeft(6, '0')}.png');
   return full.existsSync() ? full.readAsBytesSync() : null;
+}
+
+/// Repair the old red-channel-only JPEG previews in memory. Leave the cached
+/// file and legacy full-size PNGs (which may contain diagnostics) untouched.
+Uint8List _readablePreview(Uint8List bytes) {
+  // A damaged or unreadable file is served as it is: the viewer can say it
+  // cannot show it, where a throw here would close the whole dialog.
+  img.Image? image;
+  try {
+    image = img.decodeJpg(bytes);
+  } on Object {
+    return bytes;
+  }
+  if (image == null) return bytes;
+  var light = 0;
+  var redOnly = 0;
+  for (var y = 0; y < image.height; y += 8) {
+    for (var x = 0; x < image.width; x += 8) {
+      final p = image.getPixel(x, y);
+      if (p.r < 80) continue;
+      light++;
+      if (p.g < 40 && p.b < 40 && p.r > p.g + 40 && p.r > p.b + 40) redOnly++;
+    }
+  }
+  if (light == 0 || redOnly / light < 0.9) return bytes;
+  for (final p in image) {
+    p.setRgb(p.r, p.r, p.r);
+  }
+  return Uint8List.fromList(img.encodePng(image));
 }

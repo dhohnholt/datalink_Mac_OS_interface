@@ -39,7 +39,14 @@ class PaperModel extends ChangeNotifier {
   String name = '';
   String className = '';
   int keyPage = 1;
-  int questions = maxQuestions;
+  int questions = accuScanQuestions;
+
+  /// Use the printable sheet whose ANSWER KEY bubble is filled, instead of
+  /// [keyPage].
+  bool findKey = false;
+
+  /// Score only printable sheets bubbled with this version; null for any.
+  String? version;
 
   PaperPhase _phase = PaperPhase.idle;
   double _progress = 0;
@@ -51,9 +58,28 @@ class PaperModel extends ChangeNotifier {
   int? _sessionId;
   Map<String, Object?> _storage = const {};
   bool _warnedOverLimit = false;
+  TestPackage? _package;
+  String _packageName = '';
+  String? _packageError;
+  List<Map<String, Object?>> _notScored = const [];
   bool _disposed = false;
 
   File? get file => _file;
+
+  /// The test package for a test given in several versions, if one was chosen.
+  TestPackage? get package => _package;
+  String get packageName => _packageName;
+  String? get packageError => _packageError;
+
+  /// Sheets the last batch left out, such as one with no version bubbled.
+  List<Map<String, Object?>> get notScored => _notScored;
+
+  String get packageLine {
+    final package = _package;
+    if (package == null) return '';
+    return '$_packageName · ${package.items.length} items, versions ${package.versions.join(', ')} · '
+        '${package.hasAnswers ? 'answers from the package' : 'answers from each version’s key sheet'}';
+  }
   int get pageCount => _pageCount;
   PaperPhase get phase => _phase;
   bool get busy => _phase == PaperPhase.reading;
@@ -78,13 +104,12 @@ class PaperModel extends ChangeNotifier {
   /// being read or has just been filed.
   bool get showSetup => _file != null && !busy && _phase != PaperPhase.done;
 
-  bool get canRun =>
-      _file != null &&
-      !busy &&
-      keyPage >= 1 &&
-      keyPage <= _pageCount &&
-      questions >= 1 &&
-      questions <= maxQuestions;
+  bool get canRun {
+    if (_file == null || busy) return false;
+    // A package says where every item is, so no key page or count is needed.
+    if (_package != null) return true;
+    return (findKey || (keyPage >= 1 && keyPage <= _pageCount)) && questions >= 1 && questions <= maxQuestions;
+  }
 
   int get cacheBytes => (_storage['cache_bytes'] as int?) ?? 0;
   int get cacheBatches => (_storage['batches'] as int?) ?? 0;
@@ -127,6 +152,39 @@ class PaperModel extends ChangeNotifier {
     return true;
   }
 
+  /// What the Open panel returned: a PDF, a test package, or both.
+  void setFiles(List<String> paths) {
+    final pdf = paths.where((p) => !p.toLowerCase().endsWith('.csv')).toList();
+    final csv = paths.where((p) => p.toLowerCase().endsWith('.csv')).toList();
+    if (csv.isNotEmpty) setPackage(csv.first);
+    if (pdf.isNotEmpty) setPdf(pdf.first);
+  }
+
+  /// Reads a test package, or sets [packageError] saying what is wrong with it.
+  bool setPackage(String path) {
+    try {
+      _package = TestPackage.parse(File(path).readAsStringSync());
+      _packageName = File(path).uri.pathSegments.last;
+      _packageError = null;
+    } on TestPackageException catch (e) {
+      _package = null;
+      _packageError = e.message;
+    } on FileSystemException catch (e) {
+      _package = null;
+      _packageError = 'Could not open the test package: ${e.message}';
+    }
+    if (_phase == PaperPhase.done || _phase == PaperPhase.failed) _phase = PaperPhase.idle;
+    _notify();
+    return _package != null;
+  }
+
+  void clearPackage() {
+    _package = null;
+    _packageName = '';
+    _packageError = null;
+    _notify();
+  }
+
   void setName(String value) => name = value;
   void setClass(String value) {
     className = value;
@@ -136,6 +194,17 @@ class PaperModel extends ChangeNotifier {
   void setKeyPage(int value) {
     keyPage = value;
     _keepCount = false;
+    _notify();
+  }
+
+  void setFindKey(bool value) {
+    findKey = value;
+    _keepCount = false;
+    _notify();
+  }
+
+  void setVersion(String? value) {
+    version = value;
     _notify();
   }
 
@@ -162,7 +231,9 @@ class PaperModel extends ChangeNotifier {
       final report = await _reader(
         PaperRequest(
           pdf: file,
-          keyPage: keyPage,
+          keyPage: findKey || _package != null ? null : keyPage,
+          version: _package == null ? version : null,
+          package: _package,
           questionCount: questions,
           examName: name.trim().isEmpty ? null : name.trim(),
           keyOverrides: keyOverrides,
@@ -176,6 +247,7 @@ class PaperModel extends ChangeNotifier {
       );
       final id = sessionFromReport(_store, report, name: name.trim(), className: className);
       final students = ((report['students'] as List?) ?? const []).length;
+      _notScored = ((report['not_scored'] as List?) ?? const []).cast<Map<String, Object?>>();
       _sessionId = id;
       _progress = 1;
       _message = 'Read $students sheet${students == 1 ? '' : 's'}';

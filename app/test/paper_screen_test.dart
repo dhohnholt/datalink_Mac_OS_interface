@@ -109,6 +109,53 @@ void main() {
     expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Read the sheets')).onPressed, isNull);
   });
 
+  testWidgets('the printable answer sheet is saved from the Paper tab', (tester) async {
+    final app = await open(tester);
+    await tester.tap(find.text('Save answer sheet…'));
+    await tester.pumpAndSettle();
+    final saved = app.actions.savedBytes.single;
+    expect(saved.name, 'Answer Sheet (75 questions).pdf');
+    expect(saved.extension, 'pdf');
+    expect(String.fromCharCodes(saved.bytes.take(5)), '%PDF-');
+    expect(saved.bytes, File('assets/answer_sheet_75.pdf').readAsBytesSync());
+    expect(find.text('Saved the answer sheet'), findsOneWidget);
+  });
+
+  testWidgets('the vocabulary sheet, its guide and the matching sheet are saved too', (tester) async {
+    final app = await open(tester);
+    for (final (button, name, asset) in [
+      ('Save 50 + matching sheet…', 'Answer Sheet (50 questions + matching).pdf', 'answer_sheet_50_matching.pdf'),
+      ('Save vocabulary quiz sheet…', 'Vocabulary Quiz Sheet.pdf', 'vocabulary_quiz_sheet.pdf'),
+      ('Save vocabulary teacher guide…', 'Vocabulary Quiz Teacher Guide.pdf', 'vocabulary_quiz_teacher_guide.pdf'),
+    ]) {
+      await tester.ensureVisible(find.text(button));
+      await tester.tap(find.text(button));
+      await tester.pumpAndSettle();
+      final saved = app.actions.savedBytes.last;
+      expect(saved.name, name);
+      expect(saved.bytes, File('assets/$asset').readAsBytesSync());
+    }
+    expect(app.actions.savedBytes, hasLength(3));
+  });
+
+  testWidgets('the key can be found by its bubble, and a version chosen', (tester) async {
+    final app = await open(tester);
+    await choose(tester);
+    await tester.tap(find.text('Find the key sheet by its ANSWER KEY bubble'));
+    await tester.pump();
+    expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Answer key page')).enabled, isFalse);
+    await tester.enterText(find.widgetWithText(TextField, '50'), '75');
+    await tester.tap(find.text('Any'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Version 2').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Read the sheets'));
+    await tester.pumpAndSettle();
+
+    final request = app.calls.requests.single;
+    expect([request.keyPage, request.version, request.questionCount], [null, '2', 75]);
+  });
+
   testWidgets('a PDF that cannot be read says why, and offers nothing else', (tester) async {
     final app = await open(tester);
     app.actions.nextPdfPath = '/scans/bad.pdf';

@@ -19,7 +19,7 @@ class PaperScreen extends StatefulWidget {
 class _PaperScreenState extends State<PaperScreen> {
   final _name = TextEditingController();
   final _keyPage = TextEditingController(text: '1');
-  final _questions = TextEditingController(text: '$maxQuestions');
+  final _questions = TextEditingController(text: '$accuScanQuestions');
   final Map<int, String> _keyChoices = {};
   String? _synced;
   PaperModel? _model;
@@ -58,8 +58,12 @@ class _PaperScreenState extends State<PaperScreen> {
   }
 
   Future<void> _choose(PaperModel model) async {
-    final path = await Services.of(context).actions.pickPdf();
-    if (path != null) model.setPdf(path);
+    model.setFiles(await Services.of(context).actions.pickScanFiles());
+  }
+
+  Future<void> _copyPrompt() async {
+    await Clipboard.setData(const ClipboardData(text: testPackagePrompt));
+    if (mounted) showToast(context, 'Prompt copied');
   }
 
   Future<void> _run(PaperModel model, {Map<int, String> overrides = const {}}) async {
@@ -81,6 +85,36 @@ class _PaperScreenState extends State<PaperScreen> {
       }
     }
   }
+
+  Future<void> _saveSheet(String asset, String name, String what) async {
+    final data = await rootBundle.load('assets/$asset');
+    if (!mounted) return;
+    final path = await Services.of(context).actions.saveBytes(
+      suggestedName: name,
+      bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      extension: 'pdf',
+      mimeType: 'application/pdf',
+    );
+    if (path != null && mounted) showToast(context, 'Saved the $what');
+  }
+
+  Widget _sheetRow(String label, String detail, VoidCallback onPressed) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 280,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.download_outlined),
+                onPressed: onPressed,
+                label: Text(label),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Text(detail, style: Theme.of(context).textTheme.bodySmall)),
+          ],
+        ),
+      );
 
   Future<void> _purge(PaperModel model) async {
     final ok = await confirmDialog(
@@ -123,9 +157,82 @@ class _PaperScreenState extends State<PaperScreen> {
                   _message(context, model.error!, Tone.bad),
                 if (model.file == null && model.error != null && model.phase != PaperPhase.failed)
                   _message(context, model.error!, Tone.bad),
+                if (model.packageError != null) _message(context, model.packageError!, Tone.bad),
                 if (model.countSuggestion != null) _countFix(context, model),
                 if (model.keyReview != null) _keyFix(context, model),
                 if (model.phase == PaperPhase.done) _done(context, model),
+              ],
+            ),
+          ),
+          SectionCard(
+            title: 'Several versions of one test',
+            subtitle: 'Score every version in one run, with results by item, section and standard.',
+            trailing: FilledButton.tonalIcon(
+              icon: const Icon(Icons.copy_outlined),
+              onPressed: _copyPrompt,
+              label: const Text('Copy prompt'),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Give the copied prompt to the AI assistant that writes your test versions. It produces a test '
+                  'package: a CSV listing each item, its section and standard, its number on each version and its '
+                  'answer there. Choose the scanned PDF and the package together with Choose PDF… (⌘-click both). '
+                  'Students bubble their version; key sheets need not be scanned, and any that are get checked '
+                  'against the package.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('Show the prompt'),
+                  children: [
+                    SelectableText(
+                      testPackagePrompt,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'Menlo'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          SectionCard(
+            title: 'Printable answer sheets',
+            subtitle: 'Print on plain US Letter paper when you run out of forms.',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Each has lines for name, course, test name and period, a bubbled version (1–4) and student '
+                  'ID, and an ANSWER KEY bubble for the key sheet. Print at Actual Size, not Fit to Page, and set '
+                  'the number of copies in the print dialog. Pencil or dark blue or black pen both read; keep the '
+                  'black corner squares and the strip along the bottom free of marks.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                _sheetRow(
+                  'Save answer sheet…',
+                  '75 questions, A–E.',
+                  () => _saveSheet('answer_sheet_75.pdf', 'Answer Sheet (75 questions).pdf', 'answer sheet'),
+                ),
+                _sheetRow(
+                  'Save 50 + matching sheet…',
+                  '50 questions, A–E, and a 15-term matching column (51–65, A–O). Rows left blank on the key '
+                      'are not scored.',
+                  () => _saveSheet('answer_sheet_50_matching.pdf', 'Answer Sheet (50 questions + matching).pdf',
+                      '50 + matching sheet'),
+                ),
+                _sheetRow(
+                  'Save vocabulary quiz sheet…',
+                  '8 matching (A–J), 8 words in context (A–D), 4 select all that apply (A–E).',
+                  () => _saveSheet('vocabulary_quiz_sheet.pdf', 'Vocabulary Quiz Sheet.pdf', 'vocabulary quiz sheet'),
+                ),
+                _sheetRow(
+                  'Save vocabulary teacher guide…',
+                  'How to write a quiz for the vocabulary sheet and make its key, with a sample.',
+                  () => _saveSheet('vocabulary_quiz_teacher_guide.pdf', 'Vocabulary Quiz Teacher Guide.pdf',
+                      'teacher guide'),
+                ),
               ],
             ),
           ),
@@ -154,7 +261,7 @@ class _PaperScreenState extends State<PaperScreen> {
   Widget _setup(BuildContext context, PaperModel model) {
     final names = [for (final c in model.classBook.classes) c['name']! as String];
     final keyValue = int.tryParse(_keyPage.text);
-    final keyError = keyValue == null || keyValue < 1 || keyValue > model.pageCount
+    final keyError = !model.findKey && (keyValue == null || keyValue < 1 || keyValue > model.pageCount)
         ? 'Choose a page from 1 to ${model.pageCount}'
         : null;
     final questionValue = int.tryParse(_questions.text);
@@ -164,6 +271,11 @@ class _PaperScreenState extends State<PaperScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _callout(context, model.fileLine, Tone.neutral, icon: Icons.picture_as_pdf_outlined),
+        if (model.package != null) ...[
+          const SizedBox(height: 8),
+          _callout(context, 'Test package: ${model.packageLine}', Tone.neutral, icon: Icons.table_chart_outlined),
+          TextButton(onPressed: model.clearPackage, child: const Text('Remove the test package')),
+        ],
         const SizedBox(height: 16),
         Wrap(
           spacing: 16,
@@ -191,10 +303,11 @@ class _PaperScreenState extends State<PaperScreen> {
                 onChanged: (value) => model.setClass(value ?? ''),
               ),
             ),
-            SizedBox(
+            if (model.package == null) SizedBox(
               width: 200,
               child: TextField(
                 controller: _keyPage,
+                enabled: !model.findKey,
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: InputDecoration(
@@ -211,7 +324,28 @@ class _PaperScreenState extends State<PaperScreen> {
                 },
               ),
             ),
-            SizedBox(
+            if (model.package == null) SizedBox(
+              width: 160,
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                key: ValueKey('paper-version-${model.version}'),
+                initialValue: model.version ?? '',
+                decoration: InputDecoration(
+                  labelText: 'Version',
+                  suffixIcon: _hint(
+                    'About the version',
+                    'For the printable sheet. When the PDF holds keys for more than one version, choose one '
+                        'and read the batch once for each.',
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('Any')),
+                  for (final v in sheetVersions.split('')) DropdownMenuItem(value: v, child: Text('Version $v')),
+                ],
+                onChanged: (value) => model.setVersion(value == null || value.isEmpty ? null : value),
+              ),
+            ),
+            if (model.package == null) SizedBox(
               width: 180,
               child: TextField(
                 controller: _questions,
@@ -226,7 +360,16 @@ class _PaperScreenState extends State<PaperScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        if (model.package == null) CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: model.findKey,
+          onChanged: (value) => model.setFindKey(value ?? false),
+          title: const Text('Find the key sheet by its ANSWER KEY bubble'),
+          subtitle: const Text('For the printable 75-question sheet. The key can be anywhere in the stack.'),
+        ),
+        const SizedBox(height: 8),
         FilledButton(
           onPressed: model.canRun ? () => _run(model) : null,
           child: const Text('Read the sheets'),
@@ -491,6 +634,15 @@ class _PaperScreenState extends State<PaperScreen> {
             '${model.message}. They are saved as a session, ready to review and send to your site.',
             Tone.good,
           ),
+          if (model.notScored.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _callout(
+              context,
+              'Not scored: ${[for (final n in model.notScored) 'page ${n['page']} (${n['reason']})'].join(', ')}. '
+              'Bubble a version on those sheets, scan them and read them again with the package.',
+              Tone.warn,
+            ),
+          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 12,

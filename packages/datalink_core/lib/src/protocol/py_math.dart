@@ -173,6 +173,16 @@ num pyVarianceInts(List<int> data) {
   ).toIntOrDouble();
 }
 
+/// `statistics.pvariance` of ints: the exact sum of squared deviations over
+/// n, an int when it divides exactly, as Python returns it.
+num pyPVarianceInts(List<int> data) {
+  if (data.isEmpty) {
+    throw ArgumentError('pvariance requires at least one data point');
+  }
+  final ss = _sumSquaredDeviations(data);
+  return _Frac(ss.numerator, ss.denominator * BigInt.from(data.length)).toIntOrDouble();
+}
+
 /// `statistics.stdev` of ints: the square root of the exact variance, rounded
 /// once (Python's `_float_sqrt_of_frac`).
 double pyStdevInts(List<int> data) {

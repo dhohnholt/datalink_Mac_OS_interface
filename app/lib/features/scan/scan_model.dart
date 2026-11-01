@@ -50,6 +50,8 @@ class ScanModel extends ChangeNotifier {
 
   int? _autoResolving;
   int? _handledReview;
+  String? _rescanStudent;
+  int? _rescanRecordCount;
 
   /// Show a short message to the teacher. Set by the screen.
   void Function(String message)? onMessage;
@@ -138,6 +140,13 @@ class ScanModel extends ChangeNotifier {
         title: 'Scan the answer key first',
         detail: "Check the scanner's own display reads Scan Mode Ready — press Reset on the "
             'device to cycle to it — then feed the marked answer key before any student sheets.',
+      );
+    }
+    if (_rescanStudent != null) {
+      return (
+        step: '↻',
+        title: 'Rescan: $_rescanStudent',
+        detail: 'The old scan was removed. Feed this student\'s replacement sheet now.',
       );
     }
     return (
@@ -310,6 +319,35 @@ class ScanModel extends ChangeNotifier {
     }
   }
 
+  bool removeStudentScan(Map<String, Object?> record) {
+    try {
+      _services.scanner.removeStudentScan(record['number']! as int);
+      onMessage?.call('Bad scan removed');
+      return true;
+    } on DataLinkError catch (error) {
+      onMessage?.call(error.message);
+      return false;
+    } finally {
+      _sync();
+    }
+  }
+
+  bool rescanStudent(Map<String, Object?> record) {
+    final id = (record['student_id'] as String?) ?? '';
+    final name = (record['student_name'] as String?) ?? '';
+    if (!removeStudentScan(record)) return false;
+    if (_matching == StudentMatching.roster) {
+      final index = walk.indexForId(id);
+      if (index >= 0) _rosterIndex[className] = index;
+    }
+    final student = name.trim().isNotEmpty ? name.trim() : (id.trim().isNotEmpty ? 'ID ${id.trim()}' : 'the student');
+    _rescanStudent = student;
+    _rescanRecordCount = snapshot.recordCount;
+    onMessage?.call('Feed $student\'s sheet again');
+    notifyListeners();
+    return true;
+  }
+
   void skipStudent() {
     final w = walk;
     final skipped = w.current;
@@ -337,6 +375,14 @@ class ScanModel extends ChangeNotifier {
 
   void _react() {
     _checkCount();
+    if (_rescanStudent != null && (_rescanRecordCount == null || snapshot.recordCount > _rescanRecordCount!)) {
+      _rescanStudent = null;
+      _rescanRecordCount = null;
+    }
+    if (!snapshot.scanning) {
+      _rescanStudent = null;
+      _rescanRecordCount = null;
+    }
     final review = snapshot.pendingReview;
     if (review == null) {
       pendingPlan = null;

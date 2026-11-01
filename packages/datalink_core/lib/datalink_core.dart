@@ -7,6 +7,7 @@ export 'src/analysis/question_count.dart';
 export 'src/analysis/report_view.dart';
 export 'src/analysis/result_schema.dart' show ParsedSheet;
 export 'src/analysis/scoring.dart';
+export 'src/analysis/test_package.dart';
 export 'src/paper/gray_image.dart' show GrayImage;
 export 'src/paper/omr/omr.dart' show orientTemplateHeight, orientTemplateWidth, orientTemplateX0, orientTemplateY0;
 export 'src/paper/page_cache.dart';

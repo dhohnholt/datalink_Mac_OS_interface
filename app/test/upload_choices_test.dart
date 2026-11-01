@@ -76,7 +76,7 @@ void main() {
     expect(c.courses, isEmpty);
     expect(c.selected, isNull);
     expect(c.detail, 'No test matches this combination.');
-    expect(c.buttonLabel, 'Upload');
+    expect(c.buttonLabel, 'Add results');
   });
 
   test('says where it will upload, with the grade cap when there is one', () {
@@ -85,7 +85,7 @@ void main() {
     expect(UploadChoices([dest('a')]).detail, 'Uploads to Course c1 · Unit u1 · Exam a · code T-a');
   });
 
-  test('a draft run switches the action to updating it', () {
+  test('a draft keeps adding as the default', () {
     final c = UploadChoices([
       dest('a', draft: {
         'run_id': 'old',
@@ -94,19 +94,36 @@ void main() {
         'question_count': 30,
       }),
     ]);
-    expect(c.buttonLabel, 'Update draft');
+    expect(c.buttonLabel, 'Add results');
     expect(c.draft!['run_id'], 'old');
-    expect(c.draftDetail, startsWith('1 student · 30 questions · uploaded 2026-09-'));
-    expect(c.draftDetail, endsWith('The corrected scan will replace this draft; finalized results cannot be replaced.'));
+    expect(c.draftDetail, startsWith('1 student · 30 questions · Uploaded Sep '));
+  });
+
+  test('upload time uses a readable date and twelve-hour clock', () {
+    final c = UploadChoices([dest('a', draft: {
+      'run_id': 'old', 'created_at': '2026-10-23T16:15:43',
+      'student_count': 9, 'question_count': 30,
+    })]);
+    expect(c.draftDetail, '9 students · 30 questions · Uploaded Oct 23, 2026 at 4:15 PM');
   });
 
   test('a draft with no details still reads sensibly', () {
     final c = UploadChoices([dest('a', draft: {'run_id': 'old'})]);
     expect(
       c.draftDetail,
-      '0 students · 0 questions · uploaded an earlier upload. The corrected scan will replace this draft; '
-      'finalized results cannot be replaced.',
+      '0 students · 0 questions · Upload time unavailable',
     );
+  });
+
+  test('finalized and foreign runs cannot be replacement candidates', () {
+    for (final fields in [
+      {'finalized_at': '2026-10-20'},
+      {'finalized': true},
+      {'status': 'finalized'},
+      {'exam_id': 'another-test'},
+    ]) {
+      expect(UploadChoices([dest('a', draft: {'run_id': 'old', ...fields})]).draft, isNull);
+    }
   });
 
   test('a test with the same title in two units is offered once per unit', () {

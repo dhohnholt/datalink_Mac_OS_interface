@@ -27,6 +27,15 @@ abstract interface class PlatformActions {
     required String extension,
   });
 
+  /// Offer a Save panel and write [bytes] where the teacher chooses. Returns
+  /// the path written, or null if they cancelled.
+  Future<String?> saveBytes({
+    required String suggestedName,
+    required Uint8List bytes,
+    required String extension,
+    required String mimeType,
+  });
+
   /// Show a folder in Finder.
   Future<void> reveal(String directory);
 
@@ -36,6 +45,11 @@ abstract interface class PlatformActions {
   /// Offer an Open panel for a scanned PDF. Returns its path, or null if they
   /// cancelled. Inside the sandbox this is the only way to reach the file.
   Future<String?> pickPdf();
+
+  /// Offer an Open panel for a scanned PDF and, for a test given in several
+  /// versions, its test package CSV: both can be chosen at once. Returns the
+  /// paths chosen, empty if they cancelled.
+  Future<List<String>> pickScanFiles();
 }
 
 class SystemPlatformActions implements PlatformActions {
@@ -63,6 +77,24 @@ class SystemPlatformActions implements PlatformActions {
   }
 
   @override
+  Future<String?> saveBytes({
+    required String suggestedName,
+    required Uint8List bytes,
+    required String extension,
+    required String mimeType,
+  }) async {
+    final location = await getSaveLocation(
+      suggestedName: suggestedName,
+      acceptedTypeGroups: [
+        XTypeGroup(label: extension.toUpperCase(), extensions: [extension]),
+      ],
+    );
+    if (location == null) return null;
+    await XFile.fromData(bytes, mimeType: mimeType, name: suggestedName).saveTo(location.path);
+    return location.path;
+  }
+
+  @override
   Future<void> reveal(String directory) async {
     await launchUrl(Uri.directory(directory));
   }
@@ -80,6 +112,20 @@ class SystemPlatformActions implements PlatformActions {
       ],
     );
     return file?.path;
+  }
+
+  @override
+  Future<List<String>> pickScanFiles() async {
+    final files = await openFiles(
+      acceptedTypeGroups: const [
+        XTypeGroup(
+          label: 'PDF or test package',
+          extensions: ['pdf', 'csv'],
+          uniformTypeIdentifiers: ['com.adobe.pdf', 'public.comma-separated-values-text'],
+        ),
+      ],
+    );
+    return [for (final file in files) file.path];
   }
 }
 

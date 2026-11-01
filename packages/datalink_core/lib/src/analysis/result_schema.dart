@@ -4,6 +4,7 @@ library;
 
 import '../protocol/py_math.dart';
 import '../protocol/python_compat.dart';
+import 'scoring.dart' show isCorrect;
 
 const String schemaVersion = '1.0';
 
@@ -16,6 +17,8 @@ class ParsedSheet {
     required this.scannerScore,
     required this.answerConfidence,
     this.calibration = const <String, Object?>{},
+    this.marks = const <int, String>{},
+    this.version,
   });
 
   final String? studentId;
@@ -29,6 +32,12 @@ class ParsedSheet {
 
   /// Where the paper reader found the sheet; empty for a DataLink sheet.
   final Map<String, Object?> calibration;
+
+  /// The letters behind each MULTIPLE response, when they are known.
+  final Map<int, String> marks;
+
+  /// The version bubbled on a printable sheet.
+  final String? version;
 }
 
 String? normalizedStudentId(String? value) {
@@ -74,6 +83,7 @@ Map<String, Object?> buildAnalysisResult({
   bool scanStudentIds = true,
   int questionCount = 50,
   String sourceType = 'pdf_scan',
+  String? version,
 }) {
   final corrected = <(int, String)>{
     for (final entry in appliedCorrections)
@@ -87,12 +97,14 @@ Map<String, Object?> buildAnalysisResult({
     final answers = <Map<String, Object?>>[];
     for (var question = 1; question <= questionCount; question++) {
       final response = extraction.answers[question] ?? 'BLANK';
+      final marks = extraction.marks[question];
       final confidence = extraction.answerConfidence[question] ?? <String, Object?>{};
       answers.add(<String, Object?>{
         'question': question,
         'response': response,
+        if (marks != null && marks.isNotEmpty) 'marks': marks,
         'correct_answer': answerKey[question],
-        'correct': response == answerKey[question],
+        'correct': isCorrect(response, answerKey[question], marks),
         'confidence': confidence,
         'manually_corrected': corrected.contains((page, 'answer_$question')),
       });
@@ -102,6 +114,7 @@ Map<String, Object?> buildAnalysisResult({
       'student_id': normalizedStudentId(extraction.studentId),
       'student_id_read': extraction.studentId,
       'student_name': extraction.studentName,
+      'version': extraction.version,
       'student_id_manually_corrected': corrected.contains((page, 'student_id')),
       'score': <String, Object?>{
         'correct': score['correct'],
@@ -170,6 +183,7 @@ Map<String, Object?> buildAnalysisResult({
       'student_id_scanning': scanStudentIds,
       'question_count': questionCount,
       'key_page': keyPage,
+      'version': version,
       'answer_key': [
         for (var q = 1; q <= questionCount; q++) {'question': q, 'answer': answerKey[q]},
       ],

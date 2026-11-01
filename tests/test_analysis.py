@@ -73,6 +73,15 @@ class VendorTests(unittest.TestCase):
             "extract_template_a.py",
             "page_selection.py",
             "reference_page.png",
+            # The printable sheets analyze_exam now also reads.
+            "answer_sheet_layout.py",
+            "extract_custom_sheet.py",
+            "extract_vocab_sheet.py",
+            "vocab_sheet_layout.py",
+            "vocab_scoring.py",
+            "match_sheet_layout.py",
+            "extract_match_sheet.py",
+            "version_package.py",
         ):
             self.assertEqual(
                 (VENDOR / "omr" / name).read_bytes(),
@@ -236,14 +245,30 @@ class FaintMarkTests(unittest.TestCase):
         self.assertIn("student sheets", str(caught.exception))
 
     def test_refuses_an_unresolved_answer_key(self):
-        # A key with a double mark cannot score anything.
+        # A key mark the scanner could not read (*) cannot score anything.
         scans = [
-            scan(1, "key", ["A", "AB", "C", "D", "E"]),
+            scan(1, "key", ["A", "*", "C", "D", "E"]),
             scan(2, "student", ["A"] * 5, "900011"),
         ]
         with self.assertRaises(AnalysisError) as caught:
             build_session_analysis(session(), scans)
         self.assertIn("question(s) 2", str(caught.exception))
+
+    def test_a_key_with_two_letters_is_a_multiple_answer_question(self):
+        # Right only when a student filled exactly those bubbles; and filling
+        # several there is the answer, not something to review.
+        scans = [
+            scan(1, "key", ["A", "BA", "C", "D", "E"]),
+            scan(2, "student", ["A", "AB", "C", "D", "E"], "900011"),
+            scan(3, "student", ["A", "A", "C", "D", "E"], "900012"),
+            scan(4, "student", ["A", "ABC", "C", "D", "E"], "900013"),
+        ]
+        report = build_session_analysis(session(), scans)
+        self.assertEqual(report["exam"]["answer_key"][1], {"question": 2, "answer": "AB"})
+        self.assertEqual([s["score"]["correct"] for s in report["students"]], [5, 4, 4])
+        first = report["students"][0]["answers"][1]
+        self.assertEqual((first["response"], first["marks"], first["correct"]), ("MULTIPLE", "AB", True))
+        self.assertFalse([i for i in report["review_items"] if i.get("question") == 2])
 
     def test_filename_follows_the_session_name(self):
         self.assertEqual(analysis_filename(session(name="Unit 3 Exam")), "Unit 3 Exam.json")

@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """
 analyze_exam.py — Run the full pipeline on a duplex-scanned batch of
-Apperson DataLink 1200 "Template A" answer sheets (the green 50-question,
-5-option A-E form) and produce per-student scores + item analysis.
+answer sheets and produce per-student scores + item analysis. Two forms
+are read: the Apperson DataLink 1200 "Template A" sheet (the green
+50-question, 5-option A-E form) and the printable 75-question sheet from
+make_answer_sheet.py. Both may appear in the same PDF.
 
 USAGE
 
     python3 analyze_exam.py path/to/scan.pdf --key-page N
+    python3 analyze_exam.py path/to/scan.pdf          # 75-question sheets
 
     --key-page N   The page NUMBER (1-indexed, counting every page in the
                     PDF including blank backs) that holds the answer key.
-                    Required. If you're not sure, run with --list-pages
-                    first to see a thumbnail contact sheet.
+                    Optional when the key is a 75-question sheet with its
+                    ANSWER KEY bubble filled; required for AccuScan forms.
+                    If you're not sure, run with --list-pages first to see
+                    a thumbnail contact sheet.
+
+    --version V    Score only 75-question sheets bubbled with version V
+                    (1-4), against the key sheet bubbled with the same
+                    version. Needed when one PDF holds keys for several
+                    versions.
 
     --list-pages   Just render a contact sheet of every page (as
                     contact_sheet.png) and exit, without analyzing
@@ -42,14 +52,15 @@ OUTPUT (written to ./output/ by default)
 
 IMPORTANT ASSUMPTIONS
 
-- This script currently only handles ONE physical answer-sheet layout:
-  the green "AccuScan" 5-option (A-E) Apperson form calibrated from a
-  reference scan bundled alongside this script (reference_page.png).
-  If your class uses a different physical answer sheet, those pages
-  will be silently skipped -- check run_log.txt for a per-page count.
+- Two physical answer-sheet layouts are supported: the green "AccuScan"
+  5-option (A-E) Apperson form calibrated from a reference scan bundled
+  alongside this script (reference_page.png), and the 75-question sheet
+  printed by make_answer_sheet.py. Pages on any other form are skipped
+  -- check run_log.txt for a per-page count.
 - Pages with very little ink (blank backs from duplex scanning) are
   auto-skipped.
-- The key page must be marked via --key-page; it is NOT auto-detected.
+- AccuScan key pages must be named with --key-page. A 75-question key
+  sheet is found automatically from its filled ANSWER KEY bubble.
 
 REQUIREMENTS
 
@@ -75,9 +86,27 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from calibrate_page import calibrate_page, fix_orientation
 from extract_template_a import extract_gray_page
+import extract_custom_sheet
+import answer_sheet_layout
+import match_sheet_layout
+import vocab_sheet_layout
+import vocab_scoring
+import version_package
+
+# Printable sheets whose key decides which questions count, and that number
+# their questions their own way: scored only against a key on the same form.
+KEY_DECIDES_LAYOUTS = {
+    vocab_sheet_layout.FORM_NAME: vocab_sheet_layout,
+    match_sheet_layout.FORM_NAME: match_sheet_layout,
+}
 from page_selection import parse_page_spec
-from analysis_core import class_statistics, item_analysis, score_student, validate_answer_key
+from analysis_core import (
+    VALID_ANSWERS, class_statistics, is_multiple_answer_key, item_analysis, score_student,
+    validate_answer_key,
+)
 from result_schema import build_analysis_result
+
+MAX_QUESTIONS = answer_sheet_layout.QUESTION_COUNT
 
 
 def pdf_page_count(pdf_path):
@@ -165,7 +194,7 @@ def apply_corrections(results_by_page, corrections):
         for question_text, new_answer in changes.get("answers", {}).items():
             question = int(question_text)
             new_answer = str(new_answer).upper()
-            if question not in range(1, 51) or new_answer not in "ABCDE":
+            if question not in range(1, MAX_QUESTIONS + 1) or new_answer not in "ABCDE":
                 raise ValueError(f"invalid correction on page {page}, question {question_text}")
             old = result["answers"][question]
             result["answers"][question] = new_answer
@@ -180,12 +209,92 @@ def process_page(path, min_match_conf=0.55, scan_student_id=True):
         raise FileNotFoundError(path)
     if is_blank_page(gray):
         return page_num, "blank", None, None
+    custom = extract_custom_sheet.extract_page(gray, scan_student_id=scan_student_id)
+    if custom is not None:
+        return page_num, "processed", custom, 1.0
     oriented, angle, confidence = fix_orientation(gray)
     if confidence < min_match_conf:
         return page_num, "unsupported", None, round(confidence, 2)
     return page_num, "processed", extract_gray_page(
         oriented, angle, confidence, scan_student_id=scan_student_id
     ), confidence
+
+
+def select_key_and_students(results_by_page, key_page=None, version=None):
+    """
+    Choose the answer-key page and the student pages it applies to.
+
+    Key sheets are pages with the ANSWER KEY bubble filled (75-question
+    form) plus any page named explicitly with key_page. When a version is
+    known -- requested, or bubbled on the key -- only students bubbled with
+    that version are scored; students who left the version blank are kept
+    but flagged when no other version's key is present.
+
+    Returns (key_page, students, excluded, missing_version) where excluded
+    is a list of (page, reason) and missing_version lists student pages
+    with no version bubbled. Raises ValueError when no key can be chosen.
+    """
+    marked_keys = sorted(p for p, r in results_by_page.items() if r.get("is_key"))
+    notes = []
+    if key_page is None:
+        candidates = [
+            p for p in marked_keys
+            if version is None or results_by_page[p].get("version") == version
+        ]
+        if not candidates:
+            if version is not None:
+                raise ValueError(
+                    f"no answer-key sheet bubbled with version {version} was found"
+                )
+            raise ValueError(
+                "no answer-key sheet was found: fill the ANSWER KEY bubble on the "
+                "key sheet, or name the key page with --key-page"
+            )
+        key_versions = sorted({results_by_page[p].get("version") or "none" for p in candidates})
+        if version is None and len(key_versions) > 1:
+            raise ValueError(
+                "answer keys were found for more than one version "
+                f"({', '.join(key_versions)}); analyze each version separately"
+            )
+        key_page = candidates[0]
+        if len(candidates) > 1:
+            notes.append((candidates[1:], "additional key sheet (not scored)"))
+    elif key_page not in results_by_page:
+        raise ValueError(f"page {key_page} was not processed as a supported answer sheet")
+
+    effective_version = version or results_by_page[key_page].get("version")
+    other_key_versions = {
+        results_by_page[p].get("version") for p in marked_keys
+    } - {effective_version, None}
+
+    key_form = results_by_page[key_page].get("form")
+
+    students, excluded, missing_version = {}, [], []
+    for pages, reason in notes:
+        excluded.extend((p, reason) for p in pages)
+    for page, result in sorted(results_by_page.items()):
+        if page == key_page or page in marked_keys:
+            continue
+        sheet_form = result.get("form")
+        if sheet_form != key_form and (
+            sheet_form in KEY_DECIDES_LAYOUTS or key_form in KEY_DECIDES_LAYOUTS
+        ):
+            excluded.append((page, "a different answer sheet from the key"))
+            continue
+        sheet_version = result.get("version")
+        if effective_version is None or sheet_version == effective_version:
+            students[page] = result
+        elif sheet_version is None and "version_read" in result:
+            if other_key_versions:
+                excluded.append((page, "no version bubbled"))
+            else:
+                students[page] = result
+                missing_version.append(page)
+        elif sheet_version is None:
+            students[page] = result   # AccuScan sheets carry no version
+        else:
+            excluded.append((page, f"version {sheet_version}"))
+    return key_page, students, excluded, missing_version
 
 
 def cache_directory(cache_root, pdf_path, dpi):
@@ -205,9 +314,14 @@ def main():
     ap.add_argument("--exam-name", default=None,
                     help="Human-readable test name stored in analysis_result.json")
     ap.add_argument("--question-count", type=int, default=50,
-                    help="number of scored questions on the test, from 1 to 50")
+                    help=f"number of scored questions on the test, from 1 to {MAX_QUESTIONS}")
     ap.add_argument("--key-page", type=int, default=None,
-                     help="1-indexed page number holding the answer key")
+                     help="1-indexed page number holding the answer key "
+                          "(found automatically on 75-question sheets)")
+    ap.add_argument("--package", default=None,
+                    help="test package CSV: score every version of the test in one run")
+    ap.add_argument("--version", default=None, choices=list(answer_sheet_layout.VERSIONS),
+                    help="score only 75-question sheets bubbled with this version")
     ap.add_argument("--list-pages", action="store_true",
                      help="Render a contact sheet and exit")
     ap.add_argument("--pages", default="all",
@@ -236,8 +350,16 @@ def main():
                     help="scratch dir for rendered pages (default: unique temporary directory)")
     args = ap.parse_args()
 
-    if args.question_count not in range(1, 51):
-        ap.error("--question-count must be between 1 and 50")
+    package = None
+    if args.package:
+        try:
+            package = version_package.load_package(args.package)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+
+    if args.question_count not in range(1, MAX_QUESTIONS + 1):
+        ap.error(f"--question-count must be between 1 and {MAX_QUESTIONS}")
 
     if args.work is None:
         args.work = tempfile.mkdtemp(prefix="exam_analyzer_")
@@ -274,10 +396,6 @@ def main():
             f"then re-run with --key-page N")
         return
 
-    if args.key_page is None:
-        print("ERROR: --key-page is required (use --list-pages first if unsure)")
-        sys.exit(1)
-
     try:
         selected_pages = parse_page_spec(args.pages, total_pages)
         skipped_by_user = parse_page_spec(args.skip_pages, total_pages)
@@ -289,7 +407,7 @@ def main():
     if not selected_pages:
         print("ERROR: the page selection contains no pages to analyze")
         sys.exit(2)
-    if args.key_page not in selected_pages:
+    if args.key_page is not None and args.key_page not in selected_pages:
         print(f"ERROR: key page {args.key_page} is excluded by the page selection")
         sys.exit(2)
 
@@ -336,19 +454,78 @@ def main():
     skipped_blank.sort()
     skipped_not_a.sort()
 
-    log(f"\nProcessed as Template A: {len(processed)} pages")
+    custom_pages = [p for p in processed if results_by_page[p].get("form") == answer_sheet_layout.FORM_NAME]
+    vocab_pages = [p for p in processed if results_by_page[p].get("form") == vocab_sheet_layout.FORM_NAME]
+    match_pages = [p for p in processed if results_by_page[p].get("form") == match_sheet_layout.FORM_NAME]
+    log(f"\nProcessed as Template A: "
+        f"{len(processed) - len(custom_pages) - len(vocab_pages) - len(match_pages)} pages")
+    log(f"Processed as 75-question sheet: {len(custom_pages)} pages")
+    if vocab_pages:
+        log(f"Processed as vocabulary quiz: {len(vocab_pages)} pages")
+    if match_pages:
+        log(f"Processed as 50-question + matching sheet: {len(match_pages)} pages")
     log(f"Skipped as blank: {len(skipped_blank)} pages -> {skipped_blank}")
     if skipped_not_a:
-        log(f"Skipped as NOT Template A (unsupported layout): "
+        log(f"Skipped as an unsupported layout: "
             f"{[p for p, c in skipped_not_a]}")
         log("  These pages were not analyzed. If your class uses more than "
             "one answer-sheet layout, those students are missing from the "
             "results below.")
 
-    if args.key_page not in results_by_page:
-        print(f"ERROR: page {args.key_page} was not processed as a valid "
-              f"Template A sheet (see log above). Check --list-pages output.")
+    if package is not None:
+        try:
+            corrections = load_json_mapping(args.corrections)
+            applied_corrections = apply_corrections(results_by_page, corrections)
+            flag_thresholds = tuple(int(value.strip()) for value in args.flag_thresholds.split(","))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+        if applied_corrections:
+            log(f"Applied {len(applied_corrections)} correction(s).")
+        problems = version_package.write_package_analysis(
+            package=package, results_by_page=results_by_page, out_dir=args.out,
+            pdf_path=args.pdf_path, exam_name=args.exam_name, package_path=args.package,
+            selected_pages=selected_pages,
+            processed_pages=processed, skipped_blank=skipped_blank,
+            skipped_unsupported=skipped_not_a, flag_thresholds=flag_thresholds,
+            run_id=args.run_id, scan_student_ids=not args.skip_id_scan, log=log,
+        )
+        for problem in problems:
+            log(f"ERROR: {problem}")
+        with open(os.path.join(args.out, "run_log.txt"), "w") as f:
+            f.write("\n".join(log_lines))
+        if problems:
+            sys.exit(2)
+        print(f"\nWrote reports to {args.out}")
+        shutil.rmtree(args.work, ignore_errors=True)
+        return
+
+    try:
+        key_page, students, excluded_pages, missing_version = select_key_and_students(
+            results_by_page, args.key_page, args.version,
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc} (see log above). Check --list-pages output.")
+        with open(os.path.join(args.out, "run_log.txt"), "w") as f:
+            f.write("\n".join(log_lines + [f"ERROR: {exc}"]))
         sys.exit(1)
+    args.key_page = key_page
+    key_version = args.version or results_by_page[key_page].get("version")
+    log(f"Answer key: page {key_page}"
+        + (" (found from its ANSWER KEY bubble)" if results_by_page[key_page].get("is_key") else "")
+        + (f", version {key_version}" if key_version else ""))
+    for page, reason in excluded_pages:
+        log(f"Not scored: page {page} ({reason})")
+    if missing_version:
+        log(f"No version bubbled (scored against version {key_version}, flagged for review): "
+            f"{missing_version}")
+
+    key_form = results_by_page[key_page].get("form")
+    key_layout = KEY_DECIDES_LAYOUTS.get(key_form)
+    if args.question_count > 50 and key_form != answer_sheet_layout.FORM_NAME and key_layout is None:
+        print(f"ERROR: the AccuScan form holds 50 questions; --question-count "
+              f"{args.question_count} needs a 75-question key sheet")
+        sys.exit(2)
 
     try:
         corrections = load_json_mapping(args.corrections)
@@ -357,13 +534,49 @@ def main():
         print(f"ERROR: could not apply corrections: {exc}")
         sys.exit(2)
 
-    answer_key = results_by_page[args.key_page]["answers"]
+    if key_layout is not None:
+        try:
+            flag_thresholds = tuple(int(value.strip()) for value in args.flag_thresholds.split(","))
+            key_overrides = load_json_mapping(args.key_overrides)
+            unresolved = vocab_scoring.write_vocab_analysis(
+                out_dir=args.out, pdf_path=args.pdf_path, exam_name=args.exam_name,
+                key_page=key_page, key_version=key_version,
+                key_answers=results_by_page[key_page]["answers"], key_overrides=key_overrides,
+                students=students, selected_pages=selected_pages, processed_pages=processed,
+                skipped_blank=skipped_blank, skipped_unsupported=skipped_not_a,
+                excluded_pages=excluded_pages, missing_version=missing_version,
+                applied_corrections=applied_corrections, flag_thresholds=flag_thresholds,
+                run_id=args.run_id, scan_student_ids=not args.skip_id_scan, log=log,
+                layout=key_layout,
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(2)
+        if unresolved:
+            log(f"\nERROR: answer key has unresolved question(s): {sorted(map(str, unresolved))}")
+            log("Review answer_key_review.json, provide corrections with --key-overrides, and rerun.")
+        with open(os.path.join(args.out, "run_log.txt"), "w") as f:
+            f.write("\n".join(log_lines))
+        if unresolved:
+            sys.exit(2)
+        print(f"\nWrote reports to {args.out}")
+        shutil.rmtree(args.work, ignore_errors=True)
+        return
+
+    # A key row with several bubbles filled is a multiple-answer question: its
+    # answer is those letters, and a student must fill exactly them.
+    answer_key = {
+        **results_by_page[args.key_page]["answers"],
+        **results_by_page[args.key_page].get("marks", {}),
+    }
     try:
         key_overrides = load_json_mapping(args.key_overrides)
         for question_text, new_answer in key_overrides.items():
             question = int(question_text)
-            new_answer = str(new_answer).upper()
-            if question not in range(1, args.question_count + 1) or new_answer not in "ABCDE":
+            new_answer = "".join(sorted(set(str(new_answer).upper().replace(",", "").replace(" ", ""))))
+            if question not in range(1, args.question_count + 1) or not (
+                new_answer in VALID_ANSWERS or is_multiple_answer_key(new_answer)
+            ):
                 raise ValueError(f"invalid key override {question_text!r}: {new_answer!r}")
             answer_key[question] = new_answer
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -387,14 +600,13 @@ def main():
             f.write("\n".join(log_lines))
         sys.exit(2)
 
-    students = {pg: r for pg, r in results_by_page.items() if pg != args.key_page}
     log(f"\nScoring {len(students)} students against the key on page {args.key_page}...")
     if args.skip_id_scan:
         log("Student ID scanning was skipped; students are identified by PDF page.")
 
     scores = {}
     for pg, r in students.items():
-        s = score_student(r["answers"], answer_key, args.question_count)
+        s = score_student(r["answers"], answer_key, args.question_count, r.get("marks"))
         scores[pg] = {"student_id": r["student_id"], **s}
 
     try:
@@ -408,6 +620,7 @@ def main():
         [r["answers"] for r in students.values()], answer_key,
         question_count=args.question_count,
         flag_thresholds=flag_thresholds,
+        all_marks=[r.get("marks", {}) for r in students.values()],
     )
 
     # --- Write CSVs ---
@@ -443,10 +656,10 @@ def main():
             f"(min {stats['minimum'] / args.question_count * 100:.1f}%, "
             f"max {stats['maximum'] / args.question_count * 100:.1f}%)")
 
-    review_items = []
-    for page, result in results_by_page.items():
-        if page == args.key_page:
-            continue
+    review_items = [
+        {"page": page, "field": "version", "value": None} for page in missing_version
+    ]
+    for page, result in students.items():
         if (not args.skip_id_scan and
                 ("_" in result["student_id"] or "?" in result["student_id"])):
             review_items.append({"page": page, "field": "student_id", "value": result["student_id"]})
@@ -470,6 +683,8 @@ def main():
             "review_item_count": len(review_items),
             "student_id_scanning": not args.skip_id_scan,
             "question_count": args.question_count,
+            "version": key_version,
+            "not_scored": excluded_pages,
         }, f, indent=2)
 
     integration_result = build_analysis_result(
@@ -491,6 +706,7 @@ def main():
         run_id=args.run_id,
         scan_student_ids=not args.skip_id_scan,
         question_count=args.question_count,
+        version=key_version,
     )
     integration_path = os.path.join(args.out, "analysis_result.json")
     with open(integration_path, "w") as f:

@@ -64,6 +64,8 @@ final Map<String, Visit> screens = {
     await tapTab(tester, 'Sessions');
     await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
+    // View opens the analysis; come back to the session's response table.
+    await tapTab(tester, 'Sessions');
   },
   'Analysis · items': (tester, services, session) async {
     services; // ignore: unnecessary_statements

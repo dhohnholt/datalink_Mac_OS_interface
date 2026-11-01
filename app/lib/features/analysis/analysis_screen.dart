@@ -8,6 +8,7 @@ import '../scan/question_count_dialog.dart';
 import 'items_pane.dart';
 import 'key_pane.dart';
 import 'review_pane.dart';
+import 'standards_pane.dart';
 import 'students_pane.dart';
 import 'upload_pane.dart';
 
@@ -30,6 +31,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   /// Bumped each time the report is re-read, so a pane built from the old one
   /// starts afresh instead of keeping rows that no longer exist.
   int _revision = 0;
+  bool _showAllScans = false;
 
   @override
   void didChangeDependencies() {
@@ -167,17 +169,21 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         if (report != null) ...[
           _Summary(report: report),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            // The five panes do not fit at large text sizes; scroll rather
-            // than clip.
-            child: SingleChildScrollView(
+          // The button sits beside the panes when there is room and drops to
+          // its own line when there is not, so it never covers a pane. The
+          // five panes alone do not fit at large text sizes; they scroll
+          // rather than clip.
+          Wrap(spacing: 12, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: SegmentedButton<AnalysisPane>(
               showSelectedIcon: false,
               segments: [
                 const ButtonSegment(value: AnalysisPane.items, label: Text('Item analysis')),
                 const ButtonSegment(value: AnalysisPane.students, label: Text('Student scores')),
+                // Only a test scored from a test package has standards.
+                if (report['standards'] != null)
+                  const ButtonSegment(value: AnalysisPane.standards, label: Text('Standards')),
                 ButtonSegment(
                   value: AnalysisPane.review,
                   label: Semantics(
@@ -194,27 +200,50 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                   ),
                 ),
                 const ButtonSegment(value: AnalysisPane.key, label: Text('Answer key')),
-                const ButtonSegment(value: AnalysisPane.upload, label: Text('Send to your site')),
+                // A test scored in several versions cannot be sent yet (the site
+                // takes one key per test); it shows Standards in its place, which
+                // also keeps the panes within the window.
+                if (report['standards'] == null)
+                  const ButtonSegment(value: AnalysisPane.upload, label: Text('Send to your site')),
               ],
-              selected: {nav.pane},
+              selected: {_shownPane(nav.pane, report)},
               onSelectionChanged: (selection) => nav.showPane(selection.first),
               ),
             ),
-          ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: Text(_showAllScans && nav.pane == AnalysisPane.review ? 'Hide scans' : 'Review all scans'),
+              onPressed: () {
+                setState(() => _showAllScans = nav.pane == AnalysisPane.review ? !_showAllScans : true);
+                nav.showPane(AnalysisPane.review);
+              },
+            ),
+          ]),
           const SizedBox(height: 16),
-          switch (nav.pane) {
-            AnalysisPane.students => StudentsPane(report: report),
+          switch (_shownPane(nav.pane, report)) {
+            AnalysisPane.students => StudentsPane(report: report, sessionId: _loadedFor!, onChanged: reload),
             AnalysisPane.review => ReviewPane(
                 key: ValueKey('review-$_loadedFor-$_revision'),
+                showAllScans: _showAllScans,
                 sessionId: _loadedFor!,
                 report: report,
                 onChanged: reload,
               ),
+            AnalysisPane.standards when report['standards'] != null => StandardsPane(report: report),
+            AnalysisPane.key when (report['exam'] as Map?)?['form'] == 'package' => PackageKeyPane(report: report),
             AnalysisPane.key => KeyPane(
                 key: ValueKey('key-$_loadedFor-$_revision'),
                 sessionId: _loadedFor!,
                 report: report,
                 onChanged: reload,
+              ),
+            AnalysisPane.upload when (report['exam'] as Map?)?['form'] == 'package' => const SectionCard(
+                title: 'Send to your site',
+                child: Text(
+                  'A test scored in several versions at once cannot be sent to your site yet: the site takes one '
+                  'answer key per test. Use Download JSON for the combined results, or read each version on its own '
+                  'to send it.',
+                ),
               ),
             AnalysisPane.upload => UploadPane(sessionId: _loadedFor!),
             _ => ItemsPane(report: report),
@@ -222,6 +251,16 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         ],
       ],
     );
+  }
+
+  /// Standards exist only for a test scored from a test package, and such a
+  /// test has no Send pane; opening one test while on the other's pane shows
+  /// the nearest pane it has.
+  AnalysisPane _shownPane(AnalysisPane pane, Map<String, Object?> report) {
+    final package = report['standards'] != null;
+    if (pane == AnalysisPane.standards && !package) return AnalysisPane.items;
+    if (pane == AnalysisPane.upload && package) return AnalysisPane.standards;
+    return pane;
   }
 
   Future<void> _download() async {

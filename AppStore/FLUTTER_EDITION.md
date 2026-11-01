@@ -121,11 +121,13 @@ anything left will show.
   `docs/flutter-paper-measurements.md`.
 * **Icon.** The existing blue icon is used; the interface is slate and teal.
 
-## Before this branch is ever pushed
+## Student data in history
 
-The first orientation template, which includes one student's bubbled ID, is still
-in this branch's local history (commits from the Paper tab onward). It is not
-in the shipped app any more, but pushing the branch would publish it. Rewrite
-that history first, or push only a squashed copy. The Python edition's
+The first orientation template, which carried one student's bubbled ID, is gone
+from this branch: checked on 2026-10-31 before the first push, every commit
+holds only the clean template cut from a key sheet (a blank ID grid), and no
+other version of `app/assets/orient_template.gray` exists in the repository.
+Keep it that way: never commit a real scan, a capture, or a template cut from a
+student's sheet. The Python edition's
 `src/datalink_scanner/vendor/omr/reference_page.png` is the whole sheet, with a
 student's handwritten name on it, and is already in `main`'s history.

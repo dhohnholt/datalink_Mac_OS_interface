@@ -15,5 +15,8 @@
 	     enters. Nothing is sent until they ask, and no address ships with the app. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- The printable answer sheets are printed from the app's own viewer. -->
+	<key>com.apple.security.print</key>
+	<true/>
 </dict>
 </plist>

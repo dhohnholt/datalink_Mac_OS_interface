@@ -6,7 +6,7 @@ later). The Python edition's tooling (`build_appstore.sh`, `PLAN.md`,
 
 ## What is different about the store build
 
-Four entitlements, checked by the build script, and nothing else:
+Five entitlements, checked by the build script, and nothing else:
 
 | Entitlement | Why |
 |---|---|
@@ -14,6 +14,7 @@ Four entitlements, checked by the build script, and nothing else:
 | `device.serial` | The DataLink 1200 |
 | `files.user-selected.read-write` | Open and Save panels |
 | `network.client` | Optional upload to an address the teacher enters |
+| `print` | Printing the answer sheets from the app's viewer |
 
 Gone, compared with the Python edition: `network.server` (there is no local
 web server), `cs.allow-unsigned-executable-memory` (there is no interpreter;

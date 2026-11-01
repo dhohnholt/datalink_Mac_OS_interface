@@ -43,7 +43,7 @@ BUILD_NUMBER="${DATALINK_APPSTORE_BUILD_NUMBER:-${PUBSPEC_VERSION##*+}}"
 
 # The entitlements the store build is allowed to have, and no others. A missing
 # one fails quietly at run time; an extra one is something App Review asks about.
-EXPECTED_ENTITLEMENTS="app-sandbox device.serial files.user-selected.read-write network.client"
+EXPECTED_ENTITLEMENTS="app-sandbox device.serial files.user-selected.read-write network.client print"
 FORBIDDEN_ENTITLEMENTS="get-task-allow cs.allow-jit cs.allow-unsigned-executable-memory cs.disable-library-validation network.server"
 
 say() { print -r -- "$@"; }

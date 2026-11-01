@@ -1,6 +1,7 @@
 // Runs a whole PDF batch through the Dart pipeline and writes the report JSON.
 //
 //   dart run tool/check_paper.dart <reference_page.png> <file.pdf> <key page|auto> <out.json> [questions] [version]
+//   ... add --package=<test-package.csv> to score every version in one run.
 //
 // For development against local PDFs; the report holds real student data, so
 // write it somewhere untracked.
@@ -9,7 +10,9 @@ import 'dart:io';
 import 'package:datalink_core/datalink_core.dart';
 import 'package:image/image.dart' as img;
 
-Future<void> main(List<String> args) async {
+Future<void> main(List<String> arguments) async {
+  final packagePath = [for (final a in arguments) if (a.startsWith('--package=')) a.substring(10)].firstOrNull;
+  final args = [for (final a in arguments) if (!a.startsWith('--')) a];
   // Either a ready-made template (a .gray file) or the old reference sheet
   // (a png), from which the template is cut at the calibrated origin.
   final GrayImage template;
@@ -37,6 +40,7 @@ Future<void> main(List<String> args) async {
         keyPage: args[2] == 'auto' ? null : int.parse(args[2]),
         questionCount: args.length > 4 ? int.parse(args[4]) : 50,
         version: args.length > 5 ? args[5] : null,
+        package: packagePath == null ? null : TestPackage.parse(File(packagePath).readAsStringSync()),
       ),
       orientTemplate: template,
       cache: cache,

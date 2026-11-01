@@ -5,6 +5,7 @@ import 'package:datalink_core/datalink_core.dart';
 import 'package:datalink_scanner/app/app.dart';
 import 'package:datalink_scanner/app/services.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/test_services.dart';
@@ -85,7 +86,8 @@ Future<void> choose(WidgetTester tester) async {
 void main() {
   testWidgets('nothing is offered until a PDF is chosen', (tester) async {
     await open(tester);
-    expect(find.text('Read a paper batch'), findsOneWidget);
+    expect(find.text('Score scanned answer sheets'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Choose PDF…'), findsOneWidget, reason: 'the first step is the primary action');
     expect(find.text('Read the sheets'), findsNothing);
     expect(find.text('Nothing cached yet.'), findsOneWidget);
   });
@@ -111,7 +113,7 @@ void main() {
 
   testWidgets('the printable answer sheet is saved from the Paper tab', (tester) async {
     final app = await open(tester);
-    await tester.tap(find.text('Save answer sheet…'));
+    await tester.tap(find.byTooltip('Save the 75-question answer sheet'));
     await tester.pumpAndSettle();
     final saved = app.actions.savedBytes.single;
     expect(saved.name, 'Answer Sheet (75 questions).pdf');
@@ -124,18 +126,57 @@ void main() {
   testWidgets('the vocabulary sheet, its guide and the matching sheet are saved too', (tester) async {
     final app = await open(tester);
     for (final (button, name, asset) in [
-      ('Save 50 + matching sheet…', 'Answer Sheet (50 questions + matching).pdf', 'answer_sheet_50_matching.pdf'),
-      ('Save vocabulary quiz sheet…', 'Vocabulary Quiz Sheet.pdf', 'vocabulary_quiz_sheet.pdf'),
-      ('Save vocabulary teacher guide…', 'Vocabulary Quiz Teacher Guide.pdf', 'vocabulary_quiz_teacher_guide.pdf'),
+      ('Save the 50 questions + matching sheet', 'Answer Sheet (50 questions + matching).pdf', 'answer_sheet_50_matching.pdf'),
+      ('Save the vocabulary quiz sheet', 'Vocabulary Quiz Sheet.pdf', 'vocabulary_quiz_sheet.pdf'),
+      ('Save the vocabulary teacher guide', 'Vocabulary Quiz Teacher Guide.pdf', 'vocabulary_quiz_teacher_guide.pdf'),
     ]) {
-      await tester.ensureVisible(find.text(button));
-      await tester.tap(find.text(button));
+      await tester.ensureVisible(find.byTooltip(button));
+      await tester.tap(find.byTooltip(button));
       await tester.pumpAndSettle();
       final saved = app.actions.savedBytes.last;
       expect(saved.name, name);
       expect(saved.bytes, File('assets/$asset').readAsBytesSync());
     }
     expect(app.actions.savedBytes, hasLength(3));
+  });
+
+  testWidgets('a sheet can be viewed and printed without saving it first', (tester) async {
+    final app = await open(tester);
+    await tester.tap(find.byTooltip('View and print the vocabulary quiz sheet'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Vocabulary quiz'), findsWidgets);
+    expect(find.widgetWithText(FilledButton, 'Print…'), findsOneWidget);
+    expect(app.actions.savedBytes, isEmpty, reason: 'viewing writes nothing to disk');
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, 'Print…'), findsNothing);
+  });
+
+  testWidgets('the prompt opens in a dialog and can be copied from it', (tester) async {
+    await open(tester);
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+      return null;
+    });
+    await tester.tap(find.text('Show the prompt'));
+    await tester.pumpAndSettle();
+    expect(find.text('Prompt for your test versions'), findsOneWidget);
+    await tester.tap(find.text('Copy and close'));
+    await tester.pumpAndSettle();
+    expect(copied, testPackagePrompt);
+    expect(find.text('Prompt for your test versions'), findsNothing);
+  });
+
+  testWidgets('in a narrow window the parts stack, scoring first', (tester) async {
+    await open(tester);
+    tester.view.physicalSize = const Size(900, 1400);
+    await tester.pumpAndSettle();
+    final score = tester.getTopLeft(find.text('Score scanned answer sheets'));
+    final print = tester.getTopLeft(find.text('Answer sheets to print'));
+    expect(print.dy, greaterThan(score.dy));
+    expect(print.dx, score.dx);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the key can be found by its bubble, and a version chosen', (tester) async {

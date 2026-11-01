@@ -1,6 +1,7 @@
 import 'package:datalink_core/datalink_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:printing/printing.dart';
 
 import '../../app/navigation.dart';
 import '../../app/scope.dart';
@@ -86,35 +87,110 @@ class _PaperScreenState extends State<PaperScreen> {
     }
   }
 
-  Future<void> _saveSheet(String asset, String name, String what) async {
+  Future<Uint8List> _sheetBytes(String asset) async {
     final data = await rootBundle.load('assets/$asset');
+    return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  }
+
+  /// The sheet inside the app, page by page, with the Mac's own print dialog
+  /// a click away: nothing is saved to disk first.
+  Future<void> _viewSheet(String asset, String name, String title) async {
+    final bytes = await _sheetBytes(asset);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(32),
+        child: SizedBox(
+          width: 820,
+          height: 900,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.print_outlined),
+                      onPressed: () => Printing.layoutPdf(onLayout: (_) async => bytes, name: name),
+                      label: const Text('Print…'),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: PdfPreview(
+                  build: (_) async => bytes,
+                  pdfFileName: name,
+                  useActions: false,
+                  canChangePageFormat: false,
+                  canChangeOrientation: false,
+                  canDebug: false,
+                  allowSharing: false,
+                  allowPrinting: false,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveSheet(String asset, String name, String what) async {
+    final bytes = await _sheetBytes(asset);
     if (!mounted) return;
     final path = await Services.of(context).actions.saveBytes(
       suggestedName: name,
-      bytes: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      bytes: bytes,
       extension: 'pdf',
       mimeType: 'application/pdf',
     );
     if (path != null && mounted) showToast(context, 'Saved the $what');
   }
 
-  Widget _sheetRow(String label, String detail, VoidCallback onPressed) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 280,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.download_outlined),
-                onPressed: onPressed,
-                label: Text(label),
-              ),
+  Widget _sheetRow(String title, String detail, String asset, String fileName, String what, String saved) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(Icons.description_outlined, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                Text(detail, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ],
             ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(detail, style: Theme.of(context).textTheme.bodySmall)),
-          ],
-        ),
-      );
+          ),
+          Tooltip(
+            message: 'View and print $what',
+            child: TextButton.icon(
+              icon: const Icon(Icons.visibility_outlined, size: 18),
+              onPressed: () => _viewSheet(asset, fileName, title),
+              label: const Text('View'),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Save $what',
+            icon: const Icon(Icons.download_outlined, size: 20),
+            onPressed: () => _saveSheet(asset, fileName, saved),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _purge(PaperModel model) async {
     final ok = await confirmDialog(
@@ -136,124 +212,225 @@ class _PaperScreenState extends State<PaperScreen> {
     final book = model.classBook;
     return ListenableBuilder(
       listenable: Listenable.merge([model, book]),
-      builder: (context, _) => ListView(
-        padding: const EdgeInsets.all(24),
-        children: [
-          SectionCard(
-            title: 'Read a paper batch',
-            subtitle:
-                'Scan the sheets on any document scanner, then read the PDF here — for when the DataLink is not available.',
-            trailing: OutlinedButton.icon(
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final score = _scoreCard(context, model);
+          final side = [
+            _printCard(context),
+            _versionsCard(context),
+            _cacheLine(context, model),
+          ];
+          // Side by side when there is room for both; stacked when the window is
+          // narrow or the text is large, scoring first either way.
+          final wide = constraints.maxWidth >= MediaQuery.textScalerOf(context).scale(1000);
+          return ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              if (wide)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: score),
+                    const SizedBox(width: 16),
+                    SizedBox(
+                      width: MediaQuery.textScalerOf(context).scale(360),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: side),
+                    ),
+                  ],
+                )
+              else ...[
+                score,
+                ...side,
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// The job this tab is for: a scanned PDF in, a scored session out.
+  Widget _scoreCard(BuildContext context, PaperModel model) {
+    final chosen = model.file != null;
+    return SectionCard(
+      title: 'Score scanned answer sheets',
+      subtitle: 'Scan the class set on any document scanner, then score the PDF here. '
+          'The results are saved as a session, like a DataLink scan.',
+      trailing: chosen
+          ? OutlinedButton.icon(
               icon: const Icon(Icons.folder_open),
               onPressed: model.busy ? null : () => _choose(model),
               label: const Text('Choose PDF…'),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (model.showSetup) _setup(context, model),
-                if (model.busy) _progress(context, model),
-                if (model.phase == PaperPhase.failed && model.keyReview == null && model.error != null)
-                  _message(context, model.error!, Tone.bad),
-                if (model.file == null && model.error != null && model.phase != PaperPhase.failed)
-                  _message(context, model.error!, Tone.bad),
-                if (model.packageError != null) _message(context, model.packageError!, Tone.bad),
-                if (model.countSuggestion != null) _countFix(context, model),
-                if (model.keyReview != null) _keyFix(context, model),
-                if (model.phase == PaperPhase.done) _done(context, model),
-              ],
-            ),
+            )
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!chosen && !model.busy) _start(context, model),
+          if (model.showSetup) _setup(context, model),
+          if (model.busy) _progress(context, model),
+          if (model.phase == PaperPhase.failed && model.keyReview == null && model.error != null)
+            _message(context, model.error!, Tone.bad),
+          if (model.file == null && model.error != null && model.phase != PaperPhase.failed)
+            _message(context, model.error!, Tone.bad),
+          if (model.packageError != null) _message(context, model.packageError!, Tone.bad),
+          if (model.countSuggestion != null) _countFix(context, model),
+          if (model.keyReview != null) _keyFix(context, model),
+          if (model.phase == PaperPhase.done) _done(context, model),
+        ],
+      ),
+    );
+  }
+
+  /// Before a PDF is chosen: the one thing to do, and what it accepts.
+  Widget _start(BuildContext context, PaperModel model) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FilledButton.icon(
+            icon: const Icon(Icons.folder_open),
+            onPressed: () => _choose(model),
+            label: const Text('Choose PDF…'),
           ),
-          SectionCard(
-            title: 'Several versions of one test',
-            subtitle: 'Score every version in one run, with results by item, section and standard.',
-            trailing: FilledButton.tonalIcon(
-              icon: const Icon(Icons.copy_outlined),
-              onPressed: _copyPrompt,
-              label: const Text('Copy prompt'),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Give the copied prompt to the AI assistant that writes your test versions. It produces a test '
-                  'package: a CSV listing each item, its section and standard, its number on each version and its '
-                  'answer there. Choose the scanned PDF and the package together with Choose PDF… (⌘-click both). '
-                  'Students bubble their version; key sheets need not be scanned, and any that are get checked '
-                  'against the package.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: const Text('Show the prompt'),
-                  children: [
-                    SelectableText(
-                      testPackagePrompt,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'Menlo'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          SectionCard(
-            title: 'Printable answer sheets',
-            subtitle: 'Print on plain US Letter paper when you run out of forms.',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Each has lines for name, course, test name and period, a bubbled version (1–4) and student '
-                  'ID, and an ANSWER KEY bubble for the key sheet. Print at Actual Size, not Fit to Page, and set '
-                  'the number of copies in the print dialog. Pencil or dark blue or black pen both read; keep the '
-                  'black corner squares and the strip along the bottom free of marks.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                _sheetRow(
-                  'Save answer sheet…',
-                  '75 questions, A–E.',
-                  () => _saveSheet('answer_sheet_75.pdf', 'Answer Sheet (75 questions).pdf', 'answer sheet'),
-                ),
-                _sheetRow(
-                  'Save 50 + matching sheet…',
-                  '50 questions, A–E, and a 15-term matching column (51–65, A–O). Rows left blank on the key '
-                      'are not scored.',
-                  () => _saveSheet('answer_sheet_50_matching.pdf', 'Answer Sheet (50 questions + matching).pdf',
-                      '50 + matching sheet'),
-                ),
-                _sheetRow(
-                  'Save vocabulary quiz sheet…',
-                  '8 matching (A–J), 8 words in context (A–D), 4 select all that apply (A–E).',
-                  () => _saveSheet('vocabulary_quiz_sheet.pdf', 'Vocabulary Quiz Sheet.pdf', 'vocabulary quiz sheet'),
-                ),
-                _sheetRow(
-                  'Save vocabulary teacher guide…',
-                  'How to write a quiz for the vocabulary sheet and make its key, with a sample.',
-                  () => _saveSheet('vocabulary_quiz_teacher_guide.pdf', 'Vocabulary Quiz Teacher Guide.pdf',
-                      'teacher guide'),
-                ),
-              ],
-            ),
-          ),
-          SectionCard(
-            title: 'Scanned page cache',
-            subtitle: model.cacheBytes == 0
-                ? 'Nothing cached yet.'
-                : '${_size(model.cacheBytes)} of page pictures from ${model.cacheBatches} '
-                    'batch${model.cacheBatches == 1 ? '' : 'es'}',
-            trailing: OutlinedButton(
-              onPressed: model.cacheBytes == 0 ? null : () => _purge(model),
-              child: const Text('Empty the cache'),
-            ),
-            child: Text(
-              'A small picture of each page is kept so a sheet can be looked at later, when its ID or a '
-              'name has to be corrected by eye. Emptying the cache removes only those pictures — saved '
-              'sessions, scores and item analyses are untouched.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+          const SizedBox(height: 12),
+          Text('Reads the green AccuScan form and the printable answer sheets.', style: muted),
+          const SizedBox(height: 4),
+          Text(
+            'Several versions of one test? Choose the PDF and its test package together (⌘-click both).',
+            style: muted,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _printCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return SectionCard(
+      title: 'Answer sheets to print',
+      subtitle: 'Plain US Letter, at Actual Size. Set the copies in the print dialog.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sheetRow('75-question sheet', 'Answers A–E', 'answer_sheet_75.pdf', 'Answer Sheet (75 questions).pdf',
+              'the 75-question answer sheet', 'answer sheet'),
+          _sheetRow('50 questions + matching', '15 matching terms, A–O', 'answer_sheet_50_matching.pdf',
+              'Answer Sheet (50 questions + matching).pdf', 'the 50 questions + matching sheet', '50 + matching sheet'),
+          _sheetRow('Vocabulary quiz', 'Matching, context, select all', 'vocabulary_quiz_sheet.pdf',
+              'Vocabulary Quiz Sheet.pdf', 'the vocabulary quiz sheet', 'vocabulary quiz sheet'),
+          _sheetRow('Vocabulary teacher guide', 'Writing a quiz, with a sample', 'vocabulary_quiz_teacher_guide.pdf',
+              'Vocabulary Quiz Teacher Guide.pdf', 'the vocabulary teacher guide', 'teacher guide'),
+          const SizedBox(height: 8),
+          Text(
+            'Pencil or dark pen. Keep the black corner squares and the strip along the bottom clear.',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _versionsCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return SectionCard(
+      title: 'Tests with several versions',
+      subtitle: 'Score every version in one run, with results by standard.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Give this prompt to the AI assistant that writes your versions. It returns a test package (a CSV) '
+            'to choose along with the scanned PDF.',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.copy_outlined),
+                onPressed: _copyPrompt,
+                label: const Text('Copy prompt'),
+              ),
+              TextButton(onPressed: _showPrompt, child: const Text('Show the prompt')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showPrompt() => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Prompt for your test versions'),
+          content: SizedBox(
+            width: 640,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                testPackagePrompt,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'Menlo'),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _copyPrompt();
+              },
+              child: const Text('Copy and close'),
+            ),
+            FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+          ],
+        ),
+      );
+
+  /// Housekeeping, not a task: one quiet line.
+  Widget _cacheLine(BuildContext context, PaperModel model) {
+    final theme = Theme.of(context);
+    final empty = model.cacheBytes == 0;
+    final text = empty
+        ? 'Nothing cached yet.'
+        : '${_size(model.cacheBytes)} of page pictures from ${model.cacheBatches} '
+            'batch${model.cacheBatches == 1 ? '' : 'es'}';
+    return Semantics(
+      container: true,
+      label: 'Scanned page cache. $text',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          children: [
+            Icon(Icons.photo_library_outlined, size: 18, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Tooltip(
+                message: 'A small picture of each page is kept so a sheet can be checked by eye in Review.',
+                child: Text(
+                  text,
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ),
+            Tooltip(
+              message: empty ? 'There are no page pictures to remove.' : 'Remove the page pictures; scores are kept.',
+              child: TextButton(
+                onPressed: empty ? null : () => _purge(model),
+                child: const Text('Empty the cache'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

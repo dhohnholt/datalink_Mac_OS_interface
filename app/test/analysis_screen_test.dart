@@ -352,7 +352,12 @@ void main() {
       await pane(tester, 'Review');
       await tester.tap(find.text('Mark all checked'));
       await tester.pumpAndSettle();
-      expect(tester.widgetList<Checkbox>(find.byType(Checkbox)).every((c) => c.value == true), isTrue);
+      // Bo's sheet has no ID yet, so Bo is also listed as missing below the
+      // review rows; that absence box is not a review row and stays unticked.
+      final rowBoxes = find.byWidgetPredicate((w) => w is Checkbox && w.key == null)
+          .evaluate().where((e) => e.findAncestorWidgetOfExactType<CheckboxListTile>() == null);
+      expect(rowBoxes, isNotEmpty);
+      expect(rowBoxes.every((e) => (e.widget as Checkbox).value == true), isTrue);
       expect(find.text('Untick all'), findsOneWidget);
       await tester.tap(find.text('Apply corrections'));
       await tester.pumpAndSettle();
@@ -459,7 +464,17 @@ void main() {
 
   screenTest('Download JSON hands the report to the Save panel', (tester) async {
     final actions = RecordingActions();
-    await open(tester, actions: actions);
+    final services = await open(tester, actions: actions);
+    // Unfinished review blocks the export, and says what is left.
+    await tester.tap(find.text('Download JSON'));
+    await tester.pumpAndSettle();
+    expect(actions.saved, isEmpty);
+    expect(find.textContaining('Finish these items in DataLink'), findsOneWidget);
+
+    final items = (services.workspace.analysisReport(1)['review_items']! as List).cast<Map<String, Object?>>();
+    services.workspace.correct(1, [{'number': 3, 'student_id': '900012'}], dismiss: [for (final i in items) reviewKey(i)]);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Download JSON'));
     await tester.pumpAndSettle();
     expect(actions.saved.single.name, 'Unit 1.json');

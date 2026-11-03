@@ -32,6 +32,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   /// starts afresh instead of keeping rows that no longer exist.
   int _revision = 0;
   bool _showAllScans = false;
+  bool _showVersions = false;
 
   @override
   void didChangeDependencies() {
@@ -227,6 +228,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
             AnalysisPane.review => ReviewPane(
                 key: ValueKey('review-$_loadedFor-$_revision'),
                 showAllScans: _showAllScans,
+                showVersions: _showVersions,
+                onShowVersionsChanged: (open) => setState(() => _showVersions = open),
                 sessionId: _loadedFor!,
                 report: report,
                 onChanged: reload,

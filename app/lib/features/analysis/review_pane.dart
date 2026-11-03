@@ -16,12 +16,19 @@ class ReviewPane extends StatefulWidget {
     required this.report,
     required this.onChanged,
     this.showAllScans = false,
+    this.showVersions = false,
+    this.onShowVersionsChanged,
   });
 
   final int sessionId;
   final Map<String, Object?> report;
   final VoidCallback onChanged;
   final bool showAllScans;
+
+  /// Whether the per-sheet version list is open. Kept by the screen, since
+  /// this pane is rebuilt afresh after every change.
+  final bool showVersions;
+  final ValueChanged<bool>? onShowVersionsChanged;
 
   @override
   State<ReviewPane> createState() => _ReviewPaneState();
@@ -76,9 +83,15 @@ class _ReviewPaneState extends State<ReviewPane> {
     final workspace = Services.of(context).workspace;
     final missing = workspace.missingRosterStudents(widget.sessionId);
     if (missing.isEmpty) return const SizedBox.shrink();
+    final unidentified = _rows.where((r) => r.kind == ReviewKind.studentId).map((r) => r.sheet).toSet().length;
     return SectionCard(
       title: 'Missing student scores',
-      subtitle: 'Add missing sheets, or mark students absent for this exam. Absences are saved immediately and do not receive a score.',
+      subtitle: [
+        if (unidentified > 0)
+          '$unidentified sheet${unidentified == 1 ? ' has' : 's have'} no student ID yet: correct ${unidentified == 1 ? 'it' : 'them'} above first, '
+              'since ${unidentified == 1 ? 'it' : 'they'} may belong to someone listed here.',
+        'Add missing sheets, or mark students absent for this exam. Absences are saved immediately and do not receive a score.',
+      ].join(' '),
       child: Column(children: [for (final student in missing)
         CheckboxListTile(
           title: Text('${student['name']} · ID ${student['id']}'),
@@ -97,11 +110,25 @@ class _ReviewPaneState extends State<ReviewPane> {
   Widget _versionSelectors() {
     final versions = ((widget.report['exam'] as Map?)?['versions'] as List?)?.cast<String>() ?? const <String>[];
     if (versions.length < 2) return const SizedBox.shrink();
-    final scans = Services.of(context).store.sessionScans(widget.sessionId).where((s) => s['role'] != 'key');
+    final scans = Services.of(context).store.sessionScans(widget.sessionId).where((s) => s['role'] != 'key').toList();
+    final unassigned = scans.where((s) => !versions.contains(s['version'])).length;
+    // Folded away by default: one row per sheet would push the sheets that
+    // need review far down the page.
+    final open = widget.showVersions;
     return SectionCard(
       title: 'Sheet versions',
-      subtitle: 'Assign a missing version or correct a wrong one. Changing it saves and rescores the sheet immediately.',
-      child: Column(children: [
+      subtitle: [
+        '${scans.length} sheet${scans.length == 1 ? '' : 's'}',
+        if (unassigned > 0) '$unassigned without a version',
+        if (open) 'Changing a version saves and rescores the sheet immediately.',
+      ].join(' · '),
+      trailing: TextButton.icon(
+        key: const ValueKey('sheet-versions-toggle'),
+        icon: Icon(open ? Icons.expand_less : Icons.expand_more),
+        label: Text(open ? 'Hide versions' : 'Change versions'),
+        onPressed: () => widget.onShowVersionsChanged?.call(!open),
+      ),
+      child: !open ? const SizedBox.shrink() : Column(children: [
         for (final scan in scans)
           ListTile(
             title: Text('Sheet ${scan['number']} · ID ${scan['student_id'] ?? 'not read'}'),
@@ -269,7 +296,6 @@ class _ReviewPaneState extends State<ReviewPane> {
           ),
           child: restoreLine ?? const SizedBox.shrink(),
         ),
-        _attendance(),
         _versionSelectors(),
         if (widget.showAllScans) allScans,
         for (final entry in groups.entries) _SheetGroup(
@@ -282,6 +308,9 @@ class _ReviewPaneState extends State<ReviewPane> {
           onToggle: (key, on) => setState(() => on ? _checked.add(key) : _checked.remove(key)),
           onFix: (key, value) => setState(() => value.isEmpty ? _fixes.remove(key) : _fixes[key] = value),
         ),
+        // After the sheets: a sheet whose ID is fixed above stops its student
+        // from being missing here.
+        _attendance(),
       ],
     );
   }

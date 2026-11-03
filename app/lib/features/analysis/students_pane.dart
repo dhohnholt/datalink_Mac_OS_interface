@@ -63,6 +63,7 @@ class StudentsPane extends StatelessWidget {
                           DataCell(Text('${row['student_id']}')),
                           DataCell(Checkbox(
                             key: ValueKey('roster-absent-${row['student_id']}'),
+                            semanticLabel: '${row['student_name']} absent',
                             value: absent,
                             onChanged: canAbsent ? (value) {
                               workspace.setStudentAbsent(sessionId, row['student_id'] as String, value == true);

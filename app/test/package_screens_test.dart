@@ -100,6 +100,12 @@ void main() {
     final rig = await openAnalysis(tester);
     await pane(tester, 'Review');
     final selector = find.byKey(const ValueKey('sheet-version-2'));
+    // Folded away until asked for, so it does not push the review rows down.
+    expect(selector, findsNothing);
+    final toggle = find.byKey(const ValueKey('sheet-versions-toggle'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
     await tester.ensureVisible(selector);
     await tester.tap(selector);
     await tester.pumpAndSettle();

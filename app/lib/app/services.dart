@@ -50,6 +50,9 @@ abstract interface class PlatformActions {
   /// versions, its test package CSV: both can be chosen at once. Returns the
   /// paths chosen, empty if they cancelled.
   Future<List<String>> pickScanFiles();
+
+  /// Choose the answer map independently of the scanned PDF.
+  Future<String?> pickAnswerMap();
 }
 
 class SystemPlatformActions implements PlatformActions {
@@ -115,6 +118,17 @@ class SystemPlatformActions implements PlatformActions {
   }
 
   @override
+  Future<String?> pickAnswerMap() async {
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'Answer map CSV', extensions: ['csv'],
+          uniformTypeIdentifiers: ['public.comma-separated-values-text']),
+      ],
+    );
+    return file?.path;
+  }
+
+  @override
   Future<List<String>> pickScanFiles() async {
     final files = await openFiles(
       acceptedTypeGroups: const [
@@ -152,6 +166,7 @@ class AppServices {
       cache: this.pageCache,
       reader: paperReader ?? _readWithBundledTemplate,
       pageCounter: pageCounter ?? countPdfPages,
+      isSessionRunning: (id) => scanner.currentSessionId == id,
     );
   }
 

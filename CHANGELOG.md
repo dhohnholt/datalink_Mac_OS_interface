@@ -11,6 +11,35 @@ edition it changed when it is not both.
 
 **Unreleased**
 
+* Show the full class roster alphabetically in Student scores, including missing results and per-exam Absent checkboxes. Students with scanned but excluded sheets are labeled Needs review instead of being marked absent.
+
+* Check roster coverage before export or sending. Review lists missing students and permits explicit per-exam absence overrides, retained in JSON without inventing scores. Removing the absence blocks sending again; adding a makeup sheet restores normal scoring.
+
+* Restore **Send to your site** for multi-version answer-map sessions, routing them through the existing upload flow and final readiness guard.
+
+* Block final JSON export and sending until scored-item reviews, student IDs, versions, excluded sheets and score totals are resolved. Unscored printed rows retain their confidence data without requiring review.
+
+* Add per-sheet version selectors in Review, including excluded sheets with no version. Assigning or correcting a version saves it and rescores against that version’s CSV key without rescanning.
+
+* Offer A–O in matching-question review and answer correction menus, using the question’s option range in saved reports.
+
+* Verify mixed-version PDF + CSV scoring through saved-session JSON export. Keep sheets with missing versions in saved reports as excluded, refuse an unmarked student sheet as the key when an answer map is missing, and detect unequal matching double marks instead of accepting only the darkest bubble.
+
+* Score uploaded answer-map CSVs against the 50-question + matching form instead of excluding those student sheets with a misleading version error.
+
+* Add a separate **Choose answer map CSV…** button on Paper, available before and after choosing a PDF.
+
+* Fix Flutter test-package validation to accept single A–O matching answers on printed rows 51–65, including scanned keys. Preserve unused rows such as 41–50 as gaps.
+
+* Clarify the DataLink CSV creation instructions in both editions and the legacy Python prompt: vocabulary matching accepts A–O, standard multiple choice uses A–E, and CSV numbers preserve the matching sheet’s printed rows. Include an A–O matching example.
+
+* **Add makeup sheets to a saved session** (Flutter edition). On Paper, choose
+  an existing test under **Save results to**, or use **Add sheets** in Sessions,
+  then read the absent student’s PDF. The saved key, class and question count
+  are reused; no new key sheet is required. Earlier answers, corrections and
+  review decisions stay in place, and new page images remain available in
+  Review. Duplicate student IDs are refused without changing the session.
+
 * **Several versions of one test in one run** (Flutter edition). Choose the
   scanned PDF and its test package CSV together on the Paper tab. Each student is
   scored on their own bubbled version; item analysis is per item across versions;

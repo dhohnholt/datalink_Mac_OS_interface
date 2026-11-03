@@ -52,9 +52,15 @@ Rules:
 4. Standard: the standard the item assesses (e.g. USG.7B). Leave blank if none.
 5. Version N: the item's question number as printed on version N (1 to 75). Each number is used once
    per version.
-6. Version N answer: the correct letter on version N, A to E, after any shuffling of answer choices on
-   that version. For an item with more than one correct answer, write every correct letter together
+6. Version N answer: the correct letter on version N after any shuffling of answer choices.
+   Use A to E for standard multiple-choice items. For vocabulary matching, use one letter A to O
+   when the answer sheet supports A–O; do not convert matching letters F–O to A–E.
+   On the 50 questions + matching sheet, multiple-choice rows are 1–50 and vocabulary matching
+   rows are 51–65. A section may use ten matching items with fifteen term choices (five distractors).
+   Keep the printed answer-sheet row numbers in the CSV, even when unused rows create gaps.
+   For a multiple-choice item with more than one correct answer, write every correct letter together
    with no spaces or commas, in alphabetical order (e.g. AC). Students must fill exactly those bubbles.
+   Vocabulary matching uses a single letter, including F through O when appropriate.
 7. Every item must have a number and an answer for every version.
 8. Plain CSV, UTF-8, no blank rows, no notes above or below the table. Quote any field that contains a
    comma.
@@ -64,9 +70,11 @@ Stable item ID,Section,Standard,Version 1,Version 1 answer,Version 2,Version 2 a
 presidency-veto-power,Presidency,USG.7B,1,E,14,C
 presidency-cabinet,Presidency,USG.7B,2,E,3,D
 cba-judicial-review,CBA review,USG.7C,26,C,25,A
+vocabulary-filibuster,Vocabulary,,51,G,54,M
 
 Before you finish, check every row against each version's answer key and confirm that each version
-uses each question number only once.
+uses each question number only once. Check that each answer fits its section’s bubble range
+(A–E for standard multiple choice; A–O for vocabulary matching on the matching sheet).
 """
 
 

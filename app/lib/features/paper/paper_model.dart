@@ -24,7 +24,8 @@ class PaperModel extends ChangeNotifier {
     required this._cache,
     required this._reader,
     this._pageCounter = countPdfPages,
-  }) {
+    bool Function(int)? isSessionRunning,
+  }) : _isSessionRunning = isSessionRunning ?? ((_) => false) {
     refreshStorage();
   }
 
@@ -33,6 +34,7 @@ class PaperModel extends ChangeNotifier {
   final PageCache _cache;
   final BatchReader _reader;
   final PageCounter _pageCounter;
+  final bool Function(int) _isSessionRunning;
 
   File? _file;
   int _pageCount = 0;
@@ -56,6 +58,9 @@ class PaperModel extends ChangeNotifier {
   ({int suggested, int current, int keyPage})? _countSuggestion;
   bool _keepCount = false;
   int? _sessionId;
+  int? _targetSessionId;
+  int? get targetSessionId => _targetSessionId;
+  List<Map<String, Object?>> get savedSessions => _store.listSessions();
   Map<String, Object?> _storage = const {};
   bool _warnedOverLimit = false;
   TestPackage? _package;
@@ -107,7 +112,7 @@ class PaperModel extends ChangeNotifier {
   bool get canRun {
     if (_file == null || busy) return false;
     // A package says where every item is, so no key page or count is needed.
-    if (_package != null) return true;
+    if (_targetSessionId != null || _package != null) return true;
     return (findKey || (keyPage >= 1 && keyPage <= _pageCount)) && questions >= 1 && questions <= maxQuestions;
   }
 
@@ -185,6 +190,25 @@ class PaperModel extends ChangeNotifier {
     _notify();
   }
 
+  /// Select the previous test whose saved key will score these sheets.
+  void addToSession(int? id) {
+    if (busy) return;
+    if (id != null) {
+      final session = _store.session(id);
+      if (session == null) return;
+      name = session['name']! as String;
+      className = session['class_name']! as String;
+      questions = session['question_count']! as int;
+    }
+    _targetSessionId = id;
+    _error = null;
+    _keyReview = null;
+    _countSuggestion = null;
+    _sessionId = null;
+    _phase = PaperPhase.idle;
+    _notify();
+  }
+
   void setName(String value) => name = value;
   void setClass(String value) {
     className = value;
@@ -228,16 +252,29 @@ class PaperModel extends ChangeNotifier {
     _sessionId = null;
     _notify();
     try {
+      final target = _targetSessionId;
+      if (target != null && _isSessionRunning(target)) {
+        throw const PaperException('End the scanner session before adding its PDF sheets.');
+      }
+      final saved = target == null ? null : savedPaperKey(_store, target);
+      if (target != null) {
+        final session = _store.session(target)!;
+        name = session['name']! as String;
+        className = session['class_name']! as String;
+        questions = session['question_count']! as int;
+      }
+      final before = target == null ? null : _sessionInputs(target);
       final report = await _reader(
         PaperRequest(
           pdf: file,
-          keyPage: findKey || _package != null ? null : keyPage,
-          version: _package == null ? version : null,
-          package: _package,
+          keyPage: target != null || findKey || _package != null ? null : keyPage,
+          version: target == null ? (_package == null ? version : null) : saved?.version,
+          package: target == null ? _package : saved!.package,
+          savedKey: saved?.key,
           questionCount: questions,
           examName: name.trim().isEmpty ? null : name.trim(),
           keyOverrides: keyOverrides,
-          checkQuestionCount: !_keepCount,
+          checkQuestionCount: target == null && !_keepCount,
         ),
         (fraction, message) {
           _progress = fraction.clamp(0.0, 1.0);
@@ -245,12 +282,22 @@ class PaperModel extends ChangeNotifier {
           _notify();
         },
       );
-      final id = sessionFromReport(_store, report, name: name.trim(), className: className);
+      final int id;
+      if (target == null) {
+        id = sessionFromReport(_store, report, name: name.trim(), className: className);
+      } else {
+        final session = _store.session(target);
+        if (session == null || _isSessionRunning(target) || before != _sessionInputs(target)) {
+          throw const PaperException('The saved session changed while reading. Read the sheets again to use its current key.');
+        }
+        appendReportToSession(_store, _cache, target, report);
+        id = target;
+      }
       final students = ((report['students'] as List?) ?? const []).length;
-      _notScored = ((report['not_scored'] as List?) ?? const []).cast<Map<String, Object?>>();
+      _notScored = ((report['not_scored'] as List?) ?? (report['_not_scored'] as List?) ?? const []).cast<Map<String, Object?>>();
       _sessionId = id;
       _progress = 1;
-      _message = 'Read $students sheet${students == 1 ? '' : 's'}';
+      _message = target == null ? 'Read $students sheet${students == 1 ? '' : 's'}' : 'Added $students sheet${students == 1 ? '' : 's'} to $name';
       _phase = PaperPhase.done;
     } on AnswerKeyException catch (e) {
       _phase = PaperPhase.failed;
@@ -264,12 +311,28 @@ class PaperModel extends ChangeNotifier {
       _phase = PaperPhase.failed;
       _error = e.message;
       _message = e.message;
+    } on StoreError catch (e) {
+      _phase = PaperPhase.failed;
+      _error = e.message;
+      _message = e.message;
+    } on TestPackageException catch (e) {
+      _phase = PaperPhase.failed;
+      _error = e.message;
+      _message = e.message;
     } on Object catch (e) {
       _phase = PaperPhase.failed;
       _error = 'The sheets could not be read. $e';
       _message = _error!;
     }
     refreshStorage();
+  }
+
+  String _sessionInputs(int id) {
+    final session = _store.session(id)!;
+    return pyJsonEncode([
+      session['name'], session['class_name'], session['question_count'], session['package'],
+      _store.sessionScans(id),
+    ]);
   }
 
   /// "Read as 30 questions": take the count the key sheet showed. The caller

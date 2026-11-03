@@ -64,6 +64,57 @@ Future<void> pane(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('Student scores shows missing roster students and absence toggle', (tester) async {
+    final rig = await openAnalysis(tester);
+    final roster = (rig.services.store.getClass('P4')['students'] as List).cast<Map<String, Object?>>();
+    rig.services.store.saveClass('P4', [...roster, {'id': '300003', 'name': 'Missing student'}]);
+    await pane(tester, 'Student scores');
+    expect(find.text('Missing student'), findsOneWidget);
+    expect(find.text('Missing score'), findsOneWidget);
+    final checkbox = find.byKey(const ValueKey('roster-absent-300003'));
+    await tester.ensureVisible(checkbox);
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(rig.services.workspace.missingRosterStudents(rig.id).single['absent'], true);
+    expect(tester.widget<Checkbox>(checkbox).value, true);
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(rig.services.workspace.missingRosterStudents(rig.id).single['absent'], false);
+    expect(find.text('Missing score'), findsOneWidget);
+  });
+
+  testWidgets('missing roster student can be explicitly marked absent in Review', (tester) async {
+    final rig = await openAnalysis(tester);
+    final roster = (rig.services.store.getClass('P4')['students'] as List).cast<Map<String, Object?>>();
+    rig.services.store.saveClass('P4', [...roster, {'id': '300003', 'name': 'Absent student'}]);
+    await pane(tester, 'Review');
+    final absent = find.widgetWithText(CheckboxListTile, 'Absent student · ID 300003');
+    await tester.ensureVisible(absent);
+    await tester.tap(absent);
+    await tester.pumpAndSettle();
+    expect(rig.services.workspace.missingRosterStudents(rig.id).single['absent'], true);
+    expect(find.text('Absent for this exam'), findsOneWidget);
+  });
+
+  testWidgets('Review changes a sheet version and can mark it unassigned', (tester) async {
+    final rig = await openAnalysis(tester);
+    await pane(tester, 'Review');
+    final selector = find.byKey(const ValueKey('sheet-version-2'));
+    await tester.ensureVisible(selector);
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Version 1').last);
+    await tester.pumpAndSettle();
+    expect(rig.services.store.sessionScans(rig.id).last['version'], '1');
+    await tester.ensureVisible(selector);
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Version not assigned').last);
+    await tester.pumpAndSettle();
+    expect(rig.services.store.sessionScans(rig.id).last['version'], isNull);
+    expect(rig.services.workspace.analysisReport(rig.id)['not_scored'], isNotEmpty);
+  });
+
   testWidgets('scores each student on their own version, with a Standards pane', (tester) async {
     await openAnalysis(tester);
     await pane(tester, 'Student scores');
@@ -77,20 +128,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the answer key comes from the package, and upload explains why it waits', (tester) async {
+  testWidgets('the package key and multi-version send pane are available', (tester) async {
     await openAnalysis(tester);
     await pane(tester, 'Answer key');
     expect(find.textContaining('From the test package'), findsOneWidget);
     expect(find.text('judicial-review'), findsOneWidget);
     expect(find.text('BD'), findsOneWidget);
-    // Not offered for a test in several versions; Standards takes its place.
+    // Multi-version tests retain the send action alongside Standards.
     expect(
       find.descendant(of: find.byType(SegmentedButton<AnalysisPane>), matching: find.text('Send to your site')),
-      findsNothing,
+      findsOneWidget,
     );
     final last = tester.getRect(find.descendant(
         of: find.byType(SegmentedButton<AnalysisPane>), matching: find.text('Answer key')));
     expect(last.right, lessThan(1600), reason: 'every pane stays in the window');
+    await tester.ensureVisible(find.text('Send scores'));
+    await tester.tap(find.text('Send scores'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('cannot be sent'), findsNothing);
     await pane(tester, 'Item analysis');
     expect(tester.takeException(), isNull);
   });
@@ -130,6 +186,10 @@ void main() {
     expect(copied, testPackagePrompt);
     expect(find.text('Prompt copied'), findsOneWidget);
 
+    await tester.tap(find.text('Choose answer map CSV…'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('test-package.csv'), findsOneWidget);
+    actions.nextPackagePath = null;
     await tester.tap(find.text('Choose PDF…'));
     await tester.pumpAndSettle();
     expect(find.textContaining('test-package.csv · 3 items, versions 1, 2'), findsOneWidget);

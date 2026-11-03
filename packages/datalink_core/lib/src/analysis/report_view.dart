@@ -100,6 +100,15 @@ class ReviewRow {
 
   /// Whether this row is about the whole test rather than one sheet.
   bool get wholeTest => sheet == 0;
+
+  String get answerLetters {
+    for (final answer in (student?['answers'] as List?) ?? const []) {
+      if ((answer as Map)['question'] == question) {
+        return (answer['options'] as String?) ?? 'ABCDE';
+      }
+    }
+    return 'ABCDE';
+  }
 }
 
 /// Turn a report's `review_items` into rows a teacher can act on.
@@ -219,4 +228,42 @@ List<ReviewRow> reviewProblems(Map<String, Object?> report) {
 String _orDash(Object? value) {
   final text = value?.toString() ?? '';
   return text.isEmpty ? '—' : text;
+}
+
+/// Final handoff checks. Confidence on unused printed rows is not a review.
+List<String> reportReadinessProblems(Map<String, Object?> report) {
+  final problems = <String>[];
+  final exam = report['exam'] as Map;
+  final package = exam['form'] == 'package';
+  final versions = (exam['versions'] as List?) ?? const [];
+  final students = (report['students'] as List).cast<Map<String, Object?>>();
+  final byPage = {for (final s in students) s['page']: s};
+  final ids = <String>{};
+  for (final s in students) {
+    final page = s['page'];
+    final id = (s['student_id'] as String?) ?? '';
+    if (!RegExp(r'^\d+$').hasMatch(id)) problems.add('Sheet $page: correct the student ID.');
+    else if (!ids.add(id)) problems.add('Sheet $page: duplicate student ID $id.');
+    if (package && !versions.contains(s['version'])) problems.add('Sheet $page: assign a valid version.');
+    final answers = (s['answers'] as List).cast<Map>();
+    final scored = answers.where((a) => !package || a['item'] != null).toList();
+    final score = s['score'] as Map;
+    if (score['total'] != scored.length || score['total'] != exam['question_count'] ||
+        score['correct'] != scored.where((a) => a['correct'] == true).length) {
+      problems.add('Sheet $page: score totals are inconsistent.');
+    }
+  }
+  for (final entry in (report['not_scored'] as List?) ?? const []) {
+    problems.add('Sheet ${entry['page']}: ${entry['reason']}. Resolve the excluded sheet before sending.');
+  }
+  for (final item in (report['review_items'] as List?) ?? const []) {
+    if (package && item['field'] == 'answer') {
+      final student = byPage[item['page']];
+      final matches = ((student?['answers'] as List?) ?? const []).where((a) => a['question'] == item['question']);
+      if (matches.isNotEmpty && matches.first['item'] == null) continue;
+    }
+    problems.add('Sheet ${item['page']}: finish reviewing ${item['field']}${item['question'] == null ? '' : ' ${item['question']}'}.');
+  }
+  if ((report['summary'] as Map)['student_count'] != students.length) problems.add('Student count is inconsistent.');
+  return problems.toSet().toList();
 }

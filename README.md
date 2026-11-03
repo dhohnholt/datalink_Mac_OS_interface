@@ -362,6 +362,17 @@ Sheets are also appended live to a timestamped `browser_session_*.jsonl` file
 as a plain-text belt-and-braces log. Both live in
 `~/Library/Application Support/DataLink Scanner/captures`.
 
+### Adding an absent student’s sheet (Flutter edition)
+
+On **Paper**, choose the earlier test under **Save results to** (or select
+**Add sheets** beside it in **Sessions**), choose the scanned PDF, and select
+**Add sheets to session**. The PDF can contain just one student sheet; the app
+uses the saved answer key, class and question count. Previous sheets and
+corrections are kept, and the updated session’s analysis includes the added
+student. An ID already in the session is refused so an import cannot silently
+replace an existing student’s work. Choose **New session** to score a different
+test normally.
+
 ### Paper batches, without the DataLink
 
 If the scanner is not available, scan the sheets on any document scanner — a

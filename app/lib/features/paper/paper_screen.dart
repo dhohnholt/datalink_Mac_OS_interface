@@ -62,6 +62,17 @@ class _PaperScreenState extends State<PaperScreen> {
     model.setFiles(await Services.of(context).actions.pickScanFiles());
   }
 
+  Future<void> _chooseAnswerMap(PaperModel model) async {
+    final path = await Services.of(context).actions.pickAnswerMap();
+    if (path != null) model.setPackage(path);
+  }
+
+  Widget _answerMapButton(PaperModel model) => OutlinedButton.icon(
+    icon: const Icon(Icons.table_chart_outlined),
+    onPressed: model.busy ? null : () => _chooseAnswerMap(model),
+    label: const Text('Choose answer map CSV…'),
+  );
+
   Future<void> _copyPrompt() async {
     await Clipboard.setData(const ClipboardData(text: testPackagePrompt));
     if (mounted) showToast(context, 'Prompt copied');
@@ -266,6 +277,35 @@ class _PaperScreenState extends State<PaperScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (!model.busy && model.phase != PaperPhase.done && (model.savedSessions.isNotEmpty || model.targetSessionId != null)) ...[
+            DropdownButtonFormField<int>(
+              key: ValueKey('paper-session-${model.targetSessionId}'),
+              initialValue: model.targetSessionId ?? 0,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Save results to'),
+              items: [
+                const DropdownMenuItem(value: 0, child: Text('New session')),
+                if (model.targetSessionId != null && !model.savedSessions.any((s) => s['id'] == model.targetSessionId))
+                  DropdownMenuItem(value: model.targetSessionId, enabled: false, child: const Text('Session no longer available')),
+                for (final session in model.savedSessions)
+                  DropdownMenuItem(
+                    value: session['id']! as int,
+                    child: Text('${session['name']} · ${session['class_name']} · ${session['started_at']}', overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (id) => model.addToSession(id == 0 ? null : id),
+            ),
+            const SizedBox(height: 12),
+            if (model.targetSessionId != null) ...[
+              const Text('Add the absent student’s PDF using this session’s saved answer key and class. '
+                  'No key sheet is needed. Earlier scores and corrections are kept.'),
+              const SizedBox(height: 12),
+            ],
+          ],
+          if (chosen && model.targetSessionId == null) ...[
+            _answerMapButton(model),
+            const SizedBox(height: 12),
+          ],
           if (!chosen && !model.busy) _start(context, model),
           if (model.showSetup) _setup(context, model),
           if (model.busy) _progress(context, model),
@@ -301,11 +341,16 @@ class _PaperScreenState extends State<PaperScreen> {
             onPressed: () => _choose(model),
             label: const Text('Choose PDF…'),
           ),
+          const SizedBox(height: 8),
+          if (model.targetSessionId == null) _answerMapButton(model),
+          if (model.package != null) Text('Answer map: ${model.packageLine}'),
           const SizedBox(height: 12),
           Text('Reads the green AccuScan form and the printable answer sheets.', style: muted),
           const SizedBox(height: 4),
           Text(
-            'Several versions of one test? Choose the PDF and its test package together (⌘-click both).',
+            model.targetSessionId == null
+                ? 'Have an answer map? Choose its CSV with the answer map button, then choose your scanned PDF.'
+                : 'Choose just the new student sheets. The saved test package is reused when available.',
             style: muted,
           ),
         ],
@@ -448,7 +493,7 @@ class _PaperScreenState extends State<PaperScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _callout(context, model.fileLine, Tone.neutral, icon: Icons.picture_as_pdf_outlined),
-        if (model.package != null) ...[
+        if (model.package != null && model.targetSessionId == null) ...[
           const SizedBox(height: 8),
           _callout(context, 'Test package: ${model.packageLine}', Tone.neutral, icon: Icons.table_chart_outlined),
           TextButton(onPressed: model.clearPackage, child: const Text('Remove the test package')),
@@ -462,6 +507,7 @@ class _PaperScreenState extends State<PaperScreen> {
               width: 300,
               child: TextField(
                 controller: _name,
+                enabled: model.targetSessionId == null,
                 decoration: const InputDecoration(labelText: 'Test name', hintText: 'Unit 2 Exam — 5th Period'),
                 onChanged: model.setName,
               ),
@@ -477,10 +523,10 @@ class _PaperScreenState extends State<PaperScreen> {
                   const DropdownMenuItem(value: '', child: Text('No roster')),
                   for (final name in names) DropdownMenuItem(value: name, child: Text(name)),
                 ],
-                onChanged: (value) => model.setClass(value ?? ''),
+                onChanged: model.targetSessionId == null ? (value) => model.setClass(value ?? '') : null,
               ),
             ),
-            if (model.package == null) SizedBox(
+            if (model.package == null && model.targetSessionId == null) SizedBox(
               width: 200,
               child: TextField(
                 controller: _keyPage,
@@ -501,7 +547,7 @@ class _PaperScreenState extends State<PaperScreen> {
                 },
               ),
             ),
-            if (model.package == null) SizedBox(
+            if (model.package == null && model.targetSessionId == null) SizedBox(
               width: 160,
               child: DropdownButtonFormField<String>(
                 isExpanded: true,
@@ -522,7 +568,7 @@ class _PaperScreenState extends State<PaperScreen> {
                 onChanged: (value) => model.setVersion(value == null || value.isEmpty ? null : value),
               ),
             ),
-            if (model.package == null) SizedBox(
+            if (model.package == null && model.targetSessionId == null) SizedBox(
               width: 180,
               child: TextField(
                 controller: _questions,
@@ -538,7 +584,7 @@ class _PaperScreenState extends State<PaperScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        if (model.package == null) CheckboxListTile(
+        if (model.package == null && model.targetSessionId == null) CheckboxListTile(
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
           value: model.findKey,
@@ -549,7 +595,7 @@ class _PaperScreenState extends State<PaperScreen> {
         const SizedBox(height: 8),
         FilledButton(
           onPressed: model.canRun ? () => _run(model) : null,
-          child: const Text('Read the sheets'),
+          child: Text(model.targetSessionId == null ? 'Read the sheets' : 'Add sheets to session'),
         ),
       ],
     );
@@ -808,7 +854,9 @@ class _PaperScreenState extends State<PaperScreen> {
         children: [
           _callout(
             context,
-            '${model.message}. They are saved as a session, ready to review and send to your site.',
+            model.targetSessionId == null
+                ? '${model.message}. They are saved as a session, ready to review and send to your site.'
+                : '${model.message}. The updated session is ready to review.',
             Tone.good,
           ),
           if (model.notScored.isNotEmpty) ...[

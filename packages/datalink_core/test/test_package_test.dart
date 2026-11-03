@@ -9,6 +9,25 @@ import 'package:test/test.dart';
 ///
 ///   .venv/bin/python tools/goldens/make_package_goldens.py
 void main() {
+  test('matching A-O answers preserve skipped rows across versions', () {
+    final package = TestPackage.parse(
+      'Stable item ID,Section,Standard,Version 1,Version 1 answer,Version 2,Version 2 answer\n'
+      'mc,Media,,40,A,40,B\n'
+      'v1,Vocabulary,,51,G,60,O\n'
+      'v2,Vocabulary,,60,N,51,M\n',
+    );
+    expect(package.numbers['1'], {'mc': 40, 'v1': 51, 'v2': 60});
+    expect(package.numbers['2'], {'mc': 40, 'v1': 60, 'v2': 51});
+    expect(package.answers['1']!['v1'], 'G');
+    expect(package.answers['2']!['v1'], 'O');
+    expect(() => TestPackage.parse(
+      'Stable item ID,Version 1,Version 1 answer\nx,40,G\n',
+    ), throwsA(isA<TestPackageException>()));
+    expect(() => TestPackage.parse(
+      'Stable item ID,Version 1,Version 1 answer\nx,51,P\n',
+    ), throwsA(isA<TestPackageException>()));
+  });
+
   final cases = (jsonDecode(File('test/goldens/package.json').readAsStringSync()) as List)
       .cast<Map<String, Object?>>();
 

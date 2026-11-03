@@ -63,6 +63,9 @@ class RecordingActions implements PlatformActions {
   }
 
   @override
+  Future<String?> pickAnswerMap() async => nextPackagePath;
+
+  @override
   Future<List<String>> pickScanFiles() async {
     pdfPicks++;
     return [?nextPdfPath, ?nextPackagePath];

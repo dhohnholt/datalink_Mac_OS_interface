@@ -50,7 +50,13 @@ class _UploadPaneState extends State<UploadPane> {
     final destination = _choices!.selected;
     if (destination == null) return;
     final sessionId = widget.sessionId;
-    final report = services.workspace.scoredSession(sessionId).report;
+    final Map<String, Object?> report;
+    try {
+      report = services.workspace.readyReport(sessionId);
+    } on AnalysisError catch (error) {
+      setState(() => _error = error.message);
+      return;
+    }
     final fingerprint = _analysisFingerprint(report);
     final candidate = _choices!.draft?['run_id'];
     setState(() {

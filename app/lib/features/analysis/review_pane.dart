@@ -72,6 +72,61 @@ class _ReviewPaneState extends State<ReviewPane> {
           ],
       };
 
+  Widget _attendance() {
+    final workspace = Services.of(context).workspace;
+    final missing = workspace.missingRosterStudents(widget.sessionId);
+    if (missing.isEmpty) return const SizedBox.shrink();
+    return SectionCard(
+      title: 'Missing student scores',
+      subtitle: 'Add missing sheets, or mark students absent for this exam. Absences are saved immediately and do not receive a score.',
+      child: Column(children: [for (final student in missing)
+        CheckboxListTile(
+          title: Text('${student['name']} · ID ${student['id']}'),
+          subtitle: Text(student['absent'] == true ? 'Absent for this exam' : 'Missing score — blocks sending'),
+          secondary: const Text('Absent'),
+          value: student['absent'] == true,
+          onChanged: (value) {
+            workspace.setStudentAbsent(widget.sessionId, student['id'] as String, value == true);
+            widget.onChanged();
+          },
+        ),
+      ]),
+    );
+  }
+
+  Widget _versionSelectors() {
+    final versions = ((widget.report['exam'] as Map?)?['versions'] as List?)?.cast<String>() ?? const <String>[];
+    if (versions.length < 2) return const SizedBox.shrink();
+    final scans = Services.of(context).store.sessionScans(widget.sessionId).where((s) => s['role'] != 'key');
+    return SectionCard(
+      title: 'Sheet versions',
+      subtitle: 'Assign a missing version or correct a wrong one. Changing it saves and rescores the sheet immediately.',
+      child: Column(children: [
+        for (final scan in scans)
+          ListTile(
+            title: Text('Sheet ${scan['number']} · ID ${scan['student_id'] ?? 'not read'}'),
+            trailing: DropdownButton<String>(
+              key: ValueKey('sheet-version-${scan['number']}'),
+              value: versions.contains(scan['version']) ? scan['version'] as String : '',
+              items: [
+                const DropdownMenuItem(value: '', child: Text('Version not assigned')),
+                for (final v in versions) DropdownMenuItem(value: v, child: Text('Version $v')),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                try {
+                  Services.of(context).workspace.correct(widget.sessionId, [{'number': scan['number'], 'version': value}]);
+                  widget.onChanged();
+                } on DataLinkError catch (error) {
+                  showToast(context, error.message);
+                }
+              },
+            ),
+          ),
+      ]),
+    );
+  }
+
   Future<void> _apply() async {
     final services = Services.of(context);
     final rowByKey = {for (final r in _rows) r.key: r};
@@ -179,6 +234,8 @@ class _ReviewPaneState extends State<ReviewPane> {
             ?restoreLine,
           ]),
         ),
+        _attendance(),
+        _versionSelectors(),
         if (widget.showAllScans) allScans,
       ]);
     }
@@ -212,6 +269,8 @@ class _ReviewPaneState extends State<ReviewPane> {
           ),
           child: restoreLine ?? const SizedBox.shrink(),
         ),
+        _attendance(),
+        _versionSelectors(),
         if (widget.showAllScans) allScans,
         for (final entry in groups.entries) _SheetGroup(
           sheet: entry.key,
@@ -460,14 +519,11 @@ class _ProblemRow extends StatelessWidget {
               label: 'Correct question ${row.question}',
               child: DropdownButton<String>(
                 value: fix,
-                items: const [
-                  DropdownMenuItem(value: '', child: Text('Keep as read')),
-                  DropdownMenuItem(value: 'A', child: Text('A')),
-                  DropdownMenuItem(value: 'B', child: Text('B')),
-                  DropdownMenuItem(value: 'C', child: Text('C')),
-                  DropdownMenuItem(value: 'D', child: Text('D')),
-                  DropdownMenuItem(value: 'E', child: Text('E')),
-                  DropdownMenuItem(value: 'BLANK', child: Text('Blank')),
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('Keep as read')),
+                  for (final letter in row.answerLetters.split(''))
+                    DropdownMenuItem(value: letter, child: Text(letter)),
+                  const DropdownMenuItem(value: 'BLANK', child: Text('Blank')),
                 ],
                 onChanged: (value) => onFix(value ?? ''),
               ),

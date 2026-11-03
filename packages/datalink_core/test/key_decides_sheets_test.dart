@@ -103,6 +103,37 @@ void main() {
           s['student_id']! as String: (s['score']! as Map)['correct'],
       };
 
+  for (final layout in [vocabLayout, matchLayout]) {
+    test('a single makeup ${layout.form} sheet reuses the saved package', () async {
+      final key = layout.form == vocabFormName ? {1: 'J', 9: 'B', 17: 'ACE'} : {1: 'AC', 51: 'O', 52: 'N'};
+      final items = [for (final q in key.keys) 'q$q'];
+      final package = TestPackage(
+        items: items, versions: ['1'],
+        numbers: {'1': {for (final q in key.keys) 'q$q': q}},
+        answers: {'1': {for (final e in key.entries) 'q${e.key}': e.value}},
+        sections: {for (final item in items) item: 'Test'},
+        standards: const {}, form: layout.form,
+      );
+      final store = Store.open(':memory:');
+      addTearDown(store.close);
+      final id = store.createSession('Makeup', '', package.questionCount, package: pyJsonEncode(package.toJson()));
+      final saved = savedPaperKey(store, id);
+      final report = await readBatch(
+        request: PaperRequest(pdf: pdfOf([filled(layout, answers: key, studentId: '654321')]), package: saved.package),
+        orientTemplate: template, cache: cache, workers: 1,
+      );
+      appendReportToSession(store, cache, id, report);
+      expect(store.listSessions(), hasLength(1));
+      final scan = store.sessionScans(id).single;
+      expect(scan['role'], 'student');
+      expect(scan['student_id'], '654321');
+      for (final e in key.entries) {
+        expect((scan['responses']! as List)[e.key - 1], e.value);
+      }
+      expect(scoresOf(Workspace(store: store).analysisReport(id)), {'654321': 3});
+    });
+  }
+
   test('each sheet is told apart by its code strip and read in its own layout', () {
     final reader = omr.SheetReader(template);
     final vocab = (reader.read(filled(vocabLayout,
@@ -120,6 +151,56 @@ void main() {
     expect([match.answers[1], match.marks[26], match.answers[50], match.answers[51], match.answers[60]],
         ['B', 'AC', 'E', 'O', 'N']);
     expect(match.calibration['orientation_angle'], 180);
+  });
+
+  test('an unmarked student sheet cannot silently become the matching key', () async {
+    await expectLater(readBatch(
+      request: PaperRequest(pdf: pdfOf([filled(matchLayout, answers: {1: 'A'}, version: '1')]), keyPage: 1),
+      orientTemplate: template, cache: cache, workers: 1,
+    ), throwsA(isA<PaperException>().having((e) => e.message, 'message', contains('Choose the answer map CSV'))));
+  });
+
+  test('matching detects two filled marks even when one is darker', () {
+    final read = sheet.decideLetterRow([.174,.180,.195,.195,.201,.867,.188,.182,.174,.169,.172,.180,.198,.992,.174], 'ABCDEFGHIJKLMNO');
+    expect(read.answer, 'MULTIPLE');
+    expect(read.marks, 'FN');
+  });
+
+  test('uploaded two-version CSV scores matching sheets with skipped rows', () async {
+    final package = TestPackage.parse(
+      'Stable item ID,Section,Version 1,Version 1 answer,Version 2,Version 2 answer\n'
+      'mc,Media,40,A,40,B\n'
+      'term,Vocabulary,51,G,60,O\n',
+    );
+    final report = await readBatch(
+      request: PaperRequest(pdf: pdfOf([
+        filled(matchLayout, answers: {40: 'A', 41: 'D', 51: 'G'}, studentId: '200001', version: '1'),
+        filled(matchLayout, answers: {40: 'B', 50: 'C', 60: 'O'}, studentId: '200002', version: '2'),
+        filled(matchLayout, answers: {40: 'B', 60: 'O'}, studentId: '200003'),
+      ]), package: package),
+      orientTemplate: template,
+      cache: cache,
+      workers: 2,
+    );
+    expect(scoresOf(report), {'200001': 2, '200002': 2});
+    final store = Store.open(':memory:');
+    addTearDown(store.close);
+    final id = sessionFromReport(store, report);
+    final saved = Workspace(store: store, now: () => DateTime.utc(2026), newId: () => 'r').analysisReport(id);
+    expect(scoresOf(saved), scoresOf(report));
+    final firstStudent = (saved['students'] as List).first as Map;
+    final matchingAnswer = (firstStudent['answers'] as List).firstWhere((a) => a['question'] == 51);
+    expect(matchingAnswer['options'], 'ABCDEFGHIJKLMNO');
+    final row = ReviewRow(sheet: 1, student: firstStudent.cast<String, Object?>(), key: 'answer:1:51', kind: ReviewKind.answer, question: 51, problem: '', read: 'MULTIPLE');
+    expect(row.answerLetters, 'ABCDEFGHIJKLMNO');
+    expect(saved['not_scored'], [{'page': 3, 'reason': 'no version bubbled'}]);
+    final workspace = Workspace(store: store, now: () => DateTime.utc(2026), newId: () => 'version-change');
+    workspace.correct(id, [{'number': 3, 'version': '2'}]);
+    expect(scoresOf(workspace.analysisReport(id))['200003'], 2);
+    expect(workspace.analysisReport(id)['not_scored'], isEmpty);
+    expect(() => workspace.correct(id, [{'number': 3, 'version': '4'}]), throwsA(isA<DataLinkError>()));
+    workspace.correct(id, [{'number': 3, 'version': ''}]);
+    expect(workspace.analysisReport(id)['not_scored'], [{'page': 3, 'reason': 'no version bubbled'}]);
   });
 
   test('a vocabulary quiz: only the rows the key marks count, select-all all or nothing', () async {

@@ -89,6 +89,7 @@ class PaperRequest {
     this.scanStudentIds = true,
     this.checkQuestionCount = true,
     this.package,
+    this.savedKey,
   });
 
   final File pdf;
@@ -117,6 +118,9 @@ class PaperRequest {
   /// Score every version of the test in one session. The key page, version
   /// and question count are then not used.
   final TestPackage? package;
+
+  /// The existing session’s key. Pages without an ANSWER KEY mark are students.
+  final List<String>? savedKey;
 }
 
 /// Progress for the page: a fraction from 0 to 1 and a line of words.
@@ -500,11 +504,34 @@ Future<Map<String, Object?>> readBatch({
     );
   }
 
-  final selection = selectKeyAndStudents(results, keyPage: request.keyPage, version: request.version);
+  final savedKey = request.savedKey;
+  if (savedKey != null && results.values.any((sheet) => keyDecidesLayout(sheet.form) != null)) {
+    throw const PaperException('These sheets use a different form from the saved test. Choose the matching session.');
+  }
+  final savedSheet = savedKey == null ? null : SheetExtraction(
+    studentId: null,
+    answers: {for (var q = 1; q <= savedKey.length; q++) q: savedKey[q - 1]},
+    rawDarkness: const {},
+    optionBaselines: const [],
+    answerConfidence: const {},
+    calibration: const {},
+    form: results.isEmpty ? accuScanFormName : results.values.first.form,
+    version: request.version,
+  );
+  final keyedResults = {...results};
+  if (savedSheet != null) keyedResults[0] = savedSheet;
+  final selection = selectKeyAndStudents(
+    keyedResults,
+    keyPage: savedSheet == null ? request.keyPage : 0,
+    version: request.version,
+  );
   final keyPage = selection.keyPage;
-  final keySheet = results[keyPage]!;
+  final keySheet = savedSheet ?? results[keyPage]!;
   final layout = keyDecidesLayout(keySheet.form);
   if (layout != null) {
+    if (!keySheet.isKey) {
+      throw const PaperException('Choose the answer map CSV, or include a teacher sheet with its ANSWER KEY bubble filled. A student sheet cannot be used as the answer key.');
+    }
     return _keyDecidesReport(
       layout: layout,
       request: request,
@@ -527,7 +554,7 @@ Future<Map<String, Object?>> readBatch({
       'set the count to $accuScanQuestions or fewer.',
     );
   }
-  if (request.checkQuestionCount && request.keyPage == null) {
+  if (savedKey == null && request.checkQuestionCount && request.keyPage == null) {
     // The key was found by reading every page, so its count is checked here
     // rather than before the read.
     _checkKeySheetCount(request, keySheet, keyPage);
@@ -652,7 +679,7 @@ Future<Map<String, Object?>> readBatch({
     'Processed as 75-question sheet: ${printed.length} pages',
     'Skipped as blank: ${blank.length} pages -> $blank',
     if (unsupported.isNotEmpty) 'Skipped as an unsupported layout: ${[for (final u in unsupported) u.$1]}',
-    'Answer key: page $keyPage${keySheet.isKey ? ' (found from its ANSWER KEY bubble)' : ''}'
+    savedKey != null ? 'Answer key: saved session' : 'Answer key: page $keyPage${keySheet.isKey ? ' (found from its ANSWER KEY bubble)' : ''}'
         '${keyVersion == null ? '' : ', version $keyVersion'}',
     for (final (page, reason) in selection.excluded) 'Not scored: page $page ($reason)',
     if (selection.missingVersion.isNotEmpty)
@@ -725,6 +752,7 @@ int sessionFromReport(Store store, Map<String, Object?> report, {String name = '
     'answered_count': key.where((value) => value.isNotEmpty).length,
     'responses': key,
     'demo': false,
+    'version': exam['version'],
   });
   for (final student in students) {
     final read = student['student_id'] ?? student['student_id_read'];
@@ -749,6 +777,94 @@ int sessionFromReport(Store store, Map<String, Object?> report, {String name = '
     });
   }
   return sessionId;
+}
+
+/// The saved scoring inputs for a makeup PDF, including keys originally read
+/// from paper for a package that did not supply its own answers.
+({List<String>? key, TestPackage? package, String? version}) savedPaperKey(Store store, int sessionId) {
+  final session = store.session(sessionId);
+  if (session == null) throw const PaperException('That session no longer exists.');
+  final scans = store.sessionScans(sessionId);
+  final package = packageOf(session);
+  if (package != null) {
+    final keyed = packageKeys(package, [
+      for (final scan in scans)
+        if (scan['role'] == 'key') PackageSheet(
+          page: scan['number']! as int,
+          version: scan['version'] as String?,
+          responses: {for (var q = 1; q <= (scan['responses']! as List).length; q++) q: (scan['responses']! as List)[q - 1]! as String},
+        ),
+    ]);
+    if (keyed.errors.isNotEmpty) throw PaperException(keyed.errors.join('\n'));
+    return (key: null, package: TestPackage.fromJson({...package.toJson(), 'answers': keyed.keys}), version: null);
+  }
+  final keys = scans.where((scan) => scan['role'] == 'key').toList();
+  if (keys.length != 1) throw const PaperException('This session needs one saved answer key before sheets can be added.');
+  final key = (keys.single['responses']! as List).cast<String>();
+  final count = session['question_count']! as int;
+  final validation = validateAnswerKey({for (var q = 1; q <= key.length; q++) q: key[q - 1]}, count);
+  if (!validation.valid) throw const PaperException('Correct the saved answer key before adding sheets.');
+  return (key: key, package: null, version: keys.single['version'] as String?);
+}
+
+/// Adds just the students from a new PDF. Existing keys, corrections and review
+/// acknowledgements are kept. Page images are copied to a separate session
+/// directory under the cache so page 1 of a makeup PDF never replaces page 1
+/// of the original batch (or another session using that PDF).
+void appendReportToSession(Store store, PageCache cache, int sessionId, Map<String, Object?> report) {
+  final session = store.session(sessionId);
+  if (session == null) throw const PaperException('That session no longer exists.');
+  final students = ((report['students'] as List?) ?? const []).cast<Map<String, Object?>>();
+  if (students.isEmpty) throw const PaperException('No student sheets were read from that PDF.');
+  final existing = store.sessionScans(sessionId);
+  var number = existing.fold<int>(0, (n, scan) => math.max(n, scan['number']! as int));
+  cache.root.createSync(recursive: true);
+  final directory = cache.root.createTempSync('session-$sessionId-');
+  try {
+    final oldCache = session['page_cache'] as String?;
+    if (oldCache != null && Directory(oldCache).existsSync()) {
+      for (final file in Directory(oldCache).listSync().whereType<File>()) {
+        file.copySync('${directory.path}/${file.uri.pathSegments.last}');
+      }
+    }
+    final scans = <Map<String, Object?>>[];
+    for (final student in students) {
+      number++;
+      final answers = ((student['answers'] as List?) ?? const []).cast<Map<String, Object?>>();
+      final responses = _responses(answers, session['question_count']! as int);
+      final id = student['student_id'] ?? student['student_id_read'];
+      scans.add({
+        'student_id': id,
+        'student_name': student['student_name'],
+        'received_at': report['created_at'],
+        'responses': responses,
+        'answered_count': responses.where((r) => r.isNotEmpty).length,
+        'version': student['version'],
+        'confidence': <String, Object?>{
+          for (final a in answers)
+            if (a['confidence'] case final Map<String, Object?> c when c.isNotEmpty) '${a['question']}': c,
+        },
+      });
+      // An unscored original page may share this new number. It must never
+      // masquerade as a makeup image if that image is missing from the cache.
+      for (final extension in ['jpg', 'png']) {
+        final file = File('${directory.path}/page-${number.toString().padLeft(6, '0')}.$extension');
+        if (file.existsSync()) file.deleteSync();
+      }
+      final source = report['_page_cache'] as String?;
+      final page = student['page'] as int?;
+      if (source != null && page != null) {
+        for (final extension in ['jpg', 'png']) {
+          final file = File('$source/page-${page.toString().padLeft(6, '0')}.$extension');
+          if (file.existsSync()) file.copySync('${directory.path}/page-${number.toString().padLeft(6, '0')}.$extension');
+        }
+      }
+    }
+    store.appendScans(sessionId, scans, pageCache: directory.path);
+  } on Object {
+    directory.deleteSync(recursive: true);
+    rethrow;
+  }
 }
 
 /// A date for logs, shared with the rest of the package.
@@ -791,7 +907,10 @@ Map<String, Object?> _packageReport({
   }
 
   final keyPages = [for (final page in processed) if (results[page]!.isKey) page];
-  final studentPages = [for (final page in processed) if (!results[page]!.isKey) page];
+  final studentPages = [for (final page in processed) if (!results[page]!.isKey &&
+      (package.form == null
+          ? (keyDecidesLayout(results[page]!.form) == null || results[page]!.form == matchFormName)
+          : results[page]!.form == package.form)) page];
   final Map<String, Object?> report;
   try {
     report = buildPackageAnalysis(
@@ -808,6 +927,19 @@ Map<String, Object?> _packageReport({
   }
   final notScored = (report['not_scored']! as List).cast<Map<String, Object?>>();
   final mismatches = (report['key_mismatches']! as List).cast<Map<String, Object?>>();
+  // Retain excluded sheets so saved reports still explain missing versions
+  // and the teacher can correct their version without rescanning.
+  report['_excluded_sheets'] = [
+    for (final entry in notScored)
+      if (results[entry['page']] case final SheetExtraction sheet)
+        <String, Object?>{
+          'number': entry['page'], 'role': 'student', 'version': sheet.version,
+          'student_id': sheet.studentId,
+          'responses': [for (var q = 1; q <= package.questionCount; q++)
+            _stored(_packageResponses(sheet)[q] ?? 'BLANK')],
+          'confidence': {for (final e in sheet.answerConfidence.entries) '${e.key}': e.value},
+        },
+  ];
   report['_package'] = package.toJson();
   report['_key_sheets'] = [
     for (final page in keyPages)
@@ -894,6 +1026,9 @@ int _packageSession(Store store, Map<String, Object?> report, {String name = '',
           if (a['confidence'] case final Map<String, Object?> c when c.isNotEmpty) '${a['question']}': c,
       },
     });
+  }
+  for (final scan in ((report['_excluded_sheets'] as List?) ?? const []).cast<Map<String, Object?>>()) {
+    store.addScan(sessionId, {...scan, 'received_at': createdAt, 'demo': false});
   }
   return sessionId;
 }

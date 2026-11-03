@@ -464,9 +464,12 @@ SheetExtraction extractCustomSheet(GrayImage canon, int angle, double confidence
   final adjusted = [for (final v in ratios) v - baseline];
   final choice = _decideGroup(ratios);
   if (choice == -1) return (answer: 'BLANK', marks: null);
-  if (choice >= 0) return (answer: letters[choice], marks: null);
   final top = adjusted.reduce(math.max);
-  final floor = math.max(_minimumFill, adjMultiRatio * top);
+  final floor = math.max(_minimumFill, 0.80 * top);
+  final marked = [for (var i = 0; i < adjusted.length; i++) if (adjusted[i] >= floor) letters[i]].join();
+  // A darker second mark must not disappear just because the darkest one
+  // passes the single-choice confidence margin.
+  if (choice >= 0 && marked.length < 2) return (answer: letters[choice], marks: null);
   return (
     answer: 'MULTIPLE',
     marks: [for (var i = 0; i < adjusted.length; i++) if (adjusted[i] >= floor) letters[i]].join(),

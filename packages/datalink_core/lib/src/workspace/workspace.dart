@@ -5,9 +5,13 @@
 library;
 
 import 'dart:io';
+import 'dart:convert';
+import 'roster.dart';
 import 'dart:typed_data';
 
 import '../analysis/analysis.dart';
+import '../analysis/report_view.dart';
+import '../analysis/test_package.dart';
 import '../analysis/csv_export.dart';
 import '../analysis/question_count.dart';
 import '../paper/page_cache.dart';
@@ -66,7 +70,7 @@ class Workspace {
     store.nameMissingStudents(sessionId);
     session = _require(sessionId);
     final scans = store.sessionScans(sessionId);
-    final fingerprint = scanFingerprint(session, scans);
+    final fingerprint = '${scanFingerprint(session, scans)}:${store.getSetting('absent_students_$sessionId', '[]')}';
     String? runId = session['analysis_run_id'] as String?;
     if (runId == null || runId.isEmpty || session['analysis_fingerprint'] != fingerprint) {
       runId = null;
@@ -81,6 +85,8 @@ class Workspace {
     if (runId != report['run_id']) {
       store.rememberRunId(sessionId, report['run_id']! as String, fingerprint);
     }
+    final absent = missingRosterStudents(sessionId).where((s) => s['absent'] == true).toList();
+    if (absent.isNotEmpty) report['absent_students'] = [for (final s in absent) {'student_id': s['id'], 'student_name': s['name'], 'reason': 'absent'}];
     return (session: session, report: report);
   }
 
@@ -126,12 +132,47 @@ class Workspace {
     return report;
   }
 
+  /// Missing roster entries, including explicit absences for this exam only.
+  List<Map<String, Object?>> missingRosterStudents(int sessionId) {
+    final session = _require(sessionId);
+    final roster = (store.getClass((session['class_name'] as String?) ?? '')?['students'] as List?) ?? const [];
+    final scans = store.sessionScans(sessionId).where((s) => s['role'] != 'key');
+    final absent = (jsonDecode(store.getSetting('absent_students_$sessionId', '[]')) as List).cast<String>();
+    return [for (final s in roster)
+      if (!scans.any((scan) => sameStudentId(scan['student_id'], s['id'])))
+        {'id': s['id'], 'name': s['name'], 'absent': absent.any((id) => sameStudentId(id, s['id']))}];
+  }
+
+  void setStudentAbsent(int sessionId, String studentId, bool absent) {
+    final missing = missingRosterStudents(sessionId);
+    if (!missing.any((s) => sameStudentId(s['id'], studentId))) {
+      throw const DataLinkError('Only a roster student without a scanned sheet can be marked absent');
+    }
+    final ids = (jsonDecode(store.getSetting('absent_students_$sessionId', '[]')) as List).cast<String>().toSet();
+    ids.removeWhere((id) => sameStudentId(id, studentId));
+    if (absent) ids.add(studentId);
+    store.setSetting('absent_students_$sessionId', jsonEncode(ids.toList()..sort()));
+  }
+
+  Map<String, Object?> readyReport(int sessionId) {
+    final report = scoredSession(sessionId).report;
+    final problems = reportReadinessProblems(report);
+    for (final student in missingRosterStudents(sessionId)) {
+      if (student['absent'] != true) problems.add('Missing score: ${student['name']} (ID ${student['id']}). Add their sheet or mark them absent in Review.');
+    }
+    if (problems.isNotEmpty) {
+      throw AnalysisError('Finish these items in DataLink before exporting or sending:\n${problems.join('\n')}');
+    }
+    return report;
+  }
+
   /// The downloadable item analysis: pretty-printed JSON and a filename.
   ({String filename, String json}) analysisDownload(int sessionId) {
-    final scored = scoredSession(sessionId);
+    final report = readyReport(sessionId);
+    final session = _require(sessionId);
     return (
-      filename: analysisFilename(scored.session, safeExportFilename),
-      json: pyJsonEncode(scored.report, indent: 2),
+      filename: analysisFilename(session, safeExportFilename),
+      json: pyJsonEncode(report, indent: 2),
     );
   }
 
@@ -248,9 +289,14 @@ class Workspace {
           throw const DataLinkError('Student ID must contain digits only');
         }
       }
+      final version = correction['version'] as String?;
+      if (version != null && (packageOf(session) == null || (version.isNotEmpty && !packageOf(session)!.versions.contains(version)))) {
+        throw const DataLinkError('Choose a version from this test’s answer map');
+      }
       final name = correction['student_name'];
       validated.add({
         'number': number,
+        if (version != null) 'version': version,
         'student_id': studentId,
         'student_name': name == null ? null : pyStrip(name.toString()),
         'responses': responses,

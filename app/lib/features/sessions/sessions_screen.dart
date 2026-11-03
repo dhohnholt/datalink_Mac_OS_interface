@@ -52,6 +52,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
                         row: row,
                         selected: row['id'] == selected,
                         onView: () => nav.openSession(row['id']! as int, view: AppView.analysis),
+                        onAdd: services.paper.busy || services.scanner.currentSessionId == row['id'] ? null : () {
+                          services.paper.addToSession(row['id']! as int);
+                          nav.openSession(row['id']! as int, view: AppView.paper);
+                        },
                         onRename: () => _rename(row),
                         onDelete: () => _delete(row),
                       ),
@@ -161,6 +165,7 @@ class _SessionRow extends StatelessWidget {
     required this.row,
     required this.selected,
     required this.onView,
+    required this.onAdd,
     required this.onRename,
     required this.onDelete,
   });
@@ -168,6 +173,7 @@ class _SessionRow extends StatelessWidget {
   final Map<String, Object?> row;
   final bool selected;
   final VoidCallback onView;
+  final VoidCallback? onAdd;
   final VoidCallback onRename;
   final VoidCallback onDelete;
 
@@ -181,25 +187,36 @@ class _SessionRow extends StatelessWidget {
       container: true,
       selected: selected,
       label: '$name, $className, $sheets ${sheets == 1 ? 'sheet' : 'sheets'}, $when',
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        selected: selected,
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text('$when · $className · $sheets ${sheets == 1 ? 'sheet' : 'sheets'}'),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            OutlinedButton(onPressed: onView, child: const Text('View')),
-            const SizedBox(width: 4),
-            TextButton(onPressed: onRename, child: const Text('Rename')),
-            TextButton(
-              onPressed: onDelete,
-              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-              child: const Text('Delete'),
-            ),
-          ],
-        ),
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final title = Text(name, style: const TextStyle(fontWeight: FontWeight.w600));
+        final subtitle = Text('$when · $className · $sheets ${sheets == 1 ? 'sheet' : 'sheets'}');
+        final actions = [
+          OutlinedButton(onPressed: onView, child: const Text('View')),
+          TextButton(onPressed: onAdd, child: const Text('Add sheets')),
+          TextButton(onPressed: onRename, child: const Text('Rename')),
+          TextButton(
+            onPressed: onDelete,
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ];
+        if (constraints.maxWidth < MediaQuery.textScalerOf(context).scale(640)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(contentPadding: EdgeInsets.zero, selected: selected, title: title, subtitle: subtitle),
+              Wrap(spacing: 4, runSpacing: 4, children: actions),
+            ],
+          );
+        }
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          selected: selected,
+          title: title,
+          subtitle: subtitle,
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+        );
+      }),
     );
   }
 }

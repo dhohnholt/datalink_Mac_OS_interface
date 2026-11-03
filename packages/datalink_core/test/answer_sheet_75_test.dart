@@ -203,7 +203,7 @@ void main() {
       final id = sessionFromReport(store, report, name: 'Presidency');
       final scans = store.sessionScans(id);
       expect([for (final s in scans) (s['role'], s['version'])],
-          [('student', '2'), ('student', '1'), ('student', '2'), ('key', '1')]);
+          [('student', '2'), ('student', '1'), ('student', '2'), ('student', null), ('key', '1')]);
       // Question 20 on version 1 is the multiple-answer item, kept as letters.
       expect((scans[1]['responses']! as List)[19], 'AC');
 

@@ -348,6 +348,32 @@ class Store {
     _db.execute('UPDATE sessions SET ${assignments.join(', ')} WHERE id = ?', values);
   }
 
+  /// Add makeup sheets and their image directory together, or leave the session
+  /// untouched. Scan numbers are allocated here, after the current maximum.
+  List<int> appendScans(int sessionId, List<StoreRow> scans, {String? pageCache}) {
+    return _transaction(() {
+      if (session(sessionId) == null) throw const StoreError('No such session');
+      final existing = sessionScans(sessionId);
+      final ids = {for (final scan in existing) if (scan['role'] != 'key') bareId(scan['student_id'])}..remove('');
+      for (final scan in scans) {
+        final id = bareId(scan['student_id']);
+        if (id.isNotEmpty && !id.contains('_') && !id.contains('?') && !ids.add(id)) {
+          throw StoreError('Student ID $id already has a sheet in this session. No sheets were added.');
+        }
+      }
+      var number = existing.fold<int>(0, (n, scan) => (scan['number']! as int) > n ? scan['number']! as int : n);
+      final numbers = <int>[];
+      for (final scan in scans) {
+        numbers.add(++number);
+        addScan(sessionId, {...scan, 'number': number, 'role': 'student'});
+      }
+      if (pageCache != null) {
+        _db.execute('UPDATE sessions SET page_cache = ? WHERE id = ?', [pageCache, sessionId]);
+      }
+      return numbers;
+    });
+  }
+
   /// What scoring [sessionId] out of [count] questions would leave out: how
   /// many sheets have a mark after question [count], and how many marks.
   ({int sheets, int marks}) answersBeyond(int sessionId, int count) {
@@ -441,6 +467,7 @@ class Store {
     String? studentId,
     String? studentName,
     List<String>? responses,
+    String? version,
   }) {
     final assignments = <String>[];
     final values = <Object?>[];
@@ -451,6 +478,10 @@ class Store {
     if (studentName != null) {
       assignments.add('student_name = ?');
       values.add(studentName.isEmpty ? null : studentName);
+    }
+    if (version != null) {
+      assignments.add('version = ?');
+      values.add(version.isEmpty ? null : version);
     }
     if (responses != null) {
       assignments.add('responses = ?');
@@ -491,6 +522,7 @@ class Store {
         final changed = updateScan(
           sessionId,
           number,
+          version: correction['version'] as String?,
           studentId: correction['student_id'] as String?,
           studentName: correction['student_name'] as String?,
           responses: (correction['responses'] as List?)?.cast<String>(),

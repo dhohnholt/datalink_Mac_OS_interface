@@ -200,16 +200,18 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                   ),
                 ),
                 const ButtonSegment(value: AnalysisPane.key, label: Text('Answer key')),
-                // A test scored in several versions cannot be sent yet (the site
-                // takes one key per test); it shows Standards in its place, which
-                // also keeps the panes within the window.
-                if (report['standards'] == null)
-                  const ButtonSegment(value: AnalysisPane.upload, label: Text('Send to your site')),
+                const ButtonSegment(value: AnalysisPane.upload, label: Text('Send to your site')),
               ],
               selected: {_shownPane(nav.pane, report)},
               onSelectionChanged: (selection) => nav.showPane(selection.first),
               ),
             ),
+            if (report['standards'] != null)
+              FilledButton.icon(
+                icon: const Icon(Icons.send_outlined),
+                label: const Text('Send scores'),
+                onPressed: () => nav.showPane(AnalysisPane.upload),
+              ),
             OutlinedButton.icon(
               icon: const Icon(Icons.document_scanner_outlined),
               label: Text(_showAllScans && nav.pane == AnalysisPane.review ? 'Hide scans' : 'Review all scans'),
@@ -237,14 +239,6 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                 report: report,
                 onChanged: reload,
               ),
-            AnalysisPane.upload when (report['exam'] as Map?)?['form'] == 'package' => const SectionCard(
-                title: 'Send to your site',
-                child: Text(
-                  'A test scored in several versions at once cannot be sent to your site yet: the site takes one '
-                  'answer key per test. Use Download JSON for the combined results, or read each version on its own '
-                  'to send it.',
-                ),
-              ),
             AnalysisPane.upload => UploadPane(sessionId: _loadedFor!),
             _ => ItemsPane(report: report),
           },
@@ -253,13 +247,10 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     );
   }
 
-  /// Standards exist only for a test scored from a test package, and such a
-  /// test has no Send pane; opening one test while on the other's pane shows
-  /// the nearest pane it has.
+  /// Standards exist only for tests scored from a test package.
   AnalysisPane _shownPane(AnalysisPane pane, Map<String, Object?> report) {
     final package = report['standards'] != null;
     if (pane == AnalysisPane.standards && !package) return AnalysisPane.items;
-    if (pane == AnalysisPane.upload && package) return AnalysisPane.standards;
     return pane;
   }
 

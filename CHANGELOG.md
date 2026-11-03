@@ -9,7 +9,10 @@ clocks: the Homebrew build updates with `brew upgrade`, and the Mac App Store
 build updates only when Apple approves a new submission. An entry says which
 edition it changed when it is not both.
 
-**Unreleased**
+## 2.2.0 — App Store edition (not yet released)
+
+A correction to 2.1.0, which could score every sheet of a test with several
+versions against version 1.
 
 * Show the full class roster alphabetically in Student scores, including missing results and per-exam Absent checkboxes. Students with scanned but excluded sheets are labeled Needs review instead of being marked absent.
 
@@ -39,6 +42,8 @@ edition it changed when it is not both.
   are reused; no new key sheet is required. Earlier answers, corrections and
   review decisions stay in place, and new page images remain available in
   Review. Duplicate student IDs are refused without changing the session.
+
+## 2.1.0 — App Store edition
 
 * **Several versions of one test in one run** (Flutter edition). Choose the
   scanned PDF and its test package CSV together on the Paper tab. Each student is

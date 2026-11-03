@@ -14,7 +14,7 @@ the sheets**. The defaults (answer key on page 1, 50 questions) are right.
   sheets with the invented IDs 240101–240112; page 7 is the blank back of a
   duplex scan.
 * Result: **12 students, class average 75.2%** (lowest 46%, highest 96%),
-  KR-20 0.871.
+  KR-20 0.857 (0.871 before 2.1.0 switched to the population variance).
 * Two things are left for the reviewer to see in **Review**: sheet 5 has two
   marks on question 7, and sheet 12 has one column of its student ID left empty
   (the ID reads `240?10`).

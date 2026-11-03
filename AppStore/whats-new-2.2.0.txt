@@ -1,0 +1,19 @@
+WHAT'S NEW IN THIS VERSION (App Store Connect → 2.2.0 → What's New)
+------------------------------------------------------------------------
+
+Fixes scoring for tests with several versions. In 2.1.0, some multi-version tests were scored against version 1 for every student. Please rescore any multi-version test you read with 2.1.0.
+
+- Each sheet's version is shown in Review and can be corrected there; the sheet is rescored without scanning it again.
+- Sheets with no version bubbled are set aside for you to assign instead of being guessed.
+- Add makeup sheets to a saved test without rescanning the class.
+- Student scores lists the whole class roster, so missing students stand out, and an absent student can be marked Absent.
+- Exporting and sending wait until flagged sheets, student IDs and versions are resolved.
+- Matching questions accept answers A–O in review and corrections.
+
+
+EXPEDITED REVIEW REQUEST (developer.apple.com/contact/app-store/?topic=expedite)
+------------------------------------------------------------------------
+
+App: DataLink Scanner, org.davidhohnholt.datalink-scanner, version 2.2.0 (6)
+
+Reason: Critical bug fix. Version 2.1.0, approved this week, can score every student on a multi-version test against the version 1 answer key, giving teachers wrong grades. Version 2.2.0 scores each student on their own version and adds a check so a report with unresolved versions cannot be exported or sent. Teachers are grading with the app now, so each day the fix waits more wrong scores are recorded.

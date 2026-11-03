@@ -51,9 +51,9 @@ No certificate name, team id, profile or API key is stored in this repository.
    ./AppStore/build_flutter_appstore.sh
    ```
 
-   Version and build number come from `app/pubspec.yaml` (`2.1.0+5`; builds 1–4 are spent, and 2.0.0 build 4 is the one Apple approved). To upload
+   Version and build number come from `app/pubspec.yaml` (`2.2.0+6`; builds 1–5 are spent, and 2.1.0 build 5 is the one Apple approved). To upload
    a second build of the same version, raise the build number:
-   `DATALINK_APPSTORE_BUILD_NUMBER=6`.
+   `DATALINK_APPSTORE_BUILD_NUMBER=7`.
 
 3. **A copy you can open** (the upload build will not open on this Mac, because a
    store profile provisions no devices):
@@ -70,7 +70,7 @@ No certificate name, team id, profile or API key is stored in this repository.
 ## What the check proved, and what only a real run will
 
 Proved (by `DATALINK_APPSTORE_CHECK=1`, every time):
-the signed entitlement set is exactly the four above and contains none of
+the signed entitlement set is exactly the five above and contains none of
 `get-task-allow`, `allow-jit`, `allow-unsigned-executable-memory`,
 `disable-library-validation`, `network.server`; the bundle id, version, build
 number, category, deployment target (macOS 12), Xcode build metadata, privacy
